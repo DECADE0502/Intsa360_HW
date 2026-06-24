@@ -1,0 +1,30 @@
+# Runtime data
+/data/
+/uploads/
+/outputs/
+/history/
+/config/local.json
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Frontend dependencies and transient build cache
+/frontend/node_modules/
+/frontend/dist/
+/frontend/.vite/
+
+# Local/editor noise
+.omc/
+.DS_Store
+Thumbs.db
+*.tmp
+*.log
+
+# Cadence and local backups generated during deployment
+*_backup/
+*.bak_before_update
+_disabled_custom_scripts_*/
+_disabled_hwagent_loader_*/
+_hwagent_disabled_autoload_backups/

@@ -1,0 +1,17 @@
+﻿{
+  "app_name": "Insta360硬件提效平台",
+  "port_range": [8765, 8775],
+  "python": {"preferred": "bundled", "path": ""},
+  "cadence": {
+    "menu_ascii": "insta360_HW",
+    "accessory_menu_cn": "Insta360硬件提效平台",
+    "autoload_dirs": []
+  },
+  "update": {
+    "mode": "git",
+    "repo": "",
+    "branch": "main",
+    "preserve_dirs": ["data", "config/local.json"]
+  }
+}
+

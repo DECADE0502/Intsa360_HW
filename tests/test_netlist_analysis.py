@@ -1,0 +1,172 @@
+from __future__ import annotations
+
+import tempfile
+import unittest
+from pathlib import Path
+
+from openpyxl import Workbook
+
+from app.backend.tools import analysis_tools, netlist_tools
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def write_netlist(folder: Path, nets: str = "", parts: str = "") -> None:
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "pstxnet.dat").write_text(nets, encoding="utf-8")
+    (folder / "pstxprt.dat").write_text(parts, encoding="utf-8")
+
+
+class NetlistAnalysisTests(unittest.TestCase):
+    def test_parse_real_pstxnet_keeps_ref_pin_nodes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            write_netlist(
+                folder,
+                nets="""FILE_TYPE = EXPANDEDNETLIST;
+NET_NAME
+'USB_DP'
+ '@DSN(SCH_1):USB_DP':
+ C_SIGNAL='usb_dp';
+NODE_NAME\tR80 2
+ '@DSN(SCH_1):INS1@LIB.RES.NORMAL(CHIPS)':
+ '2':;
+NODE_NAME\tU400 U24
+ '@DSN(SCH_1):INS2@LIB.IC.NORMAL(CHIPS)':
+ 'GPIO3_16':;
+""",
+            )
+
+            nets = analysis_tools._parse_net_file(folder)
+
+            self.assertEqual(nets["USB_DP"]["refs"], ["R80", "U400"])
+            self.assertEqual(nets["USB_DP"]["nodes"], ["R80.2", "U400.U24"])
+            self.assertEqual(nets["USB_DP"]["pins"], ["2", "U24"])
+
+    def test_parse_real_pstxprt_reads_ref_and_package(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            write_netlist(
+                folder,
+                parts="""FILE_TYPE = EXPANDEDPARTLIST;
+PART_NAME
+ C1 'CAP_NP_C0201-0P4-B_1UF/6.3V':;
+
+SECTION_NUMBER 1
+ '@DSN(SCH_1):INS1@LIB.CAP.NORMAL(CHIPS)':
+ C_PATH='x';
+PART_NAME
+ U400 'A380H_BGA356':;
+""",
+            )
+
+            parts = analysis_tools._parse_part_file(folder)
+
+            self.assertEqual(parts["C1"], "CAP_NP_C0201-0P4-B_1UF/6.3V")
+            self.assertEqual(parts["U400"], "A380H_BGA356")
+
+    def test_netlist_compare_reports_pin_level_difference(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            left = root / "left"
+            right = root / "right"
+            write_netlist(
+                left,
+                nets="""NET_NAME
+'USB_DP'
+NODE_NAME R80 1
+NODE_NAME U400 U24
+""",
+                parts="PART_NAME\n R80 'RES_NP_R0201_10K':;\n",
+            )
+            write_netlist(
+                right,
+                nets="""NET_NAME
+'USB_DP'
+NODE_NAME R80 2
+NODE_NAME U400 U24
+""",
+                parts="PART_NAME\n R80 'RES_NP_R0201_10K':;\n",
+            )
+
+            result = analysis_tools.run_netlist_compare(ROOT, {"netlist1": str(left), "netlist2": str(right), "output_dir": str(root)})
+
+            self.assertEqual(result["status"], "ok")
+            self.assertGreaterEqual(result["summary"]["node_diffs"], 1)
+            headers = result["table"]["headers"]
+            self.assertIn("网表1节点", headers)
+            self.assertIn("网表2节点", headers)
+            row = next(row for row in result["table"]["rows"] if row[0] == "USB_DP")
+            self.assertIn("R80.1", row[2])
+            self.assertIn("R80.2", row[3])
+            self.assertEqual(row[-1], "网络节点差异")
+
+    def test_single_network_report_includes_nodes_and_pin_count(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = root / "net"
+            write_netlist(
+                folder,
+                nets="""NET_NAME
+'NC_1'
+NODE_NAME R1 1
+NET_NAME
+'ONE_REF_TWO_PINS'
+NODE_NAME U1 A1
+NODE_NAME U1 B2
+NET_NAME
+'NORMAL'
+NODE_NAME R1 2
+NODE_NAME C1 1
+""",
+            )
+
+            result = analysis_tools.run_single_network_check(ROOT, {"netlist": str(folder), "output_dir": str(root)})
+
+            self.assertEqual(result["status"], "ok")
+            headers = result["table"]["headers"]
+            self.assertEqual(headers, ["网络", "类型", "位号", "节点/Pin", "位号数", "节点数"])
+            rows = result["table"]["rows"]
+            self.assertTrue(any(row[0] == "NC_1" and row[3] == "R1.1" for row in rows))
+            self.assertTrue(any(row[0] == "ONE_REF_TWO_PINS" and row[3] == "U1.A1,U1.B2" for row in rows))
+
+    def test_smt_package_check_uses_normalized_package_tokens(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = root / "net"
+            write_netlist(folder, parts="PART_NAME\n C1 'CAP_NP_C0201-0P4-B_1UF/6.3V':;\n")
+
+            bom = root / "bom.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["位号", "编号", "描述", "数量", "名称", "封装名"])
+            ws.append(["C1", "C.001", "陶瓷电容,1UF/6.3V", 1, "电容", "C0201-0P4-B"])
+            wb.save(bom)
+
+            result = analysis_tools.run_smt_package_check(ROOT, {"netlist": str(folder), "bom": str(bom), "output_dir": str(root)})
+
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(result["summary"]["passed_count"], 1)
+            self.assertEqual(result["table"]["rows"][0][-2], "机器初筛通过")
+
+    def test_netlist_tools_module_exposes_compatible_runner(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            left = root / "left"
+            right = root / "right"
+            write_netlist(left, nets="NET_NAME\n'N1'\nNODE_NAME R1 1\n", parts="PART_NAME\n R1 'R0201':;\n")
+            write_netlist(right, nets="NET_NAME\n'N1'\nNODE_NAME R1 2\n", parts="PART_NAME\n R1 'R0201':;\n")
+
+            result = netlist_tools.run_netlist_compare(
+                ROOT,
+                {"netlist1": str(left), "netlist2": str(right), "output_dir": str(root)},
+            )
+
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(result["tool"], "netlist_compare")
+            self.assertGreaterEqual(result["summary"]["diff_count"], 1)
+
+
+if __name__ == "__main__":
+    unittest.main()
