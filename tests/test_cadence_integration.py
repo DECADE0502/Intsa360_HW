@@ -175,10 +175,10 @@ class CadenceIntegrationTests(unittest.TestCase):
         self.assertIn("launch_tool_suite_hidden.vbs", text)
         self.assertIn("wscript.exe", text)
         self.assertIn('"insta360_HW"', text)
-        self.assertIn('AddAccessoryMenu "insta360_HW" "Open Platform"', text)
-        self.assertIn('AddAccessoryMenu "insta360_HW" "Export and Process BOM"', text)
         self.assertIn('"action" "Open Platform"', text)
         self.assertIn('"action" "Export and Process BOM"', text)
+        self.assertNotIn('AddAccessoryMenu "insta360_HW" "Open Platform"', text)
+        self.assertNotIn('AddAccessoryMenu "insta360_HW" "Export and Process BOM"', text)
         self.assertNotIn('AddAccessoryMenu "insta360_HW" "进入平台"', text)
         self.assertNotIn('AddAccessoryMenu "insta360_HW" "导出并处理BOM"', text)
 

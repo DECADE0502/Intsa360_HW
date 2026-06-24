@@ -14,6 +14,8 @@ __pycache__/
 /frontend/node_modules/
 /frontend/dist/
 /frontend/.vite/
+/frontend/.agents/
+/frontend/skills-lock.json
 
 # Local/editor noise
 .omc/
@@ -21,6 +23,7 @@ __pycache__/
 Thumbs.db
 *.tmp
 *.log
+*.bak
 
 # Cadence and local backups generated during deployment
 *_backup/

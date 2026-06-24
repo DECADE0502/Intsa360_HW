@@ -15,6 +15,7 @@ class DistributionInstallTests(unittest.TestCase):
         expected = [
             "install.ps1",
             "update.ps1",
+            "uninstall.ps1",
             "scripts/lib/Paths.ps1",
             "scripts/lib/Cadence.ps1",
             "scripts/lib/Service.ps1",
@@ -33,6 +34,7 @@ class DistributionInstallTests(unittest.TestCase):
         scripts = [
             "install.ps1",
             "update.ps1",
+            "uninstall.ps1",
             "launch_tool_suite.ps1",
             "scripts/lib/Paths.ps1",
             "scripts/lib/Cadence.ps1",
@@ -163,7 +165,7 @@ class DistributionInstallTests(unittest.TestCase):
         lib_text = (ROOT / "scripts" / "lib" / "Update.ps1").read_text(encoding="utf-8")
         combined = update_text + "\n" + lib_text
 
-        for protected in ["data", "uploads", "outputs", "history", "config/local.json"]:
+        for protected in ["data", "uploads", "outputs", "history", "config/local.json", "plugins/user"]:
             with self.subTest(protected=protected):
                 self.assertIn(protected, combined)
 
@@ -210,6 +212,8 @@ class DistributionInstallTests(unittest.TestCase):
             (install / "stale.txt").write_text("remove me", encoding="utf-8")
             (install / "data").mkdir()
             (install / "data" / "keep.txt").write_text("keep", encoding="utf-8")
+            (install / "plugins" / "user" / "scripts").mkdir(parents=True)
+            (install / "plugins" / "user" / "scripts" / "mine.tcl").write_text("keep-user-script", encoding="utf-8")
             (install / "config").mkdir()
             (install / "config" / "local.json").write_text('{"install_dir":"local"}', encoding="utf-8")
 
@@ -231,8 +235,44 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertTrue((install / "scripts" / "from_repo.txt").exists())
             self.assertFalse((install / "stale.txt").exists())
             self.assertTrue((install / "data" / "keep.txt").exists())
+            self.assertEqual((install / "plugins" / "user" / "scripts" / "mine.tcl").read_text(encoding="utf-8"), "keep-user-script")
             self.assertEqual((install / "config" / "local.json").read_text(encoding="utf-8"), '{"install_dir":"local"}')
             self.assertFalse((install / ".git").exists())
+
+    def test_uninstall_script_removes_install_root_and_cadence_loader(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            install = tmp_path / "install"
+            autoload = tmp_path / "autoload"
+            install.mkdir()
+            autoload.mkdir()
+            (install / "app").mkdir()
+            (install / "plugins" / "user" / "scripts").mkdir(parents=True)
+            (install / "plugins" / "user" / "scripts" / "mine.tcl").write_text("delete-me", encoding="utf-8")
+            (autoload / "iac_bom_tool.tcl").write_text("loader", encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    "powershell",
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    str(ROOT / "uninstall.ps1"),
+                    "-InstallDir",
+                    str(install),
+                    "-CaptureAutoLoadDir",
+                    str(autoload),
+                    "-Force",
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=30,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr.decode("utf-8", errors="replace"))
+            self.assertFalse(install.exists())
+            self.assertFalse((autoload / "iac_bom_tool.tcl").exists())
 
     def test_paths_library_finds_vendor_autoload_dirs_separately_from_user_loader_dirs(self) -> None:
         text = (ROOT / "scripts" / "lib" / "Paths.ps1").read_text(encoding="utf-8")

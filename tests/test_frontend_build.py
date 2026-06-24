@@ -65,51 +65,136 @@ class FrontendBuildTests(unittest.TestCase):
         app = (ROOT / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
         client = (ROOT / "frontend" / "src" / "api" / "client.ts").read_text(encoding="utf-8")
         script_manager = (ROOT / "frontend" / "src" / "platform" / "ScriptManager.tsx").read_text(encoding="utf-8")
+        history_view = ROOT / "frontend" / "src" / "platform" / "HistoryView.tsx"
 
         self.assertIn("fetchCapabilities", app)
+        self.assertIn("fetchPlugins", app)
+        self.assertIn("fetchHistory", app)
         self.assertIn("fetchPlatformStatus", app)
+        self.assertIn("Promise.allSettled", app)
         self.assertIn("工作台", app)
-        self.assertIn("脚本管理", app)
+        self.assertIn("插件管理", app)
+        self.assertIn("历史记录", app)
         self.assertIn("系统状态", app)
         self.assertIn("可挂载脚本", (ROOT / "frontend" / "src" / "platform" / "SystemStatus.tsx").read_text(encoding="utf-8"))
         self.assertIn("待拆分脚本", (ROOT / "frontend" / "src" / "platform" / "SystemStatus.tsx").read_text(encoding="utf-8"))
         self.assertIn("/api/capabilities", client)
+        self.assertIn("/api/plugins", client)
+        self.assertIn("/api/history", client)
         self.assertIn("setCadenceMenuVisibility", client)
+        self.assertIn("setPluginCadenceMenuVisibility", client)
+        self.assertIn("deleteHistoryRun", client)
+        self.assertIn("clearHistory", client)
         self.assertIn("/cadence-menu", client)
+        self.assertIn("platform: PluginInfo[]", client)
         self.assertIn("show_in_cadence", script_manager)
+        self.assertIn("Tabs", script_manager)
+        self.assertIn("已挂载", script_manager)
+        self.assertIn("未挂载", script_manager)
+        self.assertIn("刷新", script_manager)
+        self.assertIn("Capture 热更新指令", script_manager)
+        self.assertIn("Command Window", script_manager)
+        self.assertIn("source [file join $env(HOME)", script_manager)
+        self.assertIn("onRefresh", script_manager)
+        self.assertIn("refreshPlugins", app)
+        self.assertIn("Cadence 系统脚本", script_manager)
+        self.assertIn("平台自带", script_manager)
+        self.assertIn("自定义脚本", script_manager)
+        self.assertIn("只读", script_manager)
         self.assertIn("未挂载", script_manager)
         self.assertIn("Switch", script_manager)
         self.assertIn("Popconfirm", script_manager)
         self.assertIn("确认挂载脚本", script_manager)
         self.assertIn("待拆分", script_manager)
+        self.assertTrue(history_view.exists())
+        history_text = history_view.read_text(encoding="utf-8")
+        self.assertIn("历史记录", history_text)
+        self.assertIn("查看详情", history_text)
+        self.assertIn("删除记录", history_text)
+        self.assertIn("清空历史", history_text)
+        self.assertIn("输出文件", history_text)
 
     def test_bom_process_capture_config_contains_required_fields(self) -> None:
         wizard = (ROOT / "frontend" / "src" / "tools" / "BomProcessWizard.tsx").read_text(encoding="utf-8")
-        expected = (
-            "{Item}\\\\t{Quantity}\\\\t{Reference}\\\\t{Part Number}\\\\t{Value}\\\\t{规格型号}\\\\t"
-            "{器件描述（新整理）}\\\\t{物料名称}\\\\t{等级}\\\\t{PCB Footprint}\\\\t{PCB封装}\\\\t"
-            "{Part Type}\\\\t{Part Reference}\\\\t{Source Package}\\\\t{Source Part}"
-        )
 
-        self.assertIn(expected, wizard)
-        self.assertIn("复制配置", wizard)
+        for field in [
+            "Item",
+            "Quantity",
+            "Reference",
+            "Part Number",
+            "Value",
+            "\u89c4\u683c\u578b\u53f7",
+            "\u5668\u4ef6\u63cf\u8ff0\uff08\u65b0\u6574\u7406\uff09",
+            "\u7269\u6599\u540d\u79f0",
+            "\u7b49\u7ea7",
+            "PCB Footprint",
+            "PCB\u5c01\u88c5",
+            "Part Type",
+            "Part Reference",
+            "Source Package",
+            "Source Part",
+        ]:
+            self.assertIn(f"{{{field}}}", wizard)
+        self.assertIn("const CONFIG", wizard)
 
     def test_bom_process_wizard_consumes_cadence_url_preset_and_runs_backend(self) -> None:
+        app = (ROOT / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
         wizard = (ROOT / "frontend" / "src" / "tools" / "BomProcessWizard.tsx").read_text(encoding="utf-8")
 
+        self.assertIn('new URLSearchParams(window.location.search).get("tool")', app)
+        self.assertIn('setActive(requested || "__home")', app)
         self.assertIn("URLSearchParams", wizard)
         self.assertIn('params.get("source")', wizard)
         self.assertIn('params.get("name")', wizard)
-        self.assertIn("source_bom: presetSource", wizard)
+        self.assertIn("source_bom: sp", wizard)
         self.assertIn('runTool("bom_process"', wizard)
 
     def test_bom_conflict_review_supports_user_selected_variants(self) -> None:
         wizard = (ROOT / "frontend" / "src" / "tools" / "BomProcessWizard.tsx").read_text(encoding="utf-8")
 
+        self.assertIn("merge_conflicts", wizard)
         self.assertIn("conflict_choices", wizard)
+        self.assertIn('pres?.status === "needs_confirmation"', wizard)
+        self.assertIn("conflicts.length", wizard)
+        self.assertIn("onApply", wizard)
+        self.assertIn("onSplit", wizard)
+        self.assertIn("CConflict", wizard)
         self.assertIn("conflictChoices", wizard)
-        self.assertIn("保留此项", wizard)
-        self.assertIn("受影响位号", wizard)
+
+    def test_bom_wizard_does_not_treat_successful_merge_summary_as_pending_conflict(self) -> None:
+        wizard = (ROOT / "frontend" / "src" / "tools" / "BomProcessWizard.tsx").read_text(encoding="utf-8")
+
+        helper = re.search(r"function hasBomConflicts\(pres: any\) \{(?P<body>[\s\S]+?)\n\}", wizard)
+        self.assertIsNotNone(helper)
+        body = helper.group("body")
+        self.assertIn('pres?.status === "needs_confirmation"', body)
+        self.assertIn("conflict_count", body)
+        self.assertNotIn("summary?.conflicts", body)
+        self.assertIn('r.status === "ok"', wizard)
+        self.assertIn('setStage("risk")', wizard)
+
+    def test_bom_process_review_uses_horizontal_workspace(self) -> None:
+        wizard = (ROOT / "frontend" / "src" / "tools" / "BomProcessWizard.tsx").read_text(encoding="utf-8")
+        css = (ROOT / "frontend" / "src" / "styles.css").read_text(encoding="utf-8")
+
+        self.assertIn("process-grid", wizard)
+        self.assertIn("conflict-main", wizard)
+        self.assertIn("conflict-workbench", wizard)
+        self.assertIn("activeConflictCode", wizard)
+        self.assertIn("conflict-index-list", wizard)
+        self.assertIn("renderFullRefs", wizard)
+        self.assertIn(".process-grid", css)
+        self.assertIn(".conflict-workbench", css)
+        self.assertIn(".conflict-index-list", css)
+        self.assertIn(".variant-field--wide", css)
+        self.assertIn("grid-template-columns", css)
+
+    def test_bom_wizard_does_not_blank_when_risk_step_has_no_process_file(self) -> None:
+        wizard = (ROOT / "frontend" / "src" / "tools" / "BomProcessWizard.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("process_file", wizard)
+        self.assertIn("bom_risk_check", wizard)
+        self.assertIn('setRres({ status: "error"', wizard)
 
 
 if __name__ == "__main__":

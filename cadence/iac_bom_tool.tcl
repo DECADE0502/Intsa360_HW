@@ -273,6 +273,14 @@ namespace eval ::IAC {
             }
         }
 
+        # 兜底：如果 ReadParts 失败或 inbox 没有文件，取最近一个已有的 xlsx
+        if {!$exported || ![file exists $inbox] || [file size $inbox] <= 100} {
+            set found ""
+            foreach f [lsort -decreasing [glob -nocomplain "$::IAC_ROOT/data/inbox/*.xlsx"]] {
+                if {[file exists $f] && [file size $f] > 100} { set found $f; break }
+            }
+            if {$found ne ""} { set inbox $found; set exported 1 }
+        }
         set src [expr {$exported && [file exists $inbox] && [file size $inbox] > 100 ? $inbox : ""}]
         ::IAC::launch $src $dsn
     }
@@ -284,22 +292,23 @@ proc iacx {} { ::IAC::ExportAndProcess }
 proc iacdiag {} { ::IAC::Diagnose }
 
 # ---- 菜单 ----
-catch {
+if {[catch {
     RegisterAction "iacOpen"   "::IAC::shouldProcess" "" "::IAC::OpenTool" ""
     RegisterAction "iacExport" "::IAC::shouldProcess" "" "::IAC::ExportAndProcess" ""
     RegisterAction "iacUpd"    "::IAC::shouldProcess" "" "::IAC::updatePro"    ""
     InsertXMLMenu [list [list "IACBOM"] "" "" [list "popup" "insta360_HW" "" "" "" "" ""] ""]
     InsertXMLMenu [list [list "IACBOM" "Open"]   "" "" [list "action" "Open Platform" "0" "iacOpen"   "iacUpd" "" "Open Insta360 hardware platform"] ""]
     InsertXMLMenu [list [list "IACBOM" "Export"] "" "" [list "action" "Export and Process BOM" "0" "iacExport" "iacUpd" "" "Export Capture BOM and open processing wizard"] ""]
+} err]} {
+    ::IAC::log "IAC: top menu registration failed: $err"
 }
-catch {
+if {[catch {
     proc ::IAC::addAccessoryMenu { args } {
-        AddAccessoryMenu "insta360_HW" "Open Platform" "::IAC::OpenTool"
-        AddAccessoryMenu "insta360_HW" "Export and Process BOM" "::IAC::ExportAndProcess"
         # {{CADENCE_SCRIPT_MENU_ITEMS}}
     }
     RegisterAction "_cdnCapTclAddDesignCustomMenu" "::IAC::shouldProcess" "" "::IAC::addAccessoryMenu" ""
+} err]} {
+    ::IAC::log "IAC: accessory menu registration failed: $err"
 }
 catch { ::IAC::Probe "menu_registered" }
 puts "IAC: insta360_HW loaded"
-

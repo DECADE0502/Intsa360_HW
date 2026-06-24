@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -22,8 +23,8 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
         self.assertIn('"action" "Export and Process BOM"', template)
         self.assertNotIn('"action" "进入平台"', template)
         self.assertNotIn('"action" "导出并处理BOM"', template)
-        self.assertIn('AddAccessoryMenu "insta360_HW" "Open Platform"', text)
-        self.assertIn('AddAccessoryMenu "insta360_HW" "Export and Process BOM"', text)
+        self.assertNotIn('AddAccessoryMenu "insta360_HW" "Open Platform"', template)
+        self.assertNotIn('AddAccessoryMenu "insta360_HW" "Export and Process BOM"', template)
         self.assertNotIn('AddAccessoryMenu "insta360_HW" "选中器件切换NC"', text)
 
     def test_root_does_not_keep_stale_insta360_bom_loader_copy(self) -> None:
@@ -52,8 +53,8 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
             decoded = raw.decode("gbk")
             self.assertIn('InsertXMLMenu [list [list "IACBOM"]', decoded)
             self.assertIn('"insta360_HW"', decoded)
-            self.assertIn('AddAccessoryMenu "insta360_HW" "Open Platform"', decoded)
-            self.assertIn('AddAccessoryMenu "insta360_HW" "Export and Process BOM"', decoded)
+            self.assertNotIn('AddAccessoryMenu "insta360_HW" "Open Platform"', decoded)
+            self.assertNotIn('AddAccessoryMenu "insta360_HW" "Export and Process BOM"', decoded)
             self.assertNotIn('AddAccessoryMenu "insta360_HW" "进入平台"', decoded)
             self.assertNotIn('AddAccessoryMenu "insta360_HW" "导出并处理BOM"', decoded)
             self.assertNotIn('AddAccessoryMenu "insta360_HW" "选中器件切换NC"', decoded)
@@ -71,6 +72,7 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
 
         self.assertIn("show_in_cadence", text)
         self.assertIn("Get-EnabledCadenceMenuItems", text)
+        self.assertIn("shortcut", text)
         self.assertNotIn("rename RegisterAction", text)
 
     def test_generated_loader_injects_only_opt_in_cadence_script_menu_items(self) -> None:
@@ -86,7 +88,6 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
                         'set ::IAC_ROOT "{{TOOL_ROOT}}"',
                         'set ::IAC_PY   "python"',
                         'proc ::IAC::addAccessoryMenu { args } {',
-                        '  AddAccessoryMenu "insta360_HW" "Open Platform" "::IAC::OpenTool"',
                         '  # {{CADENCE_SCRIPT_MENU_ITEMS}}',
                         '}',
                     ]
@@ -122,8 +123,50 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
             decoded = out.read_bytes().decode("gbk")
             self.assertIn('source "$::IAC_ROOT/cadence/modules/demo.tcl"', decoded)
             self.assertIn('AddAccessoryMenu "insta360_HW" "启用脚本" "::Demo::Run"', decoded)
+            self.assertNotIn('AddAccessoryMenu "insta360_HW" "Open Platform"', decoded)
+            self.assertNotIn('AddAccessoryMenu "insta360_HW" "Export and Process BOM"', decoded)
             self.assertNotIn("禁用脚本", decoded)
             self.assertNotIn("rename RegisterAction", decoded)
+
+    def test_generated_loader_injects_enabled_user_plugin_scripts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            root = tmp_path / "tool"
+            shutil.copytree(ROOT / "config", root / "config")
+            shutil.copytree(ROOT / "cadence", root / "cadence")
+            (root / "plugins" / "user" / "scripts").mkdir(parents=True)
+            (root / "plugins" / "user" / "scripts" / "demo.tcl").write_text("proc ::Demo::Run {} {}\n", encoding="utf-8")
+            (root / "plugins" / "user" / "demo.json").write_text(
+                json.dumps(
+                    {
+                        "id": "user.demo",
+                        "name": "User Demo",
+                        "type": "cadence_tcl",
+                        "command": "::Demo::Run",
+                        "script": "scripts/demo.tcl",
+                        "show_in_platform": True,
+                        "show_in_cadence": True,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            out = tmp_path / "iac_bom_tool.tcl"
+            command = (
+                "$ErrorActionPreference='Stop'; "
+                f". '{ROOT / 'scripts' / 'lib' / 'Cadence.ps1'}'; "
+                f"Write-CadenceLoader -ToolRoot '{root}' -PythonPath 'C:/Python/python.exe' -OutputPath '{out}' | Out-Null"
+            )
+
+            subprocess.run(
+                [POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+
+            decoded = out.read_bytes().decode("gbk")
+            self.assertIn('source "$::IAC_ROOT/plugins/user/scripts/demo.tcl"', decoded)
+            self.assertIn('AddAccessoryMenu "insta360_HW" "User Demo" "::Demo::Run"', decoded)
 
     def test_capability_registry_requires_modules_for_enableable_cadence_scripts(self) -> None:
         data = json.loads((ROOT / "config" / "capabilities.json").read_text(encoding="utf-8"))
@@ -203,6 +246,48 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
         self.assertIn("proc ::capMenuUtil::ResetNetnameColor", module)
         self.assertNotIn("RegisterAction", module)
         self.assertNotIn("AddAccessoryMenu", module)
+
+    def test_nc_toggle_shortcut_is_declared_in_registry_and_generated_by_loader(self) -> None:
+        data = json.loads((ROOT / "config" / "capabilities.json").read_text(encoding="utf-8"))
+        item = next(item for item in data["capabilities"] if item["id"] == "cadence_nc_toggle")
+        module = (ROOT / "cadence" / "modules" / "nc_toggle_selected.tcl").read_text(encoding="utf-8")
+
+        self.assertEqual(item["shortcut"], "Ctrl+Q")
+        self.assertEqual(item["shortcut_context"], "Schematic")
+        self.assertEqual(item["enabled_command"], "::capNCToggleSelected::enabled")
+        self.assertNotIn("RegisterAction", module)
+        self.assertNotIn("AddAccessoryMenu", module)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            root = tmp_path / "tool"
+            shutil.copytree(ROOT / "config", root / "config")
+            shutil.copytree(ROOT / "cadence", root / "cadence")
+            data = json.loads((root / "config" / "capabilities.json").read_text(encoding="utf-8"))
+            for capability in data["capabilities"]:
+                if capability["id"] == "cadence_nc_toggle":
+                    capability["show_in_cadence"] = True
+            (root / "config" / "capabilities.json").write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            out = tmp_path / "iac_bom_tool.tcl"
+            command = (
+                "$ErrorActionPreference='Stop'; "
+                f". '{ROOT / 'scripts' / 'lib' / 'Cadence.ps1'}'; "
+                f"Write-CadenceLoader -ToolRoot '{root}' -PythonPath 'C:/Python/python.exe' -OutputPath '{out}' | Out-Null"
+            )
+
+            subprocess.run(
+                [POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+
+            decoded = out.read_bytes().decode("gbk")
+            self.assertIn('source "$::IAC_ROOT/cadence/modules/nc_toggle_selected.tcl"', decoded)
+            self.assertIn('AddAccessoryMenu "insta360_HW"', decoded)
+            self.assertIn('"::capNCToggleSelected::toggleFromMenu"', decoded)
+            self.assertIn('RegisterAction "cadence_nc_toggle_shortcut"', decoded)
+            self.assertIn('"::capNCToggleSelected::enabled" "Ctrl+Q" "::capNCToggleSelected::toggle" "Schematic"', decoded)
 
     def test_part_color_module_is_split_without_registeraction(self) -> None:
         module = (ROOT / "cadence" / "modules" / "part_color_tools.tcl").read_text(encoding="utf-8")

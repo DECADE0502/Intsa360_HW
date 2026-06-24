@@ -20,7 +20,7 @@ proc ::capNCToggleSelected::log {message} {
 proc ::capNCToggleSelected::toggleFromMenu {args} {
     if {[catch {::capNCToggleSelected::toggle} err]} {
         ::capNCToggleSelected::log "ERROR: $err"
-        catch {tk_messageBox -icon error -type ok -title "切换选中器件 NC" -message $err}
+        catch {tk_messageBox -icon error -type ok -title "Toggle Selected NC" -message $err}
     }
 }
 
@@ -32,7 +32,7 @@ proc ::capNCToggleSelected::enabled {} {
 
 proc ::capNCToggleSelected::toggle {} {
     if {![::capNCToggleSelected::enabled]} {
-        catch {tk_messageBox -icon info -type ok -title "切换选中器件 NC" -message "请先选择一个或多个器件。"}
+        catch {tk_messageBox -icon info -type ok -title "Toggle Selected NC" -message "Select one or more parts first."}
         ::capNCToggleSelected::log "no selected objects"
         return 0
     }

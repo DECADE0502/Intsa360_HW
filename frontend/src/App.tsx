@@ -1,127 +1,141 @@
 import { useEffect, useState } from "react";
-import { App as AntdApp, Button, ConfigProvider, Layout, Menu, Result, Space, Spin, Typography } from "antd";
+import { ConfigProvider, Layout, Menu, Spin, Typography } from "antd";
 import zhCN from "antd/locale/zh_CN";
-import { fetchCapabilities, fetchPlatformStatus, fetchTools, runTool, uploadFiles, type Capability, type ToolInfo } from "./api/client";
-import { FileInputField } from "./components/FileInputField";
-import { ResultPanel } from "./components/ResultPanel";
-import { UpdateStatus } from "./components/UpdateStatus";
-import { uiText } from "./i18n/zhCN";
+import {
+  fetchCapabilities,
+  fetchHistory,
+  fetchPlatformStatus,
+  fetchPlugins,
+  fetchTools,
+  type Capability,
+  type HistoryRun,
+  type PluginInfo,
+  type ToolInfo,
+} from "./api/client";
+import { HistoryView } from "./platform/HistoryView";
 import { PlatformHome } from "./platform/PlatformHome";
 import { ScriptManager } from "./platform/ScriptManager";
 import { SystemStatus } from "./platform/SystemStatus";
 import { BomProcessWizard } from "./tools/BomProcessWizard";
-import { toolInputs } from "./tools/toolConfig";
+import { LegacyToolPane } from "./tools/LegacyToolPane";
 import "./styles.css";
 
 const { Sider, Content } = Layout;
+type PluginGroups = { system: PluginInfo[]; platform: PluginInfo[]; user: PluginInfo[] };
 
 export default function App() {
   const [tools, setTools] = useState<ToolInfo[]>([]);
-  const [capabilities, setCapabilities] = useState<Capability[]>([]);
-  const [platformStatus, setPlatformStatus] = useState<any>(null);
-  const [active, setActive] = useState<string>("__home");
-  const [files, setFiles] = useState<Record<string, File[]>>({});
+  const [caps, setCaps] = useState<Capability[]>([]);
+  const [plugins, setPlugins] = useState<PluginGroups>({ system: [], platform: [], user: [] });
+  const [historyRuns, setHistoryRuns] = useState<HistoryRun[]>([]);
+  const [status, setStatus] = useState<any>(null);
+  const [active, setActive] = useState("__home");
   const [loading, setLoading] = useState(true);
-  const [running, setRunning] = useState(false);
-  const [error, setError] = useState("");
-  const [result, setResult] = useState<any>(null);
+
+  async function refreshPlugins() {
+    const payload = await fetchPlugins();
+    setPlugins({ system: [], platform: [], user: [], ...(payload.groups || {}) });
+    return payload;
+  }
 
   useEffect(() => {
-    Promise.all([fetchTools(), fetchCapabilities(), fetchPlatformStatus()])
-      .then(([items, capabilityPayload, statusPayload]) => {
-        setTools(items);
-        setCapabilities(capabilityPayload.capabilities || []);
-        setPlatformStatus(statusPayload);
-        const requested = new URLSearchParams(window.location.search).get("tool");
-        setActive(items.some((item) => item.id === requested) ? requested || "__home" : "__home");
+    Promise.allSettled([fetchTools(), fetchCapabilities(), fetchPlugins(), fetchHistory(), fetchPlatformStatus()])
+      .then(([toolsResult, capsResult, pluginsResult, historyResult, statusResult]) => {
+        const tls = toolsResult.status === "fulfilled" ? toolsResult.value : [];
+        const cp = capsResult.status === "fulfilled" ? capsResult.value : { capabilities: [] };
+        const pl =
+          pluginsResult.status === "fulfilled"
+            ? pluginsResult.value
+            : {
+                groups: {
+                  system: [],
+                  platform: (cp.capabilities || [])
+                    .filter((item) => item.type === "cadence_tcl")
+                    .map((item) => ({
+                      ...item,
+                      source: "platform" as const,
+                      readonly: false,
+                      manageable: true,
+                      menu: "insta360_HW",
+                    })),
+                  user: [],
+                },
+              };
+        const st = statusResult.status === "fulfilled" ? statusResult.value : null;
+        setTools(tls);
+        setCaps(cp.capabilities || []);
+        setPlugins({ system: [], platform: [], user: [], ...(pl.groups || {}) });
+        setHistoryRuns(historyResult.status === "fulfilled" ? historyResult.value : []);
+        setStatus(st);
+        let requested = new URLSearchParams(window.location.search).get("tool") || "";
+        if (requested && !tls.some((tool) => tool.id === requested)) requested = "";
+        setActive(requested || "__home");
       })
-      .catch((err) => setError(err.message || "加载失败"))
+      .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <Spin fullscreen tip={uiText.loadingTools} />;
-  if (error) return <Result status="error" title={uiText.startupFailed} subTitle={error} />;
+  const bom = tools.filter((t) => ["bom_process", "bom_compare", "bom_risk_check"].includes(t.id));
+  const netlist = tools.filter((t) => !["bom_process", "bom_compare", "bom_risk_check"].includes(t.id));
 
-  const current = tools.find((tool) => tool.id === active);
-  const inputs = toolInputs[active] || [];
-  const platformItems = [
+  const menu = [
     { key: "__home", label: "工作台" },
-    { key: "__scripts", label: "脚本管理" },
+    { type: "group" as const, label: "BOM 工具" },
+    ...bom.map((t) => ({ key: t.id, label: t.name })),
+    { type: "group" as const, label: "网表工具" },
+    ...netlist.map((t) => ({ key: t.id, label: t.name })),
+    { type: "divider" as const },
+    { key: "__scripts", label: "插件管理" },
+    { key: "__history", label: "历史记录" },
     { key: "__status", label: "系统状态" },
   ];
-  const toolItems = tools.map((tool) => ({ key: tool.id, label: tool.name }));
 
-  async function handleRun() {
-    if (!current) return;
-    setRunning(true);
-    try {
-      const params: Record<string, unknown> = {};
-      for (const input of inputs) {
-        const selected = files[input.key] || [];
-        if (!selected.length) continue;
-        const uploaded = await uploadFiles(selected);
-        params[input.key] = input.multiple ? uploaded.files.map((file) => file.path) : uploaded.files[0]?.path;
-      }
-      setResult(await runTool(current.id, params));
-    } catch (err: any) {
-      setResult({ status: "error", error: err.message || "运行失败" });
-    } finally {
-      setRunning(false);
-    }
+  function updatePlugin(plugin: PluginInfo) {
+    setPlugins((prev) => ({
+      system: prev.system.map((item) => (item.id === plugin.id ? { ...item, ...plugin } : item)),
+      platform: prev.platform.map((item) => (item.id === plugin.id ? { ...item, ...plugin } : item)),
+      user: prev.user.map((item) => (item.id === plugin.id ? { ...item, ...plugin } : item)),
+    }));
+  }
+
+  if (loading) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh" }}>
+        <Spin />
+      </div>
+    );
   }
 
   return (
     <ConfigProvider locale={zhCN}>
-      <AntdApp>
-        <Layout className="app-shell">
-          <Sider width={260} theme="light" className="app-sider">
-            <Typography.Title level={4}>{uiText.appTitle}</Typography.Title>
-            <Menu selectedKeys={[active]} items={[...platformItems, ...toolItems]} onClick={(item) => setActive(item.key)} />
-          </Sider>
-          <Content className="app-content">
-            <div className="app-topbar">
-              <Typography.Title level={3}>
-                {active === "__home" ? "工作台" : active === "__scripts" ? "脚本管理" : active === "__status" ? "系统状态" : current?.name}
-              </Typography.Title>
-              <UpdateStatus />
-            </div>
-            {active === "__home" ? <PlatformHome capabilities={capabilities} /> : null}
-            {active === "__scripts" ? (
-              <ScriptManager
-                capabilities={capabilities}
-                onCapabilityChange={(updated) =>
-                  setCapabilities((prev) => prev.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)))
-                }
-              />
-            ) : null}
-            {active === "__status" ? <SystemStatus status={platformStatus} /> : null}
-            {current ? <Typography.Paragraph type="secondary">{current.description}</Typography.Paragraph> : null}
-            {current?.id === "bom_process" ? (
-              <BomProcessWizard />
-            ) : current ? (
-              <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-                {inputs.map((input) => (
-                  <FileInputField
-                    key={input.key}
-                    label={input.label}
-                    accept={input.accept}
-                    multiple={input.multiple}
-                    value={files[input.key] || []}
-                    onChange={(value) => setFiles((prev) => ({ ...prev, [input.key]: value }))}
-                  />
-                ))}
-                <Space>
-                  <Button type="primary" loading={running} onClick={handleRun}>
-                    {uiText.run}
-                  </Button>
-                  <Button onClick={() => setFiles({})}>{uiText.clear}</Button>
-                </Space>
-                <ResultPanel result={result} />
-              </Space>
-            ) : null}
-          </Content>
-        </Layout>
-      </AntdApp>
+      <Layout className="app-shell">
+        <Sider width={220} className="app-sider" style={{ display: "flex", flexDirection: "column" }}>
+          <div style={{ padding: "20px 20px 16px" }}>
+            <Typography.Text strong style={{ fontSize: 15 }}>
+              Insta360硬件提效平台
+            </Typography.Text>
+            <div style={{ fontSize: 12, color: "#999", marginTop: 4 }}>v{status?.version || "-"} · 运行中</div>
+          </div>
+          <Menu mode="inline" selectedKeys={[active]} items={menu} onClick={({ key }) => setActive(key)} style={{ flex: 1 }} />
+          <div style={{ padding: "12px 20px", borderTop: "1px solid #f0f0f0", fontSize: 12, color: "#999", lineHeight: 1.8 }}>
+            <a href="https://github.com/DECADE0502/Intsa360_HW" target="_blank" rel="noopener" style={{ color: "#666" }}>
+              DECADE0502/Intsa360_HW
+            </a>
+            <div>作者：wuqiyou@insta360.com</div>
+            <a href="/api/logs/download" style={{ color: "#1677ff", fontSize: 12 }}>
+              导出全部日志
+            </a>
+          </div>
+        </Sider>
+        <Content className="app-content" style={{ overflow: "auto" }}>
+          {active === "__home" ? <PlatformHome caps={caps} tools={tools} plugins={plugins} /> : null}
+          {active === "__scripts" ? <ScriptManager plugins={plugins} onPluginChange={updatePlugin} onRefresh={refreshPlugins} /> : null}
+          {active === "__history" ? <HistoryView runs={historyRuns} onChange={setHistoryRuns} /> : null}
+          {active === "__status" ? <SystemStatus status={status} /> : null}
+          {active === "bom_process" ? <BomProcessWizard /> : null}
+          {tools.map((t) => (active === t.id && t.id !== "bom_process" ? <LegacyToolPane key={t.id} tool={t} /> : null))}
+        </Content>
+      </Layout>
     </ConfigProvider>
   );
 }

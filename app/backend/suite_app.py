@@ -20,6 +20,7 @@ if str(ROOT) not in sys.path:
 from app.backend import history
 from app.backend import update_api
 from app.backend.capabilities import load_capabilities, set_cadence_menu_visibility
+from app.backend.plugins import load_plugins, set_plugin_cadence_menu_visibility
 from app.backend.tool_registry import ToolRegistry, build_registry
 
 
@@ -102,7 +103,7 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
     @staticmethod
     def _is_user_input_error(exc: Exception) -> bool:
         message = str(exc)
-        return isinstance(exc, (KeyError, ValueError, FileNotFoundError)) or any(
+        return isinstance(exc, (KeyError, ValueError, FileNotFoundError, PermissionError)) or any(
             pattern in message for pattern in USER_INPUT_ERROR_PATTERNS
         )
 
@@ -113,6 +114,9 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/capabilities":
             self._send_json(load_capabilities(self.root))
+            return
+        if parsed.path == "/api/plugins":
+            self._send_json(load_plugins(self.root))
             return
         if parsed.path == "/api/platform/status":
             capabilities = load_capabilities(self.root)["capabilities"]
@@ -129,6 +133,24 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
                     "root": str(self.root),
                 }
             )
+            return
+        if parsed.path == "/api/logs":
+            log_dir = self.root / "data" / "reports" / "runtime"
+            files = sorted(
+                [{"name": item.name, "size": item.stat().st_size, "mtime": item.stat().st_mtime} for item in log_dir.iterdir() if item.is_file()],
+                key=lambda item: item["mtime"], reverse=True,
+            ) if log_dir.exists() else []
+            self._send_json({"files": files})
+            return
+        if parsed.path == "/api/logs/download":
+            log_dir = self.root / "data" / "reports" / "runtime"
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                for item in sorted(log_dir.iterdir()) if log_dir.exists() else []:
+                    if item.is_file():
+                        zf.write(item, arcname=item.name)
+            data = buf.getvalue()
+            self._send(200, data, {"Content-Type": "application/zip", "Content-Length": str(len(data)), "Content-Disposition": _content_disposition("platform_logs.zip")})
             return
         if parsed.path == "/api/version":
             self._send_json(update_api.version_payload(self.root))
@@ -202,6 +224,10 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
             capability_id = unquote(parsed.path.removeprefix("/api/capabilities/").removesuffix("/cadence-menu"))
             self._handle_cadence_menu_update(capability_id)
             return
+        if parsed.path.startswith("/api/plugins/") and parsed.path.endswith("/cadence-menu"):
+            plugin_id = unquote(parsed.path.removeprefix("/api/plugins/").removesuffix("/cadence-menu"))
+            self._handle_plugin_menu_update(plugin_id)
+            return
         if parsed.path.startswith("/api/tools/") and parsed.path.endswith("/run"):
             tool_id = parsed.path.removeprefix("/api/tools/").removesuffix("/run")
             try:
@@ -244,6 +270,36 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
             self._send_json({"status": "error", "error": str(exc)}, 400 if self._is_user_input_error(exc) else 500)
             return
         self._send_json({"status": "ok", "capability": capability, "redeployed": redeployed})
+
+    def _redeploy_cadence_loader(self) -> bool:
+        script = self.root / "scripts" / "redeploy_cadence_loader.ps1"
+        if not script.exists():
+            raise FileNotFoundError("未找到 Cadence 菜单重新部署脚本")
+        import subprocess
+
+        completed = subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script)],
+            cwd=str(self.root),
+            text=True,
+            capture_output=True,
+            timeout=30,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        if completed.returncode != 0:
+            raise RuntimeError((completed.stderr or completed.stdout or "Cadence 菜单重新部署失败").strip())
+        return True
+
+    def _handle_plugin_menu_update(self, plugin_id: str) -> None:
+        try:
+            params = self._read_json_body()
+            show = bool(params.get("show_in_cadence"))
+            redeploy = bool(params.get("redeploy", True))
+            plugin = set_plugin_cadence_menu_visibility(self.root, plugin_id, show)
+            redeployed = self._redeploy_cadence_loader() if redeploy else False
+        except Exception as exc:
+            self._send_json({"status": "error", "error": str(exc)}, 400 if self._is_user_input_error(exc) else 500)
+            return
+        self._send_json({"status": "ok", "plugin": plugin, "redeployed": redeployed})
 
     def _read_json_body(self) -> dict[str, object]:
         length = int(self.headers.get("Content-Length", "0") or "0")

@@ -17,6 +17,45 @@ export type Capability = ToolInfo & {
   show_in_cadence: boolean;
 };
 
+export type PluginInfo = {
+  id: string;
+  name: string;
+  description?: string;
+  category?: string;
+  type: "cadence_tcl" | string;
+  command?: string;
+  module?: string;
+  script?: string;
+  path?: string;
+  source: "system" | "platform" | "user";
+  readonly: boolean;
+  manageable: boolean;
+  menu: string;
+  status: string;
+  danger_level?: "low" | "medium" | "high";
+  requires_confirmation?: boolean;
+  can_enable?: boolean;
+  show_in_platform: boolean;
+  show_in_cadence: boolean;
+};
+
+export type PluginsPayload = {
+  platform: { name: string; cadence_menu: string };
+  plugins: PluginInfo[];
+  groups: { system: PluginInfo[]; platform: PluginInfo[]; user: PluginInfo[] };
+  summary: { total: number; system: number; platform: number; user: number; enabled: number };
+};
+
+export type HistoryRun = {
+  id: string;
+  time: string;
+  tool: string;
+  tool_name: string;
+  inputs?: string[];
+  outputs?: string[];
+  summary?: Record<string, unknown> | unknown;
+};
+
 export async function fetchTools(): Promise<ToolInfo[]> {
   const res = await fetch("/api/tools");
   if (!res.ok) throw new Error("工具列表加载失败");
@@ -28,6 +67,41 @@ export async function fetchCapabilities(): Promise<{ platform: { name: string; c
   const res = await fetch("/api/capabilities");
   if (!res.ok) throw new Error("平台能力加载失败");
   return await res.json();
+}
+
+export async function fetchPlugins(): Promise<PluginsPayload> {
+  const res = await fetch("/api/plugins");
+  const payload = await res.json();
+  if (!res.ok) throw new Error(payload.error || "插件列表加载失败");
+  return payload;
+}
+
+export async function fetchHistory(): Promise<HistoryRun[]> {
+  const res = await fetch("/api/history");
+  const payload = await res.json();
+  if (!res.ok) throw new Error(payload.error || "历史记录加载失败");
+  return payload.runs || [];
+}
+
+export async function fetchHistoryRun(id: string): Promise<Record<string, unknown>> {
+  const res = await fetch(`/api/history/${encodeURIComponent(id)}`);
+  const payload = await res.json();
+  if (!res.ok) throw new Error(payload.error || "历史详情加载失败");
+  return payload;
+}
+
+export async function deleteHistoryRun(id: string) {
+  const res = await fetch(`/api/history/${encodeURIComponent(id)}`, { method: "DELETE" });
+  const payload = await res.json();
+  if (!res.ok || payload.status !== "ok") throw new Error(payload.error || "删除记录失败");
+  return payload;
+}
+
+export async function clearHistory() {
+  const res = await fetch("/api/history", { method: "DELETE" });
+  const payload = await res.json();
+  if (!res.ok || payload.status !== "ok") throw new Error(payload.error || "清空历史失败");
+  return payload;
 }
 
 export async function fetchPlatformStatus() {
@@ -46,6 +120,17 @@ export async function setCadenceMenuVisibility(id: string, showInCadence: boolea
   const payload = await res.json();
   if (!res.ok || payload.status !== "ok") throw new Error(payload.error || "菜单状态更新失败");
   return payload.capability as Capability;
+}
+
+export async function setPluginCadenceMenuVisibility(id: string, showInCadence: boolean) {
+  const res = await fetch(`/api/plugins/${encodeURIComponent(id)}/cadence-menu`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ show_in_cadence: showInCadence, redeploy: true }),
+  });
+  const payload = await res.json();
+  if (!res.ok || payload.status !== "ok") throw new Error(payload.error || "插件菜单状态更新失败");
+  return payload.plugin as PluginInfo;
 }
 
 export async function uploadFiles(files: File[]): Promise<{ files: Array<{ path: string; name: string }> }> {

@@ -18,6 +18,16 @@ namespace eval ::IAC {
     proc shouldProcess { args } { return 1 }
     proc updatePro { args } { return true }
     proc log { msg } { catch { DboState_WriteToSessionLog [DboTclHelper_sMakeCString $msg] }; catch { puts $msg } }
+    proc Probe { phase } {
+        catch {
+            set logDir [file normalize "$::IAC_ROOT/data/reports/runtime"]
+            file mkdir $logDir
+            set fh [open [file join $logDir "cadence_loader_probe.log"] a]
+            fconfigure $fh -encoding utf-8
+            puts $fh "IAC: loader probe phase=$phase root=$::IAC_ROOT RegisterAction=[expr {[llength [info commands RegisterAction]] > 0 ? "available" : "missing"}] InsertXMLMenu=[expr {[llength [info commands InsertXMLMenu]] > 0 ? "available" : "missing"}] AddAccessoryMenu=[expr {[llength [info commands AddAccessoryMenu]] > 0 ? "available" : "missing"}]"
+            close $fh
+        }
+    }
 
     # ---- 启动工具 ----
     proc launch { {source ""} {name ""} } {
@@ -27,6 +37,21 @@ namespace eval ::IAC {
         if {[catch {exec {*}$cmd &} err]} { ::IAC::log "IAC: launch FAILED: $err" }
     }
     proc OpenTool { args } { ::IAC::launch }
+
+    proc Diagnose { args } {
+        ::IAC::log "IAC: diagnostics"
+        ::IAC::log "IAC: IAC_ROOT = $::IAC_ROOT"
+        ::IAC::log "IAC: IAC_PY = $::IAC_PY"
+        ::IAC::log "IAC: launcher = $::IAC_ROOT/launch_tool_suite_hidden.vbs"
+        ::IAC::log "IAC: converter = $::IAC_CNV"
+        ::IAC::log "IAC: launcher exists = [file exists "$::IAC_ROOT/launch_tool_suite_hidden.vbs"]"
+        ::IAC::log "IAC: powershell launcher exists = [file exists "$::IAC_ROOT/launch_tool_suite.ps1"]"
+        ::IAC::log "IAC: converter exists = [file exists $::IAC_CNV]"
+        ::IAC::log "IAC: RegisterAction command = [expr {[llength [info commands RegisterAction]] > 0 ? "available" : "missing"}]"
+        ::IAC::log "IAC: InsertXMLMenu command = [expr {[llength [info commands InsertXMLMenu]] > 0 ? "available" : "missing"}]"
+        ::IAC::log "IAC: AddAccessoryMenu command = [expr {[llength [info commands AddAccessoryMenu]] > 0 ? "available" : "missing"}]"
+        ::IAC::log "IAC: try 'iac' to open platform, 'iacx' to export and process BOM"
+    }
 
     # ---- 从设计读器件 ----
     proc ReadParts { } {
@@ -248,6 +273,14 @@ namespace eval ::IAC {
             }
         }
 
+        # 兜底：如果 ReadParts 失败或 inbox 没有文件，取最近一个已有的 xlsx
+        if {!$exported || ![file exists $inbox] || [file size $inbox] <= 100} {
+            set found ""
+            foreach f [lsort -decreasing [glob -nocomplain "$::IAC_ROOT/data/inbox/*.xlsx"]] {
+                if {[file exists $f] && [file size $f] > 100} { set found $f; break }
+            }
+            if {$found ne ""} { set inbox $found; set exported 1 }
+        }
         set src [expr {$exported && [file exists $inbox] && [file size $inbox] > 100 ? $inbox : ""}]
         ::IAC::launch $src $dsn
     }
@@ -256,6 +289,7 @@ namespace eval ::IAC {
 # ---- 全局命令 ----
 proc iac  {} { ::IAC::launch }
 proc iacx {} { ::IAC::ExportAndProcess }
+proc iacdiag {} { ::IAC::Diagnose }
 
 # ---- 菜单 ----
 catch {
@@ -263,16 +297,14 @@ catch {
     RegisterAction "iacExport" "::IAC::shouldProcess" "" "::IAC::ExportAndProcess" ""
     RegisterAction "iacUpd"    "::IAC::shouldProcess" "" "::IAC::updatePro"    ""
     InsertXMLMenu [list [list "IACBOM"] "" "" [list "popup" "insta360_HW" "" "" "" "" ""] ""]
-    InsertXMLMenu [list [list "IACBOM" "Open"]   "" "" [list "action" "Open Tool Suite" "0" "iacOpen"   "iacUpd" "" "Open hardware tool suite"] ""]
+    InsertXMLMenu [list [list "IACBOM" "Open"]   "" "" [list "action" "Open Platform" "0" "iacOpen"   "iacUpd" "" "Open Insta360 hardware platform"] ""]
     InsertXMLMenu [list [list "IACBOM" "Export"] "" "" [list "action" "Export and Process BOM" "0" "iacExport" "iacUpd" "" "Export Capture BOM and open processing wizard"] ""]
 }
 catch {
     proc ::IAC::addAccessoryMenu { args } {
-        AddAccessoryMenu "insta360_HW" "进入平台" "::IAC::OpenTool"
-        AddAccessoryMenu "insta360_HW" "导出并处理BOM" "::IAC::ExportAndProcess"
 
     }
     RegisterAction "_cdnCapTclAddDesignCustomMenu" "::IAC::shouldProcess" "" "::IAC::addAccessoryMenu" ""
 }
+catch { ::IAC::Probe "menu_registered" }
 puts "IAC: insta360_HW loaded"
-

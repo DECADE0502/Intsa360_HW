@@ -40,6 +40,8 @@ $Python = Find-Python -Root $InstallRoot
 
 $ConfigDir = Join-Path $InstallRoot "config"
 New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $InstallRoot "plugins\system") | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $InstallRoot "plugins\user\scripts") | Out-Null
 $LocalConfig = Join-Path $InstallRoot "config\local.json"
 if (-not (Test-Path -LiteralPath $LocalConfig)) {
   @"

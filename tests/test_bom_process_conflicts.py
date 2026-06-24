@@ -52,6 +52,8 @@ class BomProcessConflictTests(unittest.TestCase):
 
             self.assertEqual(result["status"], "needs_confirmation")
             self.assertEqual(result["reason"], "part_property_conflicts")
+            self.assertEqual(result["conflict_count"], 1)
+            self.assertEqual(result["summary"]["conflicts"], 1)
             self.assertEqual(result["conflicts"][0]["code"], "P1")
             self.assertEqual(result["conflicts"][0]["total_refs"], 2)
 

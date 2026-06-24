@@ -1060,6 +1060,7 @@ def run_bom_process(root: Path, params: dict[str, object]) -> dict[str, object]:
             "tool": "bom_process",
             "reason": "part_property_conflicts",
             "message": "发现相同物料编码存在不同型号/描述/名称/等级，请确认是否按编码合并。",
+            "conflict_count": len(conflicts),
             "conflicts": conflicts,
             "summary": {"conflicts": len(conflicts)},
         }

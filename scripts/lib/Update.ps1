@@ -11,7 +11,7 @@ function Invoke-HwAgentGitUpdate {
     [string]$Repo = "",
     [string]$Branch = "main"
   )
-  $protected = @("data", "uploads", "outputs", "history", "config/local.json")
+  $protected = @("data", "uploads", "outputs", "history", "config/local.json", "plugins/user")
   Write-Host ((Get-HwAgentText "5pu05paw5pe25Lya5L+d55WZ77ya") + ($protected -join ", "))
 
   if ([string]::IsNullOrWhiteSpace($Repo)) {
@@ -56,7 +56,7 @@ function Invoke-HwAgentGitUpdate {
           }
         }
 
-        $excludeDirs = @(".git", "data", "uploads", "outputs", "history", "frontend\node_modules")
+        $excludeDirs = @(".git", "data", "uploads", "outputs", "history", "plugins\user", "frontend\node_modules")
         $excludeFiles = @("local.json")
         $args = @($cloneRoot, $Root, "/MIR", "/XD") + $excludeDirs + @("/XF") + $excludeFiles
         & robocopy @args | Out-Null

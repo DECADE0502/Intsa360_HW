@@ -8,4 +8,7 @@ export const uiText = {
   noResult: "请选择输入并运行。",
   runFinished: "运行完成",
   downloadReport: "下载报告",
+  workbench: "工作台",
+  scriptManager: "脚本管理",
+  systemStatus: "系统状态",
 };

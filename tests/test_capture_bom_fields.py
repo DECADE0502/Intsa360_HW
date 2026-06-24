@@ -91,6 +91,46 @@ class CaptureBomFieldTests(unittest.TestCase):
             self.assertEqual(row[headers.index("Source Package")], "PKG-A")
             self.assertEqual(row[headers.index("SPLIT_INST")], "1")
 
+    def test_converter_keeps_each_capture_occurrence_in_raw_xlsx(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            src = tmp_path / "parts.json"
+            out = tmp_path / "bom.xlsx"
+            parts = [
+                {
+                    "Reference": "R1",
+                    "Part Reference": "R1",
+                    "Part Number": "PN-001",
+                    "Value": "10K",
+                    "规格型号": "MODEL-A",
+                    "器件描述（新整理）": "resistor",
+                    "物料名称": "电阻",
+                    "等级": "优选",
+                },
+                {
+                    "Reference": "R2",
+                    "Part Reference": "R2",
+                    "Part Number": "PN-001",
+                    "Value": "10K",
+                    "规格型号": "MODEL-A",
+                    "器件描述（新整理）": "resistor",
+                    "物料名称": "电阻",
+                    "等级": "优选",
+                },
+            ]
+            src.write_text(json.dumps(parts, ensure_ascii=False), encoding="utf-8")
+            subprocess.run([sys.executable, str(CONVERTER), str(src), str(out)], check=True)
+
+            wb = load_workbook(out, read_only=True, data_only=True)
+            ws = wb.active
+            headers = [ws.cell(1, col).value for col in range(1, ws.max_column + 1)]
+            self.assertEqual(ws.max_row, 3)
+            self.assertEqual(ws.cell(2, headers.index("Reference") + 1).value, "R1")
+            self.assertEqual(ws.cell(3, headers.index("Reference") + 1).value, "R2")
+            self.assertEqual(ws.cell(2, headers.index("Quantity") + 1).value, 1)
+            self.assertEqual(ws.cell(3, headers.index("Quantity") + 1).value, 1)
+            wb.close()
+
     def test_bom_process_outputs_19_plm_columns_with_fallbacks_and_preserved_options(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

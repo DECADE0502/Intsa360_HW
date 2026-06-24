@@ -53,6 +53,15 @@ function Test-HttpReady {
       $tool = $tools | Where-Object { $_.id -eq $toolId } | Select-Object -First 1
       if ($null -eq $tool -or $tool.status -ne "available") { return $false }
     }
+    $pluginRequest = [System.Net.HttpWebRequest]::Create("http://127.0.0.1:$Port/api/plugins")
+    $pluginRequest.Timeout = 2000
+    $pluginResponse = $pluginRequest.GetResponse()
+    $pluginReader = [System.IO.StreamReader]::new($pluginResponse.GetResponseStream())
+    $pluginContent = $pluginReader.ReadToEnd()
+    $pluginReader.Close()
+    $pluginResponse.Close()
+    $pluginPayload = $pluginContent | ConvertFrom-Json
+    if ($null -eq $pluginPayload.groups -or $null -eq $pluginPayload.groups.system) { return $false }
     return $true
   } catch {
     return $false

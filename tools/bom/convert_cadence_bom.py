@@ -31,12 +31,12 @@ BASE_HEADERS = [
 ]
 
 PROP_MAP = [
-    (["Reference", "Part Reference"], "Reference"),
-    (["Part Number"], "Part Number"),
-    (["Value"], "Value"),
-    (["规格型号", "Model", "MPN"], "规格型号"),
+    (["Reference", "Part Reference", "Designator", "位号"], "Reference"),
+    (["Part Number", "子项编码", "物料编码", "料号", "PN"], "Part Number"),
+    (["Value", "值"], "Value"),
+    (["规格型号", "型号", "Model", "MPN"], "规格型号"),
     (["器件描述（新整理）", "器件描述", "内容", "描述", "Description"], "器件描述（新整理）"),
-    (["物料名称", "Part Type", "Name"], "物料名称"),
+    (["物料名称", "名称", "Part Type", "Name"], "物料名称"),
     (["等级", "物料优选等级", "优选等级"], "等级"),
 ]
 
@@ -76,10 +76,6 @@ def map_props(part: dict[str, object]) -> OrderedDict[str, str]:
     return out
 
 
-def _natural_ref_key(ref: str) -> list[object]:
-    return [int(token) if token.isdigit() else token.lower() for token in re.split(r"(\d+)", ref)]
-
-
 def main() -> None:
     if len(sys.argv) < 3:
         print("usage: convert_cadence_bom.py <parts.json> <output.xlsx>", file=sys.stderr)
@@ -88,23 +84,11 @@ def main() -> None:
     parts = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
     out = Path(sys.argv[2])
 
-    mapped = [map_props(part) for part in parts if str(part.get("Reference") or part.get("Part Reference") or "").strip()]
-
-    groups: OrderedDict[tuple[str, str, str, str, str], dict[str, object]] = OrderedDict()
-    for item in mapped:
-        key = (
-            item.get("Part Number", ""),
-            item.get("规格型号", ""),
-            item.get("器件描述（新整理）", ""),
-            item.get("物料名称", ""),
-            item.get("等级", ""),
-        )
-        if key not in groups:
-            groups[key] = {"refs": [], **{k: v for k, v in item.items()}}
-        groups[key]["refs"].extend(split_refs(item.get("Reference", "")))
-        for col, value in item.items():
-            if col not in groups[key] or not groups[key].get(col):
-                groups[key][col] = value
+    mapped = [
+        map_props(part)
+        for part in parts
+        if str(part.get("Reference") or part.get("Part Reference") or "").strip()
+    ]
 
     data_headers: list[str] = []
     for header in BASE_HEADERS[3:]:
@@ -113,9 +97,9 @@ def main() -> None:
     for field in CAPTURE_VISIBLE_PROPERTIES:
         if field not in {"Reference"} and field not in data_headers:
             data_headers.append(field)
-    for group in groups.values():
-        for key in group:
-            if key not in {"refs", "Reference"} and key not in data_headers:
+    for item in mapped:
+        for key in item:
+            if key not in {"Reference"} and key not in data_headers:
                 data_headers.append(key)
 
     headers = ["Item", "Quantity", "Reference"] + data_headers
@@ -128,11 +112,11 @@ def main() -> None:
         cell.font = Font(bold=True)
         cell.fill = PatternFill("solid", fgColor="D9EAF7")
 
-    for index, group in enumerate(groups.values(), start=1):
-        refs = sorted(set(group.get("refs", [])), key=_natural_ref_key)
-        row = [index, len(refs), ",".join(refs)]
+    for index, item in enumerate(mapped, start=1):
+        refs = split_refs(item.get("Reference", ""))
+        row = [index, len(refs) or 1, ",".join(refs)]
         for col in headers[3:]:
-            row.append(group.get(col, ""))
+            row.append(item.get(col, ""))
         ws.append(row)
 
     for column in ws.columns:

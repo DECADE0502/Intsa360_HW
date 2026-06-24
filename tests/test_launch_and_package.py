@@ -26,6 +26,7 @@ class LaunchAndPackageTests(unittest.TestCase):
         self.assertIn("Write-LauncherLog", text)
         self.assertIn("Open-WaitingPage", text)
         self.assertIn("waiting.html", text)
+        self.assertIn("/api/plugins", text)
         self.assertIn("url.dll,FileProtocolHandler", text)
         self.assertIn("Insta360硬件提效平台已就绪", text)
         self.assertNotIn("Hardware Efficiency Suite ready", text)
