@@ -51,8 +51,8 @@ function Write-CadenceLoader {
   $python = ConvertTo-TclPath $PythonPath
   # Static check anchors:
   # InsertXMLMenu top label: "insta360_HW"
-  # AddAccessoryMenu "insta360_HW" "进入平台"
-  # AddAccessoryMenu "insta360_HW" "导出并处理BOM"
+  # AddAccessoryMenu "insta360_HW" "Open Platform"
+  # AddAccessoryMenu "insta360_HW" "Export and Process BOM"
   $templatePath = Join-Path $ToolRoot "cadence\iac_bom_tool.tcl"
   if (-not (Test-Path -LiteralPath $templatePath)) {
     throw ((Get-HwAgentText "5pyq5om+5YiwIENhZGVuY2UgVGNsIOaooeadv++8mg==") + $templatePath)

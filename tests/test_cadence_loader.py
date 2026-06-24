@@ -12,18 +12,18 @@ POWERSHELL = "powershell"
 
 
 class CadenceLoaderGenerationTests(unittest.TestCase):
-    def test_cadence_loader_template_uses_ascii_top_menu_and_chinese_accessory_menu(self) -> None:
+    def test_cadence_loader_template_uses_ascii_top_menu_and_english_default_items(self) -> None:
         text = (ROOT / "scripts" / "lib" / "Cadence.ps1").read_text(encoding="utf-8")
         template = (ROOT / "cadence" / "iac_bom_tool.tcl").read_text(encoding="utf-8")
 
         self.assertIn('"insta360_HW"', text)
         self.assertIn('[list "popup" "insta360_HW"', template)
-        self.assertIn('"action" "进入平台"', template)
-        self.assertIn('"action" "导出并处理BOM"', template)
-        self.assertNotIn('"Open Tool Suite"', template)
-        self.assertNotIn('"Export and Process BOM"', template)
-        self.assertIn('AddAccessoryMenu "insta360_HW" "进入平台"', text)
-        self.assertIn('AddAccessoryMenu "insta360_HW" "导出并处理BOM"', text)
+        self.assertIn('"action" "Open Platform"', template)
+        self.assertIn('"action" "Export and Process BOM"', template)
+        self.assertNotIn('"action" "进入平台"', template)
+        self.assertNotIn('"action" "导出并处理BOM"', template)
+        self.assertIn('AddAccessoryMenu "insta360_HW" "Open Platform"', text)
+        self.assertIn('AddAccessoryMenu "insta360_HW" "Export and Process BOM"', text)
         self.assertNotIn('AddAccessoryMenu "insta360_HW" "选中器件切换NC"', text)
 
     def test_root_does_not_keep_stale_insta360_bom_loader_copy(self) -> None:
@@ -52,8 +52,10 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
             decoded = raw.decode("gbk")
             self.assertIn('InsertXMLMenu [list [list "IACBOM"]', decoded)
             self.assertIn('"insta360_HW"', decoded)
-            self.assertIn('AddAccessoryMenu "insta360_HW" "进入平台"', decoded)
-            self.assertIn('AddAccessoryMenu "insta360_HW" "导出并处理BOM"', decoded)
+            self.assertIn('AddAccessoryMenu "insta360_HW" "Open Platform"', decoded)
+            self.assertIn('AddAccessoryMenu "insta360_HW" "Export and Process BOM"', decoded)
+            self.assertNotIn('AddAccessoryMenu "insta360_HW" "进入平台"', decoded)
+            self.assertNotIn('AddAccessoryMenu "insta360_HW" "导出并处理BOM"', decoded)
             self.assertNotIn('AddAccessoryMenu "insta360_HW" "选中器件切换NC"', decoded)
             self.assertNotIn("orcad_enhanced_tools.tcl", decoded)
             self.assertNotIn("rename RegisterAction", decoded)
@@ -84,7 +86,7 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
                         'set ::IAC_ROOT "{{TOOL_ROOT}}"',
                         'set ::IAC_PY   "python"',
                         'proc ::IAC::addAccessoryMenu { args } {',
-                        '  AddAccessoryMenu "insta360_HW" "进入平台" "::IAC::OpenTool"',
+                        '  AddAccessoryMenu "insta360_HW" "Open Platform" "::IAC::OpenTool"',
                         '  # {{CADENCE_SCRIPT_MENU_ITEMS}}',
                         '}',
                     ]

@@ -289,13 +289,13 @@ catch {
     RegisterAction "iacExport" "::IAC::shouldProcess" "" "::IAC::ExportAndProcess" ""
     RegisterAction "iacUpd"    "::IAC::shouldProcess" "" "::IAC::updatePro"    ""
     InsertXMLMenu [list [list "IACBOM"] "" "" [list "popup" "insta360_HW" "" "" "" "" ""] ""]
-    InsertXMLMenu [list [list "IACBOM" "Open"]   "" "" [list "action" "进入平台" "0" "iacOpen"   "iacUpd" "" "打开 Insta360硬件提效平台"] ""]
-    InsertXMLMenu [list [list "IACBOM" "Export"] "" "" [list "action" "导出并处理BOM" "0" "iacExport" "iacUpd" "" "导出 Capture BOM 并进入处理流程"] ""]
+    InsertXMLMenu [list [list "IACBOM" "Open"]   "" "" [list "action" "Open Platform" "0" "iacOpen"   "iacUpd" "" "Open Insta360 hardware platform"] ""]
+    InsertXMLMenu [list [list "IACBOM" "Export"] "" "" [list "action" "Export and Process BOM" "0" "iacExport" "iacUpd" "" "Export Capture BOM and open processing wizard"] ""]
 }
 catch {
     proc ::IAC::addAccessoryMenu { args } {
-        AddAccessoryMenu "insta360_HW" "进入平台" "::IAC::OpenTool"
-        AddAccessoryMenu "insta360_HW" "导出并处理BOM" "::IAC::ExportAndProcess"
+        AddAccessoryMenu "insta360_HW" "Open Platform" "::IAC::OpenTool"
+        AddAccessoryMenu "insta360_HW" "Export and Process BOM" "::IAC::ExportAndProcess"
         # {{CADENCE_SCRIPT_MENU_ITEMS}}
     }
     RegisterAction "_cdnCapTclAddDesignCustomMenu" "::IAC::shouldProcess" "" "::IAC::addAccessoryMenu" ""

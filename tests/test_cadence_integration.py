@@ -169,14 +169,18 @@ class CadenceIntegrationTests(unittest.TestCase):
         self.assertIn("GetVariantProp", proc)
         self.assertIn("IsPrimitive", text)
 
-    def test_tcl_template_uses_hidden_launcher_and_accessory_chinese_menu(self) -> None:
+    def test_tcl_template_uses_hidden_launcher_and_ascii_default_menu(self) -> None:
         text = TCL_TEMPLATE.read_text(encoding="utf-8")
 
         self.assertIn("launch_tool_suite_hidden.vbs", text)
         self.assertIn("wscript.exe", text)
         self.assertIn('"insta360_HW"', text)
-        self.assertIn('AddAccessoryMenu "insta360_HW" "进入平台"', text)
-        self.assertIn('AddAccessoryMenu "insta360_HW" "导出并处理BOM"', text)
+        self.assertIn('AddAccessoryMenu "insta360_HW" "Open Platform"', text)
+        self.assertIn('AddAccessoryMenu "insta360_HW" "Export and Process BOM"', text)
+        self.assertIn('"action" "Open Platform"', text)
+        self.assertIn('"action" "Export and Process BOM"', text)
+        self.assertNotIn('AddAccessoryMenu "insta360_HW" "进入平台"', text)
+        self.assertNotIn('AddAccessoryMenu "insta360_HW" "导出并处理BOM"', text)
 
     def test_tcl_template_exposes_capture_command_window_diagnostics(self) -> None:
         text = TCL_TEMPLATE.read_text(encoding="utf-8")
