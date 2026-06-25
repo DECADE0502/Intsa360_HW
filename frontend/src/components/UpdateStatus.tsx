@@ -1,37 +1,43 @@
-import { useEffect, useState } from "react";
-import { Badge, Button, Input, Modal, Typography, message } from "antd";
+import { useEffect, useRef, useState } from "react";
+import { Badge, Button, Input, Modal, Progress, Typography, message } from "antd";
 import {
   CheckCircleOutlined,
   DeleteOutlined,
   DisconnectOutlined,
   SyncOutlined,
 } from "@ant-design/icons";
+import type { UpdateStatusInfo } from "../api/client";
 import {
   checkUninstall,
   checkUpdate,
+  fetchUpdateStatus,
   runUninstall,
   startUpdate,
 } from "../api/client";
 
-const { Text } = Typography;
+const { Text, Paragraph } = Typography;
 
 /**
  * Sidebar footer "维护" card. Groups the platform-level lifecycle actions
  * (OTA update, detach Cadence integration, full uninstall) into one clearly
- * layered block instead of a pile of buttons:
- *   - version row (status readout, with remote-version comparison)
- *   - safe actions (update / detach)
- *   - danger action (full uninstall), visually separated and gated by a
- *     typed DELETE confirmation modal.
+ * layered block instead of a pile of buttons.
+ *
+ * The update flow opens a progress modal that polls /api/update/status and
+ * shows a live progress bar + scrolling log, so the user always knows whether
+ * an update is running and how far along it is.
  */
 export function UpdateStatus({ version }: { version: string }) {
-  const [updating, setUpdating] = useState(false);
   const [detaching, setDetaching] = useState(false);
   const [fullOpen, setFullOpen] = useState(false);
   const [confirmText, setConfirmText] = useState("");
   const [fulling, setFulling] = useState(false);
   const [hasUpdate, setHasUpdate] = useState(false);
   const [remoteVersion, setRemoteVersion] = useState<string>("");
+
+  // Update progress modal state.
+  const [progressOpen, setProgressOpen] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatusInfo | null>(null);
+  const pollRef = useRef<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -47,15 +53,34 @@ export function UpdateStatus({ version }: { version: string }) {
     };
   }, []);
 
+  // Poll update status every 1s while the progress modal is open.
+  useEffect(() => {
+    if (!progressOpen) {
+      if (pollRef.current) window.clearInterval(pollRef.current);
+      return;
+    }
+    const poll = () => {
+      fetchUpdateStatus()
+        .then(setUpdateStatus)
+        .catch(() => {});
+    };
+    poll();
+    pollRef.current = window.setInterval(poll, 1000);
+    return () => {
+      if (pollRef.current) window.clearInterval(pollRef.current);
+    };
+  }, [progressOpen]);
+
+  const finished = updateStatus?.done || updateStatus?.failed;
+
   async function onUpdate() {
-    setUpdating(true);
+    setProgressOpen(true);
+    setUpdateStatus(null);
     try {
       await startUpdate();
-      message.success("已开始更新，完成后会自动重启服务");
     } catch (e) {
       message.error((e as Error).message || "更新启动失败");
-    } finally {
-      setUpdating(false);
+      setProgressOpen(false);
     }
   }
 
@@ -108,7 +133,6 @@ export function UpdateStatus({ version }: { version: string }) {
           className="maint-btn"
           size="small"
           icon={<SyncOutlined />}
-          loading={updating}
           onClick={onUpdate}
         >
           {hasUpdate ? `一键更新到 ${remoteVersion}` : "一键更新"}
@@ -137,6 +161,61 @@ export function UpdateStatus({ version }: { version: string }) {
         </Button>
       </div>
 
+      {/* Update progress modal: live progress bar + scrolling log. */}
+      <Modal
+        open={progressOpen}
+        title="正在更新平台"
+        footer={null}
+        width={620}
+        closable={false}
+        onCancel={() => setProgressOpen(false)}
+      >
+        <div style={{ marginBottom: 12 }}>
+          <Progress
+            percent={updateStatus?.progress ?? 0}
+            status={
+              updateStatus?.failed
+                ? "exception"
+                : updateStatus?.done
+                ? "success"
+                : "active"
+            }
+          />
+        </div>
+        <Paragraph style={{ marginBottom: 8, minHeight: 22 }}>
+          {updateStatus?.failed ? (
+            <Text type="danger">{updateStatus.message}</Text>
+          ) : updateStatus?.done ? (
+            <Text type="success">{updateStatus.message}</Text>
+          ) : (
+            <Text type="secondary">{updateStatus?.step || updateStatus?.message || "准备中..."}</Text>
+          )}
+        </Paragraph>
+        <pre className="update-log">
+          {(updateStatus?.log_tail || []).join("\n") || "等待日志输出..."}
+        </pre>
+        <div style={{ textAlign: "right", marginTop: 12 }}>
+          {finished ? (
+            <Button
+              type="primary"
+              onClick={() => {
+                setProgressOpen(false);
+                if (updateStatus?.done) {
+                  message.success("更新完成，页面将在 3 秒后刷新");
+                  setTimeout(() => window.location.reload(), 3000);
+                }
+              }}
+            >
+              {updateStatus?.done ? "完成并刷新" : "关闭"}
+            </Button>
+          ) : (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              更新进行中，请勿关闭窗口
+            </Text>
+          )}
+        </div>
+      </Modal>
+
       <Modal
         open={fullOpen}
         title="完整卸载平台"
@@ -149,13 +228,13 @@ export function UpdateStatus({ version }: { version: string }) {
         }}
         onOk={onFull}
       >
-        <Typography.Paragraph type="danger" strong>
+        <Paragraph type="danger" strong>
           这将删除整个平台目录及其全部文件（含 data、config、plugins/user）。
           该操作不可恢复。
-        </Typography.Paragraph>
-        <Typography.Paragraph>
+        </Paragraph>
+        <Paragraph>
           如只需从 Capture 移除菜单、保留平台，请改用「移除 Cadence 集成」。
-        </Typography.Paragraph>
+        </Paragraph>
         <Text>请输入 </Text>
         <Text code>DELETE</Text>
         <Text> 以确认：</Text>

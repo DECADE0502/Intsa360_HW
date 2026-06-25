@@ -28,6 +28,89 @@ def _update_log_path(root: Path) -> Path:
     return root / "data" / "reports" / "runtime" / "update_latest.log"
 
 
+def _is_update_running(root: Path) -> bool:
+    """True if an update.ps1 process is currently running. Used to distinguish
+    'update finished' from 'update crashed' — if the process is gone but the
+    log lacks a done marker, it failed."""
+    try:
+        import subprocess
+        # tasklist filters for powershell running update.ps1 by command line.
+        out = subprocess.run(
+            ["wmic", "process", "where",
+             "name='powershell.exe'", "get", "commandline"],
+            capture_output=True, text=True, timeout=5,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        return "update.ps1" in (out.stdout or "")
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def update_status(root: Path) -> dict[str, object]:
+    """Report live update progress by parsing the update log. Returns:
+      - running: whether update.ps1 is still executing
+      - progress: 0-100 from the last __HWAGENT_PROGRESS__ marker
+      - step: human-readable current step
+      - done: True if __HWAGENT_DONE__ was written (update succeeded)
+      - failed: True if process is gone but no done marker (crashed)
+      - log_tail: last ~30 log lines for the live console
+    """
+    log_path = _update_log_path(root)
+    log_text = ""
+    log_tail: list[str] = []
+    if log_path.exists():
+        try:
+            log_text = log_path.read_text(encoding="utf-8", errors="replace")
+            log_tail = [ln for ln in log_text.splitlines() if ln.strip()][-30:]
+        except OSError:
+            pass
+
+    running = _is_update_running(root)
+    done = "__HWAGENT_DONE__" in log_text
+
+    # Parse the latest progress marker for the percentage + step label.
+    progress = 0
+    step = ""
+    last_marker = None
+    for line in log_text.splitlines():
+        if line.startswith("__HWAGENT_PROGRESS__"):
+            last_marker = line
+    if last_marker:
+        parts = last_marker.split(None, 2)
+        if len(parts) >= 2:
+            try:
+                progress = int(parts[1])
+            except ValueError:
+                pass
+        if len(parts) >= 3:
+            step = parts[2]
+
+    # If the process has exited without a done marker, the update failed.
+    failed = (not running) and (not done) and bool(log_text) and progress > 0
+
+    # Filter the machine markers out of the displayed log tail.
+    clean_tail = [ln for ln in log_tail if not ln.startswith("__HWAGENT")]
+
+    message = "更新进行中"
+    if done:
+        message = "更新完成，服务正在重启"
+    elif failed:
+        message = "更新失败，请查看日志"
+    elif not running and not log_text:
+        message = "无更新任务"
+
+    return {
+        "status": "ok",
+        "running": running,
+        "done": done,
+        "failed": failed,
+        "progress": progress,
+        "step": step,
+        "message": message,
+        "log_tail": clean_tail,
+    }
+
+
 def _remote_repo_path(root: Path) -> str:
     """owner/repo extracted from the update.ps1 default Repo param, so the
     remote VERSION URL stays in sync with whatever the updater targets."""

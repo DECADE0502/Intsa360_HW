@@ -183,6 +183,23 @@ export async function checkUpdate(): Promise<UpdateCheck> {
   return payload;
 }
 
+export type UpdateStatusInfo = {
+  running: boolean;
+  done: boolean;
+  failed: boolean;
+  progress: number;
+  step: string;
+  message: string;
+  log_tail: string[];
+};
+
+export async function fetchUpdateStatus(): Promise<UpdateStatusInfo> {
+  const res = await fetch("/api/update/status");
+  const payload = await res.json();
+  if (!res.ok || payload.status !== "ok") throw new Error(payload.error || "更新状态获取失败");
+  return payload;
+}
+
 export type UninstallCheck = {
   can_uninstall: boolean;
   modes: string[];

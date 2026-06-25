@@ -246,6 +246,54 @@ class DistributionInstallTests(unittest.TestCase):
             if status == "ok":
                 self.assertIsInstance(remote_version, str)
 
+    def test_update_status_parses_progress_markers_from_log(self) -> None:
+        import sys
+        sys.path.insert(0, str(ROOT))
+        try:
+            from app.backend import update_api
+        finally:
+            sys.path.pop(0)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "install"
+            log_dir = root / "data" / "reports" / "runtime"
+            log_dir.mkdir(parents=True)
+            log = log_dir / "update_latest.log"
+
+            # Mid-update log: latest marker wins for progress + step.
+            log.write_text(
+                "__HWAGENT_PROGRESS__ 30 更新包下载完成\n"
+                "__HWAGENT_PROGRESS__ 70 正应用更新文件...\n",
+                encoding="utf-8",
+            )
+            s = update_api.update_status(root)
+            self.assertEqual(s["progress"], 70)
+            self.assertIn("应用", s["step"])
+            self.assertFalse(s["done"])
+
+            # Completed log: done marker present.
+            log.write_text(
+                "__HWAGENT_PROGRESS__ 100 完成\n__HWAGENT_DONE__\n",
+                encoding="utf-8",
+            )
+            s2 = update_api.update_status(root)
+            self.assertTrue(s2["done"])
+            self.assertIn("完成", s2["message"])
+            # Machine markers are stripped from the displayed tail.
+            for line in s2["log_tail"]:
+                self.assertFalse(line.startswith("__HWAGENT"))
+
+    def test_update_scripts_emit_progress_markers(self) -> None:
+        update_text = (ROOT / "update.ps1").read_text(encoding="utf-8")
+        lib_text = (ROOT / "scripts" / "lib" / "Update.ps1").read_text(encoding="utf-8")
+
+        # The entry script marks start and done; the lib marks each phase so
+        # /api/update/status can report a live percentage.
+        self.assertIn("__HWAGENT_PROGRESS__ 0", update_text)
+        self.assertIn("__HWAGENT_DONE__", update_text)
+        self.assertIn("__HWAGENT_PROGRESS__ 10", lib_text)
+        self.assertIn("__HWAGENT_PROGRESS__ 100", update_text)
+
     def test_update_script_defaults_to_zip_and_gates_verify_all_on_dev_tree(self) -> None:
         update_text = (ROOT / "update.ps1").read_text(encoding="utf-8")
 
@@ -572,6 +620,11 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("/api/uninstall/run", text)
         self.assertIn("update_api.check_uninstall", text)
         self.assertIn("update_api.run_uninstall", text)
+
+    def test_suite_app_exposes_update_status_endpoint(self) -> None:
+        text = (ROOT / "app" / "backend" / "suite_app.py").read_text(encoding="utf-8")
+        self.assertIn("/api/update/status", text)
+        self.assertIn("update_api.update_status", text)
 
     def test_update_api_supports_detach_and_full_uninstall(self) -> None:
         text = (ROOT / "app" / "backend" / "update_api.py").read_text(encoding="utf-8")

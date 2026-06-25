@@ -38,7 +38,8 @@ function Invoke-HwAgentZipUpdate {
   $repoPath = $Repo
   if ($repoPath -match '^https?://github\.com/(.+?)(\.git)?/?$') { $repoPath = $Matches[1] }
   $zipUrl = "https://codeload.github.com/$repoPath/zip/refs/heads/$Branch"
-  Write-Host ((Get-HwAgentText "5LiL6L29IFpJUCDmupDnoIHljIUuLi4g") + $zipUrl)
+  Write-Host ((Get-HwAgentText "5LiL6K+tIFpJUCDmupDnoIHkuI3pobkuLi4g") + $zipUrl)
+  Write-Host "__HWAGENT_PROGRESS__ 10 正在下载更新包..."
 
   $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("insta360_hw_update_" + [System.Guid]::NewGuid().ToString("N"))
   $zipPath = Join-Path $tempRoot "update.zip"
@@ -59,9 +60,11 @@ function Invoke-HwAgentZipUpdate {
       $client.Dispose()
     }
     if (-not (Test-Path -LiteralPath $zipPath)) { throw (Get-HwAgentText "WklQIOS4i+i9veWksei0pe+8jOivt+ajgOafpee9kee7nOi/nuaOpeWQjuWGjeivlQ==") }
+    Write-Host "__HWAGENT_PROGRESS__ 30 更新包下载完成"
 
     # Extract with the shell-less Expand-Archive, then locate the single
     # top-level folder GitHub wraps the archive in (owner-repo-branch).
+    Write-Host "__HWAGENT_PROGRESS__ 40 正在解压更新包..."
     Expand-Archive -LiteralPath $zipPath -DestinationPath $extractRoot -Force
     $top = Get-ChildItem -LiteralPath $extractRoot -Directory | Select-Object -First 1
     if (-not $top) { throw (Get-HwAgentText "6Kej5Y6L5ZCO55qEIFpJUCDnvLrlsJHpobblsYLnm67lvZU=") }
@@ -69,6 +72,7 @@ function Invoke-HwAgentZipUpdate {
     if (-not (Test-Path -LiteralPath $cloneRoot)) { throw (Get-HwAgentText "6Kej5Y6L5ZCO55qEIFpJUCDlhoXmnKrmib7liLDlubPlj7Dnm67lvZU=") }
 
     # Backup protected items, mirror, restore — same contract as the git path.
+    Write-Host "__HWAGENT_PROGRESS__ 55 正在备份用户数据..."
     foreach ($item in $script:HwAgentProtected) {
       $sourcePath = Join-Path $Root $item
       if (Test-Path -LiteralPath $sourcePath) {
@@ -79,12 +83,14 @@ function Invoke-HwAgentZipUpdate {
       }
     }
 
+    Write-Host "__HWAGENT_PROGRESS__ 70 正应用更新文件..."
     $args = @($cloneRoot, $Root, "/MIR", "/XD") + $script:HwAgentExcludeDirs + @("/XF") + $script:HwAgentExcludeFiles
     & robocopy @args | Out-Null
     if ($LASTEXITCODE -ge 8) {
       throw ((Get-HwAgentText "cm9ib2NvcHkg5aSx6LSl77yMZXhpdCBjb2RlOiA=") + $LASTEXITCODE)
     }
 
+    Write-Host "__HWAGENT_PROGRESS__ 85 正在恢复用户数据..."
     foreach ($item in $script:HwAgentProtected) {
       $backupPath = Join-Path $backupRoot $item
       if (Test-Path -LiteralPath $backupPath) {
@@ -99,6 +105,7 @@ function Invoke-HwAgentZipUpdate {
       Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
   }
+  Write-Host "__HWAGENT_PROGRESS__ 95 正在完成更新..."
   Write-Host (Get-HwAgentText "WklQIOmVnOWDj+abtOaWsOWujOaIkO+8jOW8gOWni+mqjOivgeOAgg==")
   return @{ skipped = $false; branch = $Branch; method = "zip" }
 }

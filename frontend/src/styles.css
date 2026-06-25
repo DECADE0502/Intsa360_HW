@@ -121,6 +121,22 @@ html, body, #root { margin: 0; height: 100%; }
 .maint-btn-danger { background: rgba(255, 77, 79, 0.12) !important; border-color: rgba(255, 77, 79, 0.35) !important; }
 .maint-btn-danger:hover { background: rgba(255, 77, 79, 0.22) !important; }
 
+/* ── Update progress log console ───────────────────────────────────── */
+.update-log {
+  margin: 0;
+  padding: 12px;
+  max-height: 240px;
+  overflow: auto;
+  border-radius: 7px;
+  background: #1e242e;
+  color: #cdd4df;
+  font-size: 12px;
+  line-height: 1.6;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .app-content { padding: 36px 48px; max-width: 1280px; }
 
 .process-grid {

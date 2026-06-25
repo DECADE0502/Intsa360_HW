@@ -158,6 +158,9 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/update/check":
             self._send_json(update_api.check_update(self.root))
             return
+        if parsed.path == "/api/update/status":
+            self._send_json(update_api.update_status(self.root))
+            return
         if parsed.path == "/api/uninstall/check":
             self._send_json(update_api.check_uninstall(self.root))
             return

@@ -20,6 +20,7 @@ $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $Root "scripts\lib\TclScripts.ps1")
 
 $Root = Get-HwAgentRoot -StartPath $Root
+Write-Host "__HWAGENT_PROGRESS__ 0 开始更新..."
 Write-Host (Get-Text "5byA5aeL5pu05paw56Gs5Lu25pWI546H5bel5YW36ZuGLi4u")
 Write-Host (Get-Text "55So5oi35pWw5o2u5L+d5oqk6IyD5Zu077yaZGF0YSwgdXBsb2Fkcywgb3V0cHV0cywgaGlzdG9yeSwgY29uZmlnL2xvY2FsLmpzb24=")
 
@@ -50,6 +51,7 @@ $verify = Join-Path $Root "scripts\verify_all.ps1"
 # repo — installed (runtime) copies lack them. Run it only when present so
 # updates on an installed copy don't hard-fail at the verification step.
 if ((Test-Path -LiteralPath $verify) -and (Test-Path -LiteralPath (Join-Path $Root "tests"))) {
+  Write-Host "__HWAGENT_PROGRESS__ 98 正在验证..."
   Write-Host (Get-Text "5byA5aeL6aqM6K+BLi4u")
   & $verify
   if ($LASTEXITCODE -ne 0) { throw (Get-Text "6aqM6K+B5aSx6LSl") }
@@ -58,3 +60,5 @@ if ((Test-Path -LiteralPath $verify) -and (Test-Path -LiteralPath (Join-Path $Ro
 }
 
 Write-Host (Get-Text "5pu05paw5rWB56iL5a6M5oiQ44CC")
+Write-Host "__HWAGENT_PROGRESS__ 100 更新完成，正在重启服务..."
+Write-Host "__HWAGENT_DONE__"
