@@ -8,7 +8,9 @@ def read_version(root: Path) -> str:
     path = root / "VERSION"
     if not path.exists():
         return "0.0.0"
-    return path.read_text(encoding="utf-8").strip() or "0.0.0"
+    # utf-8-sig tolerates a stray BOM if the file was written by an editor or
+    # PowerShell Set-Content -Encoding utf8; strip() drops surrounding whitespace.
+    return path.read_text(encoding="utf-8-sig").strip() or "0.0.0"
 
 
 def version_payload(root: Path) -> dict[str, object]:
@@ -69,7 +71,8 @@ def _fetch_remote_version(root: Path) -> tuple[str, str]:
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "HWAgent-Updater"})
         with urllib.request.urlopen(req, timeout=10) as resp:
-            body = resp.read().decode("utf-8", errors="replace").strip()
+            # utf-8-sig tolerates a BOM on the remote file; strip() drops newlines.
+            body = resp.read().decode("utf-8-sig", errors="replace").strip()
         return body, "ok"
     except Exception as exc:  # noqa: BLE001 — network errors are expected
         return "", f"无法获取远程版本：{exc}"
