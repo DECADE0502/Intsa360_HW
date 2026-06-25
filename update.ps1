@@ -1,6 +1,8 @@
 param(
   [string]$Repo = "https://github.com/DECADE0502/Intsa360_HW.git",
-  [string]$Branch = "main"
+  [string]$Branch = "main",
+  [ValidateSet("zip", "git")]
+  [string]$Method = "zip"
 )
 
 $ErrorActionPreference = "Stop"
@@ -21,7 +23,11 @@ $Root = Get-HwAgentRoot -StartPath $Root
 Write-Host (Get-Text "5byA5aeL5pu05paw56Gs5Lu25pWI546H5bel5YW36ZuGLi4u")
 Write-Host (Get-Text "55So5oi35pWw5o2u5L+d5oqk6IyD5Zu077yaZGF0YSwgdXBsb2Fkcywgb3V0cHV0cywgaGlzdG9yeSwgY29uZmlnL2xvY2FsLmpzb24=")
 
-Invoke-HwAgentGitUpdate -Root $Root -Repo $Repo -Branch $Branch | Out-Null
+# Default to zip-based update so end users need nothing installed (no git).
+# Falls back to git only when -Method git is passed explicitly.
+$UpdateMethod = if ($Method) { $Method } else { "zip" }
+
+Invoke-HwAgentUpdate -Root $Root -Repo $Repo -Branch $Branch -Method $UpdateMethod | Out-Null
 
 $node = Get-Command node.exe -ErrorAction SilentlyContinue
 $npm = Get-Command npm.cmd -ErrorAction SilentlyContinue
@@ -40,7 +46,10 @@ foreach ($autoLoadDir in $AutoLoadDirs) {
 Install-CadenceLoader -ToolRoot $Root -PythonPath $Python -AutoLoadDirs $AutoLoadDirs | Out-Null
 
 $verify = Join-Path $Root "scripts\verify_all.ps1"
-if (Test-Path -LiteralPath $verify) {
+# verify_all needs tests/ and frontend/ source, which only exist in the dev
+# repo — installed (runtime) copies lack them. Run it only when present so
+# updates on an installed copy don't hard-fail at the verification step.
+if ((Test-Path -LiteralPath $verify) -and (Test-Path -LiteralPath (Join-Path $Root "tests"))) {
   Write-Host (Get-Text "5byA5aeL6aqM6K+BLi4u")
   & $verify
   if ($LASTEXITCODE -ne 0) { throw (Get-Text "6aqM6K+B5aSx6LSl") }

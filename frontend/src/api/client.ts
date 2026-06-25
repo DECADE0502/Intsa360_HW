@@ -166,3 +166,43 @@ export async function startUpdate() {
   if (!res.ok || payload.status !== "ok") throw new Error(payload.error || "更新启动失败");
   return payload;
 }
+
+export type UpdateCheck = {
+  version: string;
+  remote_version: string;
+  has_update: boolean;
+  can_update: boolean;
+  remote_status: string;
+  message: string;
+};
+
+export async function checkUpdate(): Promise<UpdateCheck> {
+  const res = await fetch("/api/update/check");
+  const payload = await res.json();
+  if (!res.ok || payload.status !== "ok") throw new Error(payload.error || "更新检查失败");
+  return payload;
+}
+
+export type UninstallCheck = {
+  can_uninstall: boolean;
+  modes: string[];
+  install_dir: string;
+};
+
+export async function checkUninstall(): Promise<UninstallCheck> {
+  const res = await fetch("/api/uninstall/check");
+  const payload = await res.json();
+  if (!res.ok || payload.status !== "ok") throw new Error(payload.error || "卸载检查失败");
+  return payload;
+}
+
+export async function runUninstall(mode: "detach" | "full") {
+  const res = await fetch("/api/uninstall/run", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mode }),
+  });
+  const payload = await res.json();
+  if (!res.ok || payload.status !== "ok") throw new Error(payload.error || "卸载启动失败");
+  return payload;
+}

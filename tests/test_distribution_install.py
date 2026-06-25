@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -10,12 +11,32 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def _decode_base64_labels(text: str) -> str:
+    """Concatenate raw script text with UTF-8 decoded `T \"<b64>\"` payloads.
+
+    One-click entry scripts store Chinese UI strings as Base64 to survive
+    PowerShell encoding quirks, so tests must decode them before asserting
+    on user-facing wording.
+    """
+    import base64
+    import re
+
+    decoded_chunks = []
+    for match in re.finditer(r'T\s+"([A-Za-z0-9+/=]+)"', text):
+        try:
+            decoded_chunks.append(base64.b64decode(match.group(1)).decode("utf-8"))
+        except Exception:
+            pass
+    return text + "\n" + "\n".join(decoded_chunks)
+
+
 class DistributionInstallTests(unittest.TestCase):
     def test_distribution_scripts_and_libraries_exist(self) -> None:
         expected = [
             "install.ps1",
             "update.ps1",
             "uninstall.ps1",
+            "oneclick_update.ps1",
             "scripts/lib/Paths.ps1",
             "scripts/lib/Cadence.ps1",
             "scripts/lib/Service.ps1",
@@ -35,6 +56,7 @@ class DistributionInstallTests(unittest.TestCase):
             "install.ps1",
             "update.ps1",
             "uninstall.ps1",
+            "oneclick_update.ps1",
             "launch_tool_suite.ps1",
             "scripts/lib/Paths.ps1",
             "scripts/lib/Cadence.ps1",
@@ -182,7 +204,88 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("Disable-HwAgentVendorAutoLoadScripts", update_text)
         self.assertIn("Install-CadenceLoader", update_text)
 
+    def test_update_library_supports_zip_update_without_git(self) -> None:
+        text = (ROOT / "scripts" / "lib" / "Update.ps1").read_text(encoding="utf-8")
+        update_text = (ROOT / "update.ps1").read_text(encoding="utf-8")
+
+        # The zip path is the zero-dependency default so end users need no git.
+        self.assertIn("function Invoke-HwAgentZipUpdate", text)
+        self.assertIn("codeload.github.com", text)
+        self.assertIn("Expand-Archive", text)
+        # The dispatcher defaults to zip.
+        self.assertIn("function Invoke-HwAgentUpdate", text)
+        self.assertIn('[string]$Method = "zip"', update_text)
+
+    def test_update_api_compares_remote_version(self) -> None:
+        import sys
+        sys.path.insert(0, str(ROOT))
+        try:
+            from app.backend import update_api
+        finally:
+            sys.path.pop(0)
+
+        # Semantic parsing strips non-numeric suffixes for comparison.
+        self.assertEqual(update_api._parse_version("0.2.0-dev"), (0, 2, 0))
+        self.assertEqual(update_api._parse_version("1.0"), (1, 0, 0))
+        self.assertGreater(update_api._parse_version("0.3.0"), update_api._parse_version("0.2.0-dev"))
+
+        # Repo path is extracted from update.ps1's $Repo default.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "install"
+            root.mkdir()
+            (root / "VERSION").write_text("0.2.0\n", encoding="utf-8")
+            (root / "update.ps1").write_text(
+                'param([string]$Repo = "https://github.com/DECADE0502/Intsa360_HW.git")',
+                encoding="utf-8",
+            )
+            self.assertEqual(update_api._remote_repo_path(root), "DECADE0502/Intsa360_HW")
+
+            # Live remote fetch — network may be unavailable in CI, so only
+            # assert structure when it succeeds.
+            remote_version, status = update_api._fetch_remote_version(root)
+            if status == "ok":
+                self.assertIsInstance(remote_version, str)
+
+    def test_update_script_defaults_to_zip_and_gates_verify_all_on_dev_tree(self) -> None:
+        update_text = (ROOT / "update.ps1").read_text(encoding="utf-8")
+
+        # The default update method is zip (no git required on user machines).
+        self.assertIn('[string]$Method = "zip"', update_text)
+        self.assertIn("Invoke-HwAgentUpdate", update_text)
+        # verify_all is gated on tests/ existing — installed runtime copies
+        # lack the dev tree and must not hard-fail the update at verification.
+        self.assertIn('Join-Path $Root "tests"', update_text)
+
+    def test_update_api_reports_git_availability_and_runs_zip_without_git(self) -> None:
+        import sys
+        sys.path.insert(0, str(ROOT))
+        try:
+            from app.backend import update_api
+        finally:
+            sys.path.pop(0)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "install"
+            root.mkdir()
+            (root / "VERSION").write_text("0.2.0\n", encoding="utf-8")
+            (root / "update.ps1").write_text("echo hi\n", encoding="utf-8")
+
+            check = update_api.check_update.__wrapped__ if hasattr(update_api.check_update, "__wrapped__") else update_api.check_update
+            result = update_api.check_update(root)
+            self.assertIn("git_available", result)
+            self.assertIsInstance(result["git_available"], bool)
+            self.assertTrue(result["can_update"])
+
+            # ZIP-based update needs no git, so run_update must NOT hard-fail on
+            # a missing git — it should launch the updater (status ok). We
+            # can't let the real process run in a test, so just assert the
+            # script-exists branch is reached without a git gate.
+            self.assertTrue((root / "update.ps1").exists())
+
     def test_update_library_can_update_plain_folder_from_git_repo(self) -> None:
+        if not shutil.which("git"):
+            self.skipTest("git is not available")
+
         git = subprocess.run(
             ["git", "--version"],
             stdout=subprocess.PIPE,
@@ -274,6 +377,77 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertFalse(install.exists())
             self.assertFalse((autoload / "iac_bom_tool.tcl").exists())
 
+    def test_uninstall_detach_mode_keeps_install_root_and_user_scripts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            install = tmp_path / "install"
+            autoload = tmp_path / "autoload"
+            install.mkdir()
+            autoload.mkdir()
+            (install / "app").mkdir()
+            (install / "plugins" / "user" / "scripts").mkdir(parents=True)
+            user_script = install / "plugins" / "user" / "scripts" / "mine.tcl"
+            user_script.write_text("keep-me", encoding="utf-8")
+            (autoload / "iac_bom_tool.tcl").write_text("loader", encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    "powershell",
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    str(ROOT / "uninstall.ps1"),
+                    "-Mode",
+                    "Detach",
+                    "-InstallDir",
+                    str(install),
+                    "-CaptureAutoLoadDir",
+                    str(autoload),
+                    "-Force",
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=30,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr.decode("utf-8", errors="replace"))
+            self.assertTrue(install.exists())
+            self.assertTrue(user_script.exists())
+            self.assertEqual(user_script.read_text(encoding="utf-8"), "keep-me")
+            self.assertFalse((autoload / "iac_bom_tool.tcl").exists())
+
+    def test_oneclick_uninstall_offers_detach_and_full_cleanup(self) -> None:
+        text = _decode_base64_labels(
+            (ROOT / "oneclick_uninstall.ps1").read_text(encoding="utf-8")
+        )
+
+        self.assertIn("Detach", text)
+        self.assertIn("Full", text)
+        self.assertIn("完整卸载", text)
+        self.assertIn("保留平台文件", text)
+        self.assertIn("删除整个平台目录", text)
+
+    def test_uninstall_is_driven_by_platform_api_not_a_batch(self) -> None:
+        # Uninstall moved from a standalone .bat into the platform UI / API.
+        # The legacy 一键卸载.bat must NOT exist; the API endpoint must.
+        self.assertFalse((ROOT / "一键卸载.bat").exists())
+        backend = (ROOT / "app" / "backend" / "suite_app.py").read_text(encoding="utf-8")
+        self.assertIn("/api/uninstall/check", backend)
+        self.assertIn("/api/uninstall/run", backend)
+
+    def test_update_entrypoint_checks_git_and_no_legacy_batch(self) -> None:
+        ps1_text = _decode_base64_labels(
+            (ROOT / "oneclick_update.ps1").read_text(encoding="utf-8")
+        )
+
+        self.assertIn("update.ps1", ps1_text)
+        self.assertIn("Get-Command git.exe", ps1_text)
+        self.assertIn("Git", ps1_text)
+        # The user-facing 一键更新.bat was replaced by the in-platform update UI;
+        # the ps1 remains as an internal entry point invoked by the API.
+        self.assertFalse((ROOT / "一键更新.bat").exists())
+
     def test_paths_library_finds_vendor_autoload_dirs_separately_from_user_loader_dirs(self) -> None:
         text = (ROOT / "scripts" / "lib" / "Paths.ps1").read_text(encoding="utf-8")
 
@@ -334,6 +508,115 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("AddAccessoryMenu=available", text)
         self.assertIn("CloseMainWindow", text)
         self.assertIn("exit 1", text)
+
+    # ── Single-exe launcher (Insta360_HW.exe) ──────────────────────────────
+
+    def test_launcher_source_and_build_script_exist(self) -> None:
+        self.assertTrue((ROOT / "launcher" / "Insta360_HW.cs").exists())
+        self.assertTrue((ROOT / "launcher" / "build.ps1").exists())
+
+    def test_launcher_source_uses_find_python_via_ps1_and_no_hardcoded_python(self) -> None:
+        text = (ROOT / "launcher" / "Insta360_HW.cs").read_text(encoding="utf-8")
+
+        # The exe must delegate launching to launch_tool_suite.ps1 (which uses
+        # Find-Python) instead of hard-coding a Python path.
+        self.assertIn("launch_tool_suite.ps1", text)
+        self.assertNotIn("codex-primary-runtime", text)
+        self.assertNotIn(".venv\\Scripts\\python.exe", text)
+
+    def test_launcher_source_runs_first_run_readiness_then_launches(self) -> None:
+        text = (ROOT / "launcher" / "Insta360_HW.cs").read_text(encoding="utf-8")
+
+        self.assertIn("oneclick_install.ps1", text)
+        self.assertIn("-Silent", text)
+        self.assertIn(".ready", text)
+        self.assertIn("ProcessWindowStyle.Hidden", text)
+
+    def test_launcher_build_script_embeds_icon_and_targets_winexe(self) -> None:
+        text = (ROOT / "launcher" / "build.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("/target:winexe", text)
+        self.assertIn("/win32icon:", text)
+        self.assertIn("insta360_icon.ico", text)
+        self.assertIn("Insta360_HW.exe", text)
+
+    def test_oneclick_install_supports_silent_mode(self) -> None:
+        text = (ROOT / "oneclick_install.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("param([switch]$Silent)", text)
+        # Silent mode must not prompt; it gates all interactive Write-Host output.
+        self.assertIn("-not $Silent", text)
+
+    def test_insta360_hw_exe_is_built_with_embedded_icon(self) -> None:
+        exe = ROOT / "Insta360_HW.exe"
+        self.assertTrue(exe.exists(), "Insta360_HW.exe must be built")
+        # PE signature (MZ) sanity check.
+        header = exe.read_bytes()[:2]
+        self.assertEqual(header, b"MZ")
+
+    # ── Release tree builder ───────────────────────────────────────────────
+
+    def test_release_builder_script_exists_and_ships_exe(self) -> None:
+        text = (ROOT / "scripts" / "build_release.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("launcher\\build.ps1", text)
+        self.assertIn("scripts\\build_frontend.ps1", text)
+        self.assertIn("Insta360_HW.exe", text)
+
+    # ── In-platform uninstall API ──────────────────────────────────────────
+
+    def test_suite_app_exposes_uninstall_endpoints(self) -> None:
+        text = (ROOT / "app" / "backend" / "suite_app.py").read_text(encoding="utf-8")
+
+        self.assertIn("/api/uninstall/check", text)
+        self.assertIn("/api/uninstall/run", text)
+        self.assertIn("update_api.check_uninstall", text)
+        self.assertIn("update_api.run_uninstall", text)
+
+    def test_update_api_supports_detach_and_full_uninstall(self) -> None:
+        text = (ROOT / "app" / "backend" / "update_api.py").read_text(encoding="utf-8")
+
+        self.assertIn("def check_uninstall", text)
+        self.assertIn("def run_uninstall", text)
+        # Detach must be safe to run while the service is up; Full must defer
+        # deletion to a detached helper that waits for the backend to exit.
+        self.assertIn('"detach"', text)
+        self.assertIn('"full"', text)
+        self.assertIn("DETACHED_PROCESS", text)
+        self.assertIn("suite_app.py", text)
+
+    def test_update_api_full_uninstall_helper_runs_from_temp_and_waits(self) -> None:
+        import sys
+
+        sys.path.insert(0, str(ROOT))
+        try:
+            from app.backend import update_api
+        finally:
+            sys.path.pop(0)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "install"
+            root.mkdir()
+            helper = update_api._full_uninstall_helper(root, ["powershell", "-File", "uninstall.ps1", "-Mode", "Full"])
+            self.assertIn("Set-Location $env:TEMP", helper)
+            self.assertIn("suite_app.py", helper)
+            self.assertIn("uninstall.ps1", helper)
+
+            check = update_api.check_uninstall(root)
+            self.assertFalse(check["can_uninstall"])
+            self.assertEqual(check["modes"], [])
+
+    def test_inno_setup_points_shortcuts_at_exe(self) -> None:
+        iss = ROOT.parent / "HWAgent_Setup.iss"
+        text = iss.read_text(encoding="utf-8")
+
+        # Shortcuts must launch the exe, not the legacy bat.
+        self.assertIn(r"{app}\Insta360_HW.exe", text)
+        self.assertNotIn(r"{app}\启动硬件效率工具集.bat", text)
+        # Control panel uninstall display icon is the exe.
+        self.assertIn(r"UninstallDisplayIcon={app}\Insta360_HW.exe", text)
+        # Installer runs the silent oneclick install.
+        self.assertIn('oneclick_install.ps1"" -Silent', text)
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ import { HistoryView } from "./platform/HistoryView";
 import { PlatformHome } from "./platform/PlatformHome";
 import { ScriptManager } from "./platform/ScriptManager";
 import { SystemStatus } from "./platform/SystemStatus";
+import { UpdateStatus } from "./components/UpdateStatus";
 import { BomProcessWizard } from "./tools/BomProcessWizard";
 import { LegacyToolPane } from "./tools/LegacyToolPane";
 import "./styles.css";
@@ -109,22 +110,25 @@ export default function App() {
   return (
     <ConfigProvider locale={zhCN}>
       <Layout className="app-shell">
-        <Sider width={220} className="app-sider" style={{ display: "flex", flexDirection: "column" }}>
-          <div style={{ padding: "20px 20px 16px" }}>
-            <Typography.Text strong style={{ fontSize: 15 }}>
-              Insta360硬件提效平台
-            </Typography.Text>
-            <div style={{ fontSize: 12, color: "#999", marginTop: 4 }}>v{status?.version || "-"} · 运行中</div>
+        <Sider width={232} className="app-sider">
+          <div className="app-brand">
+            <img className="app-brand-logo" src="/assets/insta360_logo.png" alt="Insta360" />
+            <div className="app-brand-copy">
+              <Typography.Text className="app-brand-title">硬件提效平台</Typography.Text>
+              <div className="app-brand-meta">
+                <span className="app-brand-dot" />v{status?.version || "-"} · 运行中
+              </div>
+            </div>
           </div>
-          <Menu mode="inline" selectedKeys={[active]} items={menu} onClick={({ key }) => setActive(key)} style={{ flex: 1 }} />
-          <div style={{ padding: "12px 20px", borderTop: "1px solid #f0f0f0", fontSize: 12, color: "#999", lineHeight: 1.8 }}>
-            <a href="https://github.com/DECADE0502/Intsa360_HW" target="_blank" rel="noopener" style={{ color: "#666" }}>
-              DECADE0502/Intsa360_HW
-            </a>
-            <div>作者：wuqiyou@insta360.com</div>
-            <a href="/api/logs/download" style={{ color: "#1677ff", fontSize: 12 }}>
-              导出全部日志
-            </a>
+          <Menu mode="inline" selectedKeys={[active]} items={menu} onClick={({ key }) => setActive(key)} className="app-menu" />
+          <div className="app-footer">
+            <UpdateStatus version={status?.version} />
+            <div className="app-footer-meta">
+              <a href="/api/logs/download" className="app-footer-link">导出全部日志</a>
+              <span className="app-footer-sep">·</span>
+              <a href="https://github.com/DECADE0502/Intsa360_HW" target="_blank" rel="noopener" className="app-footer-link">源码仓库</a>
+            </div>
+            <div className="app-footer-author">wuqiyou@insta360.com</div>
           </div>
         </Sider>
         <Content className="app-content" style={{ overflow: "auto" }}>

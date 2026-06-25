@@ -50,8 +50,26 @@ function Get-EnabledCadenceMenuItems {
     }
   }
 
+$registeredNamespaces = @{}
+  $registeredActions = @()
+
   foreach ($item in @($items)) {
     if ($item.type -ne "cadence_tcl") { continue }
+    # 收集要清理的 action id（不论是否当前挂载，都清理旧残留）
+    if (Test-HwAgentProperty -Object $item -Name "shortcut") {
+      $actionId = Escape-TclMenuText (([string]$item.id) + "_shortcut")
+      $registeredActions += $actionId
+    }
+    # 收集要清理的 namespace
+    if ($item.module) {
+      $ns = [string]$item.command
+      if ($ns -match '^(::[^:]+)') {
+        $nsName = $matches[1]
+        if (-not $registeredNamespaces.ContainsKey($nsName)) {
+          $registeredNamespaces[$nsName] = $true
+        }
+      }
+    }
     if ($item.show_in_cadence -ne $true) { continue }
     $name = Escape-TclMenuText ([string]$item.name)
     $command = Escape-TclMenuText ([string]$item.command)
@@ -81,7 +99,17 @@ function Get-EnabledCadenceMenuItems {
       $lines += ('        catch {RegisterAction "' + $actionId + '" "' + $enabledCommand + '" "' + $shortcut + '" "' + $shortcutCommand + '" "' + $shortcutContext + '"}')
     }
   }
-  return ($lines -join "`r`n")
+
+  # 生成 cleanup 块：放在 addAccessory proc 开头，加载新内容前先清理旧残留
+  $cleanupLines = @('        # ---- cleanup old module state (hot-reload safe) ----')
+  foreach ($nsName in ($registeredNamespaces.Keys | Sort-Object)) {
+    $cleanupLines += ('        catch {namespace delete ' + $nsName + '}')
+  }
+  foreach ($actId in $registeredActions) {
+    $cleanupLines += ('        catch {RegisterAction "' + $actId + '" "::IAC::shouldProcess" "" "" ""}')
+  }
+  $cleanup = ($cleanupLines -join "`r`n")
+  return ($cleanup + "`r`n" + ($lines -join "`r`n"))
 }
 
 function Write-CadenceLoader {

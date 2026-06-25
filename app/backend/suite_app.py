@@ -158,6 +158,9 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/update/check":
             self._send_json(update_api.check_update(self.root))
             return
+        if parsed.path == "/api/uninstall/check":
+            self._send_json(update_api.check_uninstall(self.root))
+            return
         if parsed.path == "/api/history":
             self._send_json({"runs": history.list_runs(self.root)})
             return
@@ -219,6 +222,15 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/update/run":
             self._send_json(update_api.run_update(self.root))
+            return
+        if parsed.path == "/api/uninstall/run":
+            try:
+                params = self._read_json_body()
+                result = update_api.run_uninstall(self.root, str(params.get("mode") or "detach"))
+            except Exception as exc:
+                self._send_json({"status": "error", "error": str(exc)}, 400 if self._is_user_input_error(exc) else 500)
+                return
+            self._send_json(result, 200 if result.get("status") == "ok" else 400)
             return
         if parsed.path.startswith("/api/capabilities/") and parsed.path.endswith("/cadence-menu"):
             capability_id = unquote(parsed.path.removeprefix("/api/capabilities/").removesuffix("/cadence-menu"))

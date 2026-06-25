@@ -15,10 +15,12 @@ export function PlatformHome({
 
   return (
     <>
-      <Typography.Title level={3}>Insta360硬件提效平台</Typography.Title>
-      <Typography.Paragraph type="secondary" style={{ marginBottom: 32 }}>
-        BOM 处理 · 差异对比 · 风险检查 · 网表分析 · 插件管理 · OTA 更新
-      </Typography.Paragraph>
+      <div className="home-hero">
+        <Typography.Title level={3} className="home-hero-title">硬件提效平台</Typography.Title>
+        <Typography.Paragraph className="home-hero-sub">
+          BOM 处理 · 差异对比 · 风险检查 · 网表分析 · 插件管理 · OTA 更新
+        </Typography.Paragraph>
+      </div>
 
       <Row gutter={[12, 12]} style={{ marginBottom: 40 }}>
         {[
@@ -29,9 +31,9 @@ export function PlatformHome({
           { label: "已挂载到 Cadence", value: enabledPlugins.length },
         ].map((s) => (
           <Col xs={12} md={8} xl={4} key={s.label}>
-            <div style={{ padding: "18px 20px", background: "#fafafa", borderRadius: 8, border: "1px solid #f0f0f0" }}>
-              <div style={{ fontSize: 12, color: "#888", marginBottom: 6 }}>{s.label}</div>
-              <span style={{ fontSize: 28, fontWeight: 700, color: "#1d1d1f" }}>{s.value}</span>
+            <div className="home-stat">
+              <div className="home-stat-value">{s.value}</div>
+              <div className="home-stat-label">{s.label}</div>
             </div>
           </Col>
         ))}

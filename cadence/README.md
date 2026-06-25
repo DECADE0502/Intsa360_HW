@@ -62,7 +62,7 @@ powershell -ExecutionPolicy Bypass -File cadence\install_cadence_integration.ps1
 
 若 COM 自动导出在你的 Capture 版本上不通：
 1. 在 Capture 用 **Tools ▸ Bill of Materials**，把 Header/Combined property string 设为工具「BOM 处理 · 步骤1」给出的字符串，输出文件设到 `<tool>\data\inbox\cadence_bom.xlsx`。
-2. 菜单点 **打开 BOM 工具**（或直接双击 `启动硬件效率工具集.bat`），上传该文件即可。
+2. 菜单点 **打开 BOM 工具**（或直接双击 `Insta360_HW.exe`），上传该文件即可。
 
 即：联动失败也只是“多一步手动上传”，主流程不受影响。
 
