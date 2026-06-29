@@ -325,7 +325,7 @@ function ReviewView(props: any) {
           <Checkbox value="oa">OA 模板</Checkbox>
         </Checkbox.Group>
       </Card>
-      <Collapse ghost items={[{ key: "extras", label: "附加物料（PCB / 屏蔽罩）", children: <XSection extras={extras} onChange={setExtras} /> }]} />
+      <Collapse ghost items={[{ key: "extras", label: "附加物料（PCB / 屏蔽支架）", children: <XSection extras={extras} onChange={setExtras} /> }]} />
       <Collapse
         ghost
         items={[
@@ -386,7 +386,7 @@ function ProcessView({ running, pres, conflictChoices, setConflictChoices, onRec
         <Card size="small" title="下一步">
           {hasS ? (
             <Space direction="vertical" style={{ width: "100%" }}>
-              <Typography.Text type="secondary">请确认 SH 位号是否为屏蔽支架/屏蔽罩。确认后这些物料会进入最终 BOM。</Typography.Text>
+              <Typography.Text type="secondary">请确认 SH 位号是否为屏蔽支架。确认后这些物料会进入最终 BOM。</Typography.Text>
               <Button type="primary" block onClick={onConfirmShields}>
                 确认作为屏蔽支架进入 BOM
               </Button>
@@ -429,7 +429,7 @@ function ProcessView({ running, pres, conflictChoices, setConflictChoices, onRec
             <Alert
               type="warning"
               showIcon
-              message="SH 位号将作为屏蔽支架/屏蔽罩进入最终 BOM"
+              message="SH 位号将作为屏蔽支架进入最终 BOM"
               description="请核对物料编码、名称、型号和位号，确认无误后继续。"
               style={{ marginBottom: 12 }}
             />
@@ -504,7 +504,7 @@ function ProcessView({ running, pres, conflictChoices, setConflictChoices, onRec
 }
 
 function RiskView({ rrun, rres, pres, onNext, onBack }: any) {
-  if (rrun) return <Result icon={<SafetyCertificateOutlined spin />} title="正在风险审查…" subTitle="检查 PCB、屏蔽罩、NC、等级、位号类型" />;
+  if (rrun) return <Result icon={<SafetyCertificateOutlined spin />} title="正在风险审查…" subTitle="检查 PCB、屏蔽支架、NC、等级、位号类型、硬件版本敏感物料" />;
   if (!rres) return null;
   if (rres.status === "error") return <Result status="warning" title="检查未完成" subTitle={rres.error} extra={<Button type="primary" onClick={onNext}>跳过，直接导出</Button>} />;
 

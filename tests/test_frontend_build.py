@@ -201,6 +201,8 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn("shield_bracket_candidates", wizard)
         self.assertIn("confirm_shields", wizard)
         self.assertIn("shield_candidates", wizard)
+        self.assertIn("屏蔽支架、NC、等级、位号类型、硬件版本敏感物料", wizard)
+        self.assertNotIn("屏蔽支架/屏蔽罩", wizard)
         self.assertIn("确认作为屏蔽支架进入 BOM", wizard)
 
     def test_bom_wizard_does_not_treat_successful_merge_summary_as_pending_conflict(self) -> None:

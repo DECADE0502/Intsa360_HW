@@ -381,6 +381,7 @@ _NC_RE = re.compile(r"(^|[,/\s（(])NC([,/\s）)]|$)", re.IGNORECASE)
 _MECH_KW = ["螺丝", "螺钉", "螺母", "垫片", "华司", "铜柱", "支柱", "定位孔", "安装孔", "MOUNTINGHOLE", "散热片", "导热垫"]
 _TP_PREFIX = ("TP", "JP", "Z_TP", "FID", "MK", "MH")
 _TP_KW = ["测试点", "跳线", "FIDUCIAL", "基准", "拼板", "工艺边", "MARK点"]
+_VERSION_SENSITIVE_RE = re.compile(r"\b(E?MMC|LP?DDR\d*[A-Z0-9]*)\b|DDR", re.IGNORECASE)
 
 
 def _looks_like_pcb(row: dict[str, object]) -> bool:
@@ -390,6 +391,23 @@ def _looks_like_pcb(row: dict[str, object]) -> bool:
     if any(k in blob for k in ["PCB", "HDI"]) or any(k in desc for k in ["印制板", "覆铜板", "任意阶"]):
         return True
     return bool(re.search(r"\d+\s*层", desc))
+
+
+def _looks_like_shield_bracket(row: dict[str, object]) -> bool:
+    refs = [str(ref).upper() for ref in row.get("refs") or []]
+    text = f"{row.get('part_number','')} {row.get('model','')} {row.get('description','')} {row.get('name','')}".upper()
+    if any(ref.startswith("SH") for ref in refs):
+        return True
+    return "屏蔽支架" in text or "SHIELD BRACKET" in text
+
+
+def _version_sensitive_parts(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    out = []
+    for row in rows:
+        text = f"{row.get('part_number','')} {row.get('model','')} {row.get('description','')} {row.get('name','')}"
+        if _VERSION_SENSITIVE_RE.search(text):
+            out.append(row)
+    return out
 
 
 # 位号前缀 -> 期望器件类型（占位换料检查：天线匹配网络常见 C/R 位号换成电感等）
@@ -452,9 +470,9 @@ def _risk_check(rows: list[dict[str, object]]) -> list[dict[str, str]]:
     findings.append({"name": "PCB 裸板", "status": "ok" if pcb else "warn",
                      "message": "找到 " + ", ".join(pcb) if pcb else "未发现 PCB 裸板项（PCBA BOM 通常应包含裸板）"})
 
-    shield = sorted({r["part_number"] for r in rows if "屏蔽" in r.get("description", "") or "罩" in r.get("description", "") or "SHIELD" in blob(r).upper()})
-    findings.append({"name": "屏蔽罩", "status": "ok" if shield else "info",
-                     "message": "找到 " + ", ".join(shield) if shield else "未发现屏蔽罩（如设计需要请确认）"})
+    shield_brackets = sorted({r["part_number"] for r in rows if _looks_like_shield_bracket(r)})
+    findings.append({"name": "屏蔽支架", "status": "ok" if shield_brackets else "info",
+                     "message": "找到 " + ", ".join(shield_brackets) if shield_brackets else "未发现屏蔽支架（如设计需要请确认）"})
 
     nc_refs = [rf for r in rows if any(k in blob(r) for k in ["未贴", "不贴", "DNP"]) or _NC_RE.search(blob(r)) for rf in (r.get("refs") or [])]
     findings.append({"name": "NC/未贴器件", "status": "warn" if nc_refs else "ok",
@@ -495,6 +513,14 @@ def _risk_check(rows: list[dict[str, object]]) -> list[dict[str, str]]:
         has_grade = any(str(r.get("grade") or "").strip() for r in rows)
         findings.append({"name": "物料优选等级", "status": "ok" if has_grade else "info",
                          "message": "均为优选/正常" if has_grade else "未提供等级列"})
+
+    sensitive = _version_sensitive_parts(rows)
+    if sensitive:
+        codes = sorted({str(row.get("part_number") or "").strip() for row in sensitive if str(row.get("part_number") or "").strip()})
+        findings.append({"name": "硬件版本敏感物料", "status": "info",
+                         "message": "发现 eMMC/DDR 相关物料：" + ", ".join(codes[:10]) + "；请注意核对硬件版本号、容量/速率和替代关系"})
+    else:
+        findings.append({"name": "硬件版本敏感物料", "status": "ok", "message": "未发现 eMMC/DDR 相关物料"})
 
     return findings
 
@@ -1059,7 +1085,7 @@ def run_bom_process(root: Path, params: dict[str, object]) -> dict[str, object]:
             "status": "needs_confirmation",
             "tool": "bom_process",
             "reason": "shield_bracket_candidates",
-            "message": "发现 SH 位号物料，疑似屏蔽支架/屏蔽罩。请确认是否作为结构件进入最终 BOM。",
+            "message": "发现 SH 位号物料，疑似屏蔽支架。请确认是否作为结构件进入最终 BOM。",
             "shield_count": len(shield_candidates),
             "shield_candidates": shield_candidates,
             "summary": {"shield_candidates": len(shield_candidates)},
@@ -1111,9 +1137,9 @@ def run_bom_process(root: Path, params: dict[str, object]) -> dict[str, object]:
 
 def create_analysis_tools(root: Path) -> list[Tool]:
     return [
-        Tool("bom_process", "BOM 处理", "Capture 原始 BOM → 可导入 PLM/OA 成品（按版本换料、过滤、合并、可加 PCB/屏蔽罩等附加物料）。", "available", "BOM", lambda params=None: run_bom_process(root, params or {})),
+        Tool("bom_process", "BOM 处理", "Capture 原始 BOM → 可导入 PLM/OA 成品（过滤、合并、可加 PCB/屏蔽支架等附加物料）。", "available", "BOM", lambda params=None: run_bom_process(root, params or {})),
         Tool("bom_compare", "BOM 差异比较", "比较两个 BOM Excel，输出位号、编号、描述、数量差异报告。", "available", "BOM", lambda params=None: run_bom_compare(root, params or {})),
-        Tool("bom_risk_check", "BOM 风险检查", "单份 BOM 导入前体检：PCB/屏蔽罩/NC 未贴/机构件/测试点/重复位号/数量一致性。", "available", "BOM", lambda params=None: run_bom_risk_check(root, params or {})),
+        Tool("bom_risk_check", "BOM 风险检查", "单份 BOM 导入前体检：PCB/屏蔽支架/NC 未贴/机构件/测试点/重复位号/数量一致性/eMMC-DDR 版本提醒。", "available", "BOM", lambda params=None: run_bom_risk_check(root, params or {})),
         Tool("netlist_compare", "网表差异比较", "比较两个网表文件夹中的网络节点和器件信息。", "available", "Netlist", lambda params=None: netlist_tools.run_netlist_compare(root, params or {})),
         Tool("smt_package_check", "贴片封装检查", "检查网表封装信息与 BOM 描述/名称的一致性。", "available", "SMT", lambda params=None: netlist_tools.run_smt_package_check(root, params or {})),
         Tool("single_network_check", "单网络检查", "提取 NC 网络和只有单一位号的网络，辅助硬件检查。", "available", "Netlist", lambda params=None: netlist_tools.run_single_network_check(root, params or {})),
