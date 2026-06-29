@@ -135,6 +135,7 @@ class DistributionInstallTests(unittest.TestCase):
 
         self.assertTrue((release / "install_manifest.json").exists())
         self.assertTrue((release / "app" / "frontend" / "index.html").exists())
+        self.assertTrue((release / "tools" / "bom" / "convert_cadence_bom.py").exists())
         self.assertFalse((release / "frontend").exists())
         self.assertFalse((release / "tests").exists())
         self.assertFalse((release / "docs").exists())
@@ -147,6 +148,14 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertFalse((release / "scripts" / "publish_release.ps1").exists())
         self.assertFalse((release / "scripts" / "verify_all.ps1").exists())
         self.assertFalse(any(item.name.startswith("BOM") for item in release.iterdir() if item.is_dir()))
+
+    def test_release_builder_does_not_exclude_lowercase_tools_bom_directory(self) -> None:
+        text = (ROOT / "scripts" / "build_release.ps1").read_text(encoding="utf-8")
+        robocopy_lines = [line for line in text.splitlines() if "robocopy $src $dst" in line]
+
+        self.assertTrue(robocopy_lines)
+        for line in robocopy_lines:
+            self.assertNotIn('"BOM*"', line)
 
     def test_tcl_script_library_disables_custom_scripts_in_vendor_autoload(self) -> None:
         text = (ROOT / "scripts" / "lib" / "TclScripts.ps1").read_text(encoding="utf-8")

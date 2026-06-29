@@ -40,7 +40,7 @@ foreach ($dir in @("app", "cadence", "config", "plugins", "scripts", "tools")) {
   $src = Join-Path $Root $dir
   $dst = Join-Path $Release $dir
   if (-not (Test-Path -LiteralPath $src)) { continue }
-  robocopy $src $dst /E /XD "__pycache__" ".pytest_cache" "node_modules" ".vite" "src" "dist" "tests" "docs" "BOM*" /XF "*.pyc" | Out-Null
+  robocopy $src $dst /E /XD "__pycache__" ".pytest_cache" "node_modules" ".vite" "src" "dist" "tests" "docs" /XF "*.pyc" | Out-Null
   if ($LASTEXITCODE -ge 8) { throw "robocopy failed for $dir (exit $LASTEXITCODE)" }
 }
 

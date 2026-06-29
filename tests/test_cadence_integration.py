@@ -52,6 +52,20 @@ class CadenceIntegrationTests(unittest.TestCase):
             self.assertEqual(row[headers.index("Manufacturer")], "VendorA")
             self.assertEqual(row[headers.index("Custom中文属性")], "保留我")
 
+    def test_cadence_converter_accepts_utf8_bom_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            src = tmp_path / "parts.json"
+            out = tmp_path / "bom.xlsx"
+            src.write_text(
+                json.dumps([{"Reference": "R1", "Part Number": "R.001"}], ensure_ascii=False),
+                encoding="utf-8-sig",
+            )
+
+            subprocess.run([sys.executable, str(CONVERTER), str(src), str(out)], check=True)
+
+            self.assertTrue(out.exists())
+
     def test_cadence_converter_uses_union_of_group_columns(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

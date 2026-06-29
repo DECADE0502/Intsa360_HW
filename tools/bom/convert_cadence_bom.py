@@ -81,7 +81,7 @@ def main() -> None:
         print("usage: convert_cadence_bom.py <parts.json> <output.xlsx>", file=sys.stderr)
         sys.exit(1)
 
-    parts = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+    parts = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8-sig"))
     out = Path(sys.argv[2])
 
     mapped = [
