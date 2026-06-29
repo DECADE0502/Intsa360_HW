@@ -56,6 +56,20 @@ export type HistoryRun = {
   summary?: Record<string, unknown> | unknown;
 };
 
+export type LifecycleCheck = {
+  id: string;
+  name: string;
+  status: "ok" | "warn" | "fail";
+  message: string;
+};
+
+export type LifecyclePayload = {
+  status: string;
+  summary: { failed: number; warnings: number; ok: number; total: number };
+  manifest: Record<string, unknown>;
+  checks: LifecycleCheck[];
+};
+
 export async function fetchTools(): Promise<ToolInfo[]> {
   const res = await fetch("/api/tools");
   if (!res.ok) throw new Error("工具列表加载失败");
@@ -108,6 +122,13 @@ export async function fetchPlatformStatus() {
   const res = await fetch("/api/platform/status");
   const payload = await res.json();
   if (!res.ok) throw new Error(payload.error || "平台状态加载失败");
+  return payload;
+}
+
+export async function fetchLifecycleCheck(): Promise<LifecyclePayload> {
+  const res = await fetch("/api/lifecycle/check");
+  const payload = await res.json();
+  if (!res.ok || payload.status !== "ok") throw new Error(payload.error || "安装自检加载失败");
   return payload;
 }
 

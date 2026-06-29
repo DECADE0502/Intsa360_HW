@@ -5,8 +5,8 @@ function Get-HwAgentText {
   return [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($Base64))
 }
 
-$script:HwAgentProtected = @("data", "uploads", "outputs", "history", "config/local.json", "plugins/user")
-$script:HwAgentExcludeDirs = @(".git", "data", "uploads", "outputs", "history", "plugins\user", "frontend\node_modules", ".pytest_cache", "__pycache__")
+$script:HwAgentProtected = @("data", "config/local.json", "plugins/user")
+$script:HwAgentExcludeDirs = @(".git", "data", "plugins\user", "frontend", "tests", "docs", "frontend\node_modules", ".pytest_cache", "__pycache__")
 $script:HwAgentExcludeFiles = @("local.json")
 
 function Copy-HwAgentProtectedItems {
@@ -62,6 +62,77 @@ function ConvertTo-HwAgentRepoPath {
   return $repoPath.Trim("/")
 }
 
+function Resolve-HwAgentReleaseAssetUrl {
+  param([Parameter(Mandatory=$true)][string]$Repo)
+  $repoPath = ConvertTo-HwAgentRepoPath -Repo $Repo
+  $apiUrl = "https://api.github.com/repos/$repoPath/releases/latest"
+  try {
+    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+    $headers = @{
+      "User-Agent" = "HWAgent-Updater"
+      "Accept" = "application/vnd.github+json"
+    }
+    $release = Invoke-RestMethod -Method Get -Uri $apiUrl -Headers $headers -TimeoutSec 15
+    foreach ($asset in @($release.assets)) {
+      $name = [string]$asset.name
+      if ($name -match '^Insta360_HW_.*\.zip$' -or $name -match 'HWAgent.*\.zip$') {
+        return [string]$asset.browser_download_url
+      }
+    }
+  } catch {
+    Write-Host ("Release lookup failed; falling back to source ZIP: " + $_.Exception.Message)
+  }
+  return $null
+}
+
+function Find-HwAgentUpdatePayloadRoot {
+  param([Parameter(Mandatory=$true)][string]$ExtractRoot)
+  $candidates = @()
+  $candidates += Get-ChildItem -LiteralPath $ExtractRoot -Directory -ErrorAction SilentlyContinue
+  $candidates += Get-ChildItem -LiteralPath $ExtractRoot -Directory -Recurse -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -eq "HWAgent_release" }
+
+  foreach ($candidate in $candidates) {
+    $manifest = Join-Path $candidate.FullName "install_manifest.json"
+    $frontend = Join-Path $candidate.FullName "app\frontend\index.html"
+    if ((Test-Path -LiteralPath $manifest) -and (Test-Path -LiteralPath $frontend)) {
+      return $candidate.FullName
+    }
+  }
+
+  foreach ($candidate in $candidates) {
+    $sourceRelease = Join-Path $candidate.FullName "HWAgent_release"
+    if ((Test-Path -LiteralPath (Join-Path $sourceRelease "install_manifest.json")) -and
+        (Test-Path -LiteralPath (Join-Path $sourceRelease "app\frontend\index.html"))) {
+      return $sourceRelease
+    }
+  }
+
+  foreach ($candidate in $candidates) {
+    if ((Test-Path -LiteralPath (Join-Path $candidate.FullName "app\backend\suite_app.py")) -and
+        (Test-Path -LiteralPath (Join-Path $candidate.FullName "app\frontend\index.html"))) {
+      Write-Host "Using source ZIP payload; development-only paths will be excluded."
+      return $candidate.FullName
+    }
+  }
+
+  throw "Update package does not contain a usable HWAgent runtime payload."
+}
+
+function Download-HwAgentFile {
+  param(
+    [Parameter(Mandatory=$true)][string]$Url,
+    [Parameter(Mandatory=$true)][string]$Target
+  )
+  $client = New-Object System.Net.WebClient
+  $client.Headers.Add("User-Agent", "HWAgent-Updater")
+  try {
+    $client.DownloadFile($Url, $Target)
+  } finally {
+    $client.Dispose()
+  }
+}
+
 function Invoke-HwAgentZipUpdate {
   param(
     [Parameter(Mandatory=$true)][string]$Root,
@@ -76,41 +147,38 @@ function Invoke-HwAgentZipUpdate {
   }
 
   $repoPath = ConvertTo-HwAgentRepoPath -Repo $Repo
-  $zipUrl = "https://codeload.github.com/$repoPath/zip/refs/heads/$Branch"
-  Write-Host ("Downloading ZIP source: " + $zipUrl)
+  $assetUrl = Resolve-HwAgentReleaseAssetUrl -Repo $Repo
+  if ($assetUrl) {
+    $zipUrl = $assetUrl
+    Write-Host ("Using runtime release package: " + $zipUrl)
+  } else {
+    $zipUrl = "https://codeload.github.com/$repoPath/zip/refs/heads/$Branch"
+    Write-Host ("No runtime release asset found; falling back to source ZIP: " + $zipUrl)
+  }
   Write-Host "__HWAGENT_PROGRESS__ 10 downloading update package"
 
   $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("insta360_hw_update_" + [System.Guid]::NewGuid().ToString("N"))
   $zipPath = Join-Path $tempRoot "update.zip"
   $extractRoot = Join-Path $tempRoot "extracted"
-  $cloneRoot = Join-Path $extractRoot "source"
+  $payloadRoot = $null
   $backupRoot = Join-Path $tempRoot "protected"
 
   try {
     New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null
     [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
-    $client = New-Object System.Net.WebClient
-    $client.Headers.Add("User-Agent", "HWAgent-Updater")
-    try {
-      $client.DownloadFile($zipUrl, $zipPath)
-    } finally {
-      $client.Dispose()
-    }
+    Download-HwAgentFile -Url $zipUrl -Target $zipPath
     if (-not (Test-Path -LiteralPath $zipPath)) { throw "ZIP download failed." }
     Write-Host "__HWAGENT_PROGRESS__ 30 update package downloaded"
 
     Write-Host "__HWAGENT_PROGRESS__ 40 extracting update package"
     Expand-Archive -LiteralPath $zipPath -DestinationPath $extractRoot -Force
-    $top = Get-ChildItem -LiteralPath $extractRoot -Directory | Select-Object -First 1
-    if (-not $top) { throw "Extracted ZIP has no top-level folder." }
-    Rename-Item -LiteralPath $top.FullName -NewName "source" -Force
-    if (-not (Test-Path -LiteralPath $cloneRoot)) { throw "Extracted ZIP does not contain platform root." }
+    $payloadRoot = Find-HwAgentUpdatePayloadRoot -ExtractRoot $extractRoot
 
     Write-Host "__HWAGENT_PROGRESS__ 55 backing up user data"
     Copy-HwAgentProtectedItems -Root $Root -BackupRoot $backupRoot
 
     Write-Host "__HWAGENT_PROGRESS__ 70 applying update files"
-    Sync-HwAgentTree -SourceRoot $cloneRoot -TargetRoot $Root
+    Sync-HwAgentTree -SourceRoot $payloadRoot -TargetRoot $Root
 
     Write-Host "__HWAGENT_PROGRESS__ 85 restoring user data"
     Restore-HwAgentProtectedItems -Root $Root -BackupRoot $backupRoot

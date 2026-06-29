@@ -44,6 +44,11 @@ foreach ($dir in @("app", "cadence", "config", "plugins", "scripts", "tools")) {
   if ($LASTEXITCODE -ge 8) { throw "robocopy failed for $dir (exit $LASTEXITCODE)" }
 }
 
+foreach ($devScript in @("build_frontend.ps1", "build_installer.ps1", "build_release.ps1", "publish_release.ps1", "verify_all.ps1")) {
+  $path = Join-Path $Release ("scripts\" + $devScript)
+  if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force }
+}
+
 # 4. Copy top-level runtime launchers and metadata.
 $keepFiles = @(
   "Insta360_HW.exe",

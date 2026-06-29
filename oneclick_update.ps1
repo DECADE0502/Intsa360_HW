@@ -22,14 +22,6 @@ if (-not (Test-Path -LiteralPath $UpdateScript)) {
     exit 1
 }
 
-$git = Get-Command git.exe -ErrorAction SilentlyContinue
-if (-not $git) {
-    Write-Host (T "5pyq5om+5YiwIEdpdO+8jOaXoOazleS7juS7k+W6k+aJp+ihjCBPVEEg5pu05paw44CC") -ForegroundColor Red
-    Write-Host (T "6K+35YWI5a6J6KOFIEdpdCBmb3IgV2luZG93c++8jOaIluiuqee7tOaKpOiAheebtOaOpeWQjOatpeaWsOeJiOW5s+WPsOaWh+S7tuWkueOAgg==") -ForegroundColor Yellow
-    Write-Host (T "5LiL6L295Zyw5Z2AOiBodHRwczovL2dpdC1zY20uY29tL2Rvd25sb2FkL3dpbg==") -ForegroundColor Gray
-    exit 1
-}
-
 Write-Host (T "5Y2z5bCG5pu05paw5bmz5Y+w56iL5bqP5paH5Lu244CC") -ForegroundColor Yellow
 Write-Host (T "5Lya5L+d55WZIGRhdGHjgIFjb25maWcvbG9jYWwuanNvbuOAgXBsdWdpbnMvdXNlciDnrYnnlKjmiLfmlbDmja7jgII=") -ForegroundColor Gray
 Write-Host ""

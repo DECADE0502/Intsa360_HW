@@ -141,6 +141,11 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertFalse((release / "uploads").exists())
         self.assertFalse((release / "outputs").exists())
         self.assertFalse((release / "history").exists())
+        self.assertFalse((release / "scripts" / "build_frontend.ps1").exists())
+        self.assertFalse((release / "scripts" / "build_installer.ps1").exists())
+        self.assertFalse((release / "scripts" / "build_release.ps1").exists())
+        self.assertFalse((release / "scripts" / "publish_release.ps1").exists())
+        self.assertFalse((release / "scripts" / "verify_all.ps1").exists())
         self.assertFalse(any(item.name.startswith("BOM") for item in release.iterdir() if item.is_dir()))
 
     def test_tcl_script_library_disables_custom_scripts_in_vendor_autoload(self) -> None:
@@ -556,11 +561,21 @@ class DistributionInstallTests(unittest.TestCase):
         )
 
         self.assertIn("update.ps1", ps1_text)
-        self.assertIn("Get-Command git.exe", ps1_text)
-        self.assertIn("Git", ps1_text)
+        self.assertNotIn("Get-Command git.exe", ps1_text)
+        self.assertNotIn("git.exe", ps1_text)
         # The user-facing 一键更新.bat was replaced by the in-platform update UI;
         # the ps1 remains as an internal entry point invoked by the API.
         self.assertFalse((ROOT / "一键更新.bat").exists())
+
+    def test_update_library_prefers_release_asset_runtime_zip(self) -> None:
+        text = (ROOT / "scripts" / "lib" / "Update.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("Resolve-HwAgentReleaseAssetUrl", text)
+        self.assertIn("api.github.com/repos", text)
+        self.assertIn("releases/latest", text)
+        self.assertIn("install_manifest.json", text)
+        self.assertIn("Using runtime release package", text)
+        self.assertIn("falling back to source ZIP", text)
 
     def test_paths_library_finds_vendor_autoload_dirs_separately_from_user_loader_dirs(self) -> None:
         text = (ROOT / "scripts" / "lib" / "Paths.ps1").read_text(encoding="utf-8")
@@ -725,6 +740,14 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("__HWAGENT_UNINSTALL_PROGRESS__", text)
         self.assertIn("Stopping platform service and deleting files", text)
 
+    def test_uninstall_script_emits_progress_and_done_markers(self) -> None:
+        text = (ROOT / "uninstall.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("__HWAGENT_UNINSTALL_PROGRESS__ 10", text)
+        self.assertIn("__HWAGENT_UNINSTALL_PROGRESS__ 40", text)
+        self.assertIn("__HWAGENT_UNINSTALL_PROGRESS__ 100", text)
+        self.assertIn("__HWAGENT_UNINSTALL_DONE__", text)
+
     def test_uninstall_status_parses_progress_markers_from_log(self) -> None:
         import sys
 
@@ -784,7 +807,7 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertEqual(check["modes"], [])
 
     def test_inno_setup_points_shortcuts_at_exe(self) -> None:
-        iss = ROOT.parent / "HWAgent_Setup.iss"
+        iss = ROOT / "HWAgent_Setup.iss"
         text = iss.read_text(encoding="utf-8")
 
         # Shortcuts must launch the exe, not the legacy bat.
@@ -796,7 +819,7 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn('oneclick_install.ps1"" -Silent', text)
 
     def test_inno_setup_version_matches_runtime_version(self) -> None:
-        iss = ROOT.parent / "HWAgent_Setup.iss"
+        iss = ROOT / "HWAgent_Setup.iss"
         text = iss.read_text(encoding="utf-8")
         version = (ROOT / "VERSION").read_text(encoding="utf-8-sig").strip()
 
@@ -812,11 +835,15 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("build_release.ps1", text)
 
     def test_inno_setup_preserves_user_state_on_upgrade_and_does_not_start_service(self) -> None:
-        iss = ROOT.parent / "HWAgent_Setup.iss"
+        iss = ROOT / "HWAgent_Setup.iss"
         text = iss.read_text(encoding="utf-8")
 
         self.assertIn('Excludes: "data\\*,uploads\\*,outputs\\*,history\\*,config\\local.json,plugins\\user\\*"', text)
         self.assertIn('oneclick_install.ps1"" -Silent -NoStart', text)
+        self.assertNotIn("Python", text)
+        self.assertNotIn("openpyxl", text)
+        self.assertNotIn("npm", text)
+        self.assertNotIn("检查依赖", text)
         self.assertNotIn("Start-HwAgentService", text)
         self.assertIn("[InstallDelete]", text)
         for stale_dir in ["app", "cadence", "scripts", "tools"]:

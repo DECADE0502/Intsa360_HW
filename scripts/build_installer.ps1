@@ -8,7 +8,7 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Root = Split-Path -Parent $ScriptDir
 $RepoRoot = Split-Path -Parent $Root
-$Iss = Join-Path $RepoRoot "HWAgent_Setup.iss"
+$Iss = Join-Path $Root "HWAgent_Setup.iss"
 $Output = Join-Path $RepoRoot "Insta360_HW_Setup.exe"
 
 function Find-InnoCompiler {

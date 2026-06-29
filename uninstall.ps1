@@ -93,12 +93,23 @@ function Remove-CadenceLoader {
   return $removed
 }
 
+function Mark-UninstallProgress {
+  param(
+    [Parameter(Mandatory=$true)][int]$Percent,
+    [Parameter(Mandatory=$true)][string]$Step
+  )
+  Write-Host ("__HWAGENT_UNINSTALL_PROGRESS__ " + $Percent + " " + $Step)
+}
+
 $ScriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $ScriptRoot "scripts\lib\Paths.ps1")
 
+Write-Host "__HWAGENT_UNINSTALL_PROGRESS__ 10 Resolving install directory"
 $Root = if ($InstallDir) { $InstallDir } else { Get-HwAgentRoot -StartPath $ScriptRoot }
 if (-not (Test-Path -LiteralPath $Root)) {
   Write-Host ("Install directory does not exist: " + $Root)
+  Write-Host "__HWAGENT_UNINSTALL_PROGRESS__ 100 Install directory already removed"
+  Write-Host "__HWAGENT_UNINSTALL_DONE__"
   exit 0
 }
 $Root = Assert-SafeInstallRoot -Path $Root
@@ -109,6 +120,7 @@ if (-not $Force -and -not $DryRun) {
 
 Write-Host ("Uninstall mode: " + $Mode)
 
+Mark-UninstallProgress 25 "Stopping platform services"
 $stopped = Stop-HwAgentServices
 if ($stopped.Count -gt 0) {
   Write-Host ("Stopped HWAgent service processes: " + ($stopped -join ", "))
@@ -121,18 +133,24 @@ if ($CaptureAutoLoadDir) {
   $autoLoadDirs += Find-CadenceAutoLoadDirs
 }
 
+Write-Host "__HWAGENT_UNINSTALL_PROGRESS__ 40 Removing Cadence integration"
 $removedLoaders = Remove-CadenceLoader -AutoLoadDirs $autoLoadDirs
 if ($removedLoaders.Count -gt 0) {
   Write-Host ("Removed Cadence loader artifacts: " + ($removedLoaders -join ", "))
 }
 
 if ($Mode -eq "Detach") {
+  Write-Host "__HWAGENT_UNINSTALL_PROGRESS__ 100 Cadence integration removed"
   Write-Host "Detach complete. Platform files and user scripts were kept."
+  Write-Host "__HWAGENT_UNINSTALL_DONE__"
   exit 0
 }
 
 if (-not $DryRun) {
   Set-Location -LiteralPath ([System.IO.Path]::GetTempPath())
 }
+Mark-UninstallProgress 75 "Removing platform files"
 Remove-IfExists -Path $Root -Recurse
+Write-Host "__HWAGENT_UNINSTALL_PROGRESS__ 100 Platform files removed"
 Write-Host "Full uninstall complete. Platform directory was removed."
+Write-Host "__HWAGENT_UNINSTALL_DONE__"
