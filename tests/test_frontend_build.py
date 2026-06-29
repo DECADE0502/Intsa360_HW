@@ -28,6 +28,17 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn("立即更新", text)
         self.assertNotIn("一键更新", text)
 
+    def test_uninstall_progress_modal_requires_user_close_and_marks_service_exit_done(self) -> None:
+        text = (ROOT / "frontend" / "src" / "components" / "UpdateStatus.tsx").read_text(encoding="utf-8")
+
+        self.assertNotIn("window.close()", text)
+        self.assertIn("setUninstallOpen(false)", text)
+        self.assertIn("progress: 100", text)
+        self.assertIn("done: true", text)
+        self.assertIn("onCloseUninstallProgress", text)
+        self.assertIn("\u5173\u95ed", text)
+        self.assertIn("\u5378\u8f7d\u5b8c\u6210", text)
+
     def test_build_script_installs_builds_and_copies_dist_to_app_frontend(self) -> None:
         text = (ROOT / "scripts" / "build_frontend.ps1").read_text(encoding="utf-8")
 

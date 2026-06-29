@@ -801,6 +801,9 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertIn("uninstall.ps1", helper)
             self.assertIn("__HWAGENT_UNINSTALL_PROGRESS__", helper)
             self.assertIn("Stopping platform service and deleting files", helper)
+            self.assertIn("Tee-Object -FilePath $log -Append", helper)
+            self.assertIn("__HWAGENT_UNINSTALL_DONE__", helper)
+            self.assertNotIn("*> $null", helper)
 
             check = update_api.check_uninstall(root)
             self.assertFalse(check["can_uninstall"])

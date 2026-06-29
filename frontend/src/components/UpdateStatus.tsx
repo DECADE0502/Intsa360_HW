@@ -87,15 +87,14 @@ export function UpdateStatus({ version }: { version: string }) {
             setUninstallClosing(true);
             setUninstallStatus((current) => ({
               running: false,
-              done: false,
+              done: true,
               failed: false,
-              progress: Math.max(current?.progress ?? 0, 85),
-              step: "平台服务已关闭，正在完成本地清理",
-              message: "窗口即将关闭",
+              progress: 100,
+              step: "平台服务已关闭，本地卸载已完成",
+              message: "卸载完成",
               log_tail: current?.log_tail ?? [],
             }));
             if (uninstallPollRef.current) window.clearInterval(uninstallPollRef.current);
-            window.setTimeout(() => window.close(), 1800);
           }
         });
     };
@@ -172,6 +171,10 @@ export function UpdateStatus({ version }: { version: string }) {
     } finally {
       setFulling(false);
     }
+  }
+
+  function onCloseUninstallProgress() {
+    setUninstallOpen(false);
   }
 
   return (
@@ -281,9 +284,9 @@ export function UpdateStatus({ version }: { version: string }) {
         <pre className="update-log">{(uninstallStatus?.log_tail || []).join("\n") || "等待卸载日志输出..."}</pre>
         <div style={{ textAlign: "right", marginTop: 12 }}>
           {uninstallFinished ? (
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              {uninstallStatus?.failed ? "卸载中断，请保留日志排查" : "平台正在关闭"}
-            </Text>
+            <Button type="primary" danger={Boolean(uninstallStatus?.failed)} onClick={onCloseUninstallProgress}>
+              {uninstallStatus?.failed ? "关闭" : "卸载完成，关闭"}
+            </Button>
           ) : (
             <Text type="secondary" style={{ fontSize: 12 }}>
               卸载过程中会关闭本地服务，请勿重复操作
