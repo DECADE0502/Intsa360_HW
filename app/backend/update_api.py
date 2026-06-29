@@ -86,6 +86,10 @@ def update_status(root: Path) -> dict[str, object]:
 
     running = _is_update_running(root)
     done = "__HWAGENT_DONE__" in log_text
+    failed_marker = ""
+    for line in log_text.splitlines():
+        if line.startswith("__HWAGENT_FAILED__"):
+            failed_marker = line.split(None, 1)[1] if len(line.split(None, 1)) > 1 else "update failed"
 
     # Parse the latest progress marker for the percentage + step label.
     progress = 0
@@ -105,7 +109,7 @@ def update_status(root: Path) -> dict[str, object]:
             step = parts[2]
 
     # If the process has exited without a done marker, the update failed.
-    failed = (not running) and (not done) and bool(log_text) and progress > 0
+    failed = bool(failed_marker) or ((not running) and (not done) and bool(log_text) and progress > 0)
 
     # Filter the machine markers out of the displayed log tail.
     clean_tail = [ln for ln in log_tail if not ln.startswith("__HWAGENT")]
@@ -126,6 +130,7 @@ def update_status(root: Path) -> dict[str, object]:
         "progress": progress,
         "step": step,
         "message": message,
+        "error": failed_marker,
         "log_tail": clean_tail,
     }
 

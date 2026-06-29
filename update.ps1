@@ -2,7 +2,8 @@ param(
   [string]$Repo = "https://github.com/DECADE0502/Intsa360_HW.git",
   [string]$Branch = "main",
   [ValidateSet("zip", "git")]
-  [string]$Method = "zip"
+  [string]$Method = "zip",
+  [switch]$BuildFrontend
 )
 
 $ErrorActionPreference = "Stop"
@@ -23,37 +24,44 @@ Write-Host "User data will be preserved: data, uploads, outputs, history, config
 # Falls back to git only when -Method git is passed explicitly.
 $UpdateMethod = if ($Method) { $Method } else { "zip" }
 
-Invoke-HwAgentUpdate -Root $Root -Repo $Repo -Branch $Branch -Method $UpdateMethod | Out-Null
+try {
+  Invoke-HwAgentUpdate -Root $Root -Repo $Repo -Branch $Branch -Method $UpdateMethod | Out-Null
 
-$node = Get-Command node.exe -ErrorAction SilentlyContinue
-$npm = Get-Command npm.cmd -ErrorAction SilentlyContinue
-if ($node -and $npm -and (Test-Path -LiteralPath (Join-Path $Root "frontend\package.json"))) {
-  & (Join-Path $Root "scripts\build_frontend.ps1")
-}
+  if ($BuildFrontend -and (Test-Path -LiteralPath (Join-Path $Root "frontend\package.json"))) {
+    Write-Host "__HWAGENT_PROGRESS__ 96 building frontend"
+    & (Join-Path $Root "scripts\build_frontend.ps1")
+    if ($LASTEXITCODE -ne 0) { throw "Frontend build failed." }
+  } else {
+    Write-Host "Using shipped app/frontend assets; skipping local frontend build."
+  }
 
-$Python = Find-Python -Root $Root
-foreach ($vendorAutoLoadDir in Find-CadenceVendorAutoLoadDirs) {
-  Disable-HwAgentVendorAutoLoadScripts -VendorAutoLoadDir $vendorAutoLoadDir | Out-Null
-}
-$AutoLoadDirs = Find-CadenceAutoLoadDirs
-foreach ($autoLoadDir in $AutoLoadDirs) {
-  Move-HwAgentAutoLoadBackupDirs -AutoLoadDir $autoLoadDir | Out-Null
-}
-Install-CadenceLoader -ToolRoot $Root -PythonPath $Python -AutoLoadDirs $AutoLoadDirs | Out-Null
+  $Python = Find-Python -Root $Root
+  foreach ($vendorAutoLoadDir in Find-CadenceVendorAutoLoadDirs) {
+    Disable-HwAgentVendorAutoLoadScripts -VendorAutoLoadDir $vendorAutoLoadDir | Out-Null
+  }
+  $AutoLoadDirs = Find-CadenceAutoLoadDirs
+  foreach ($autoLoadDir in $AutoLoadDirs) {
+    Move-HwAgentAutoLoadBackupDirs -AutoLoadDir $autoLoadDir | Out-Null
+  }
+  Install-CadenceLoader -ToolRoot $Root -PythonPath $Python -AutoLoadDirs $AutoLoadDirs | Out-Null
 
-$verify = Join-Path $Root "scripts\verify_all.ps1"
-# verify_all needs tests/ and frontend/ source, which only exist in the dev
-# repo. Installed runtime copies lack them, so updates there must not fail
-# merely because the development verification tree is absent.
-if ((Test-Path -LiteralPath $verify) -and (Test-Path -LiteralPath (Join-Path $Root "tests"))) {
-  Write-Host "__HWAGENT_PROGRESS__ 98 verifying update"
-  Write-Host "Starting verification..."
-  & $verify
-  if ($LASTEXITCODE -ne 0) { throw "Verification failed." }
-} else {
-  Write-Host "Verification script or test tree not found; skipping verification."
-}
+  $verify = Join-Path $Root "scripts\verify_all.ps1"
+  # verify_all needs tests/ and frontend/ source, which only exist in the dev
+  # repo. Installed runtime copies lack them, so updates there must not fail
+  # merely because the development verification tree is absent.
+  if ((Test-Path -LiteralPath $verify) -and (Test-Path -LiteralPath (Join-Path $Root "tests"))) {
+    Write-Host "__HWAGENT_PROGRESS__ 98 verifying update"
+    Write-Host "Starting verification..."
+    & $verify
+    if ($LASTEXITCODE -ne 0) { throw "Verification failed." }
+  } else {
+    Write-Host "Verification script or test tree not found; skipping verification."
+  }
 
-Write-Host "Update flow complete."
-Write-Host "__HWAGENT_PROGRESS__ 100 update complete; restarting service"
-Write-Host "__HWAGENT_DONE__"
+  Write-Host "Update flow complete."
+  Write-Host "__HWAGENT_PROGRESS__ 100 update complete; restarting service"
+  Write-Host "__HWAGENT_DONE__"
+} catch {
+  Write-Host ("__HWAGENT_FAILED__ " + $_.Exception.Message)
+  throw
+}

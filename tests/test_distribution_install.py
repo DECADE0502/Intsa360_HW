@@ -288,6 +288,32 @@ class DistributionInstallTests(unittest.TestCase):
             for line in s2["log_tail"]:
                 self.assertFalse(line.startswith("__HWAGENT"))
 
+    def test_update_status_reports_explicit_failed_marker(self) -> None:
+        import sys
+        sys.path.insert(0, str(ROOT))
+        try:
+            from app.backend import update_api
+        finally:
+            sys.path.pop(0)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "install"
+            log_dir = root / "data" / "reports" / "runtime"
+            log_dir.mkdir(parents=True)
+            log = log_dir / "update_latest.log"
+            log.write_text(
+                "__HWAGENT_PROGRESS__ 95 finishing update\n"
+                "npm run build failed\n"
+                "__HWAGENT_FAILED__ frontend build failed\n",
+                encoding="utf-8",
+            )
+
+            status = update_api.update_status(root)
+
+            self.assertTrue(status["failed"])
+            self.assertFalse(status["running"])
+            self.assertIn("frontend build failed", status["error"])
+
     def test_update_scripts_emit_progress_markers(self) -> None:
         update_text = (ROOT / "update.ps1").read_text(encoding="utf-8")
         lib_text = (ROOT / "scripts" / "lib" / "Update.ps1").read_text(encoding="utf-8")
@@ -299,12 +325,14 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("__HWAGENT_PROGRESS__ 10", lib_text)
         self.assertIn("__HWAGENT_PROGRESS__ 100", update_text)
 
-    def test_update_script_defaults_to_zip_and_gates_verify_all_on_dev_tree(self) -> None:
+    def test_update_script_defaults_to_zip_and_skips_user_machine_frontend_build(self) -> None:
         update_text = (ROOT / "update.ps1").read_text(encoding="utf-8")
 
         # The default update method is zip (no git required on user machines).
         self.assertIn('[string]$Method = "zip"', update_text)
         self.assertIn("Invoke-HwAgentUpdate", update_text)
+        self.assertIn("[switch]$BuildFrontend", update_text)
+        self.assertIn("if ($BuildFrontend", update_text)
         # verify_all is gated on tests/ existing — installed runtime copies
         # lack the dev tree and must not hard-fail the update at verification.
         self.assertIn('Join-Path $Root "tests"', update_text)

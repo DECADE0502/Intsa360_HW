@@ -16,6 +16,7 @@ class FrontendBuildTests(unittest.TestCase):
 
         self.assertIn("react", dependencies)
         self.assertIn("antd", dependencies)
+        self.assertIn("@ant-design/icons", dependencies)
         self.assertIn("@tanstack/react-table", dependencies)
         self.assertIn("lucide-react", dependencies)
 
@@ -23,7 +24,9 @@ class FrontendBuildTests(unittest.TestCase):
         text = (ROOT / "scripts" / "build_frontend.ps1").read_text(encoding="utf-8")
 
         self.assertIn("npm install", text)
+        self.assertIn("npm install failed", text)
         self.assertIn("npm run build", text)
+        self.assertIn("frontend build failed", text)
         self.assertIn("app\\frontend", text)
         self.assertRegex(text, r"Copy-Item[\s\S]+dist")
         self.assertIn("waiting.html", text)
