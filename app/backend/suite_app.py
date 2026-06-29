@@ -18,6 +18,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.backend import history
+from app.backend import lifecycle
 from app.backend import update_api
 from app.backend.capabilities import load_capabilities, set_cadence_menu_visibility
 from app.backend.plugins import load_plugins, set_plugin_cadence_menu_visibility
@@ -133,6 +134,9 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
                     "root": str(self.root),
                 }
             )
+            return
+        if parsed.path == "/api/lifecycle/check":
+            self._send_json(lifecycle.run_self_check(self.root))
             return
         if parsed.path == "/api/logs":
             log_dir = self.root / "data" / "reports" / "runtime"

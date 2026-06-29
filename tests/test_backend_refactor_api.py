@@ -31,6 +31,15 @@ class BackendRefactorApiTests(unittest.TestCase):
 
             update = get_json("/api/update/check")
             self.assertEqual(update["status"], "ok")
+
+            lifecycle = get_json("/api/lifecycle/check")
+            self.assertEqual(lifecycle["status"], "ok")
+            self.assertIn("checks", lifecycle)
+            check_ids = {check["id"] for check in lifecycle["checks"]}
+            self.assertTrue({"install_root", "manifest", "frontend", "python", "data_dirs"} <= check_ids)
+            lifecycle_text = json.dumps(lifecycle, ensure_ascii=False)
+            for bad in ["瀹", "鍓", "绔", "鐩", "鏃"]:
+                self.assertNotIn(bad, lifecycle_text)
         finally:
             server.shutdown()
             server.server_close()

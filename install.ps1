@@ -37,7 +37,12 @@ if ($installResolved -ne $sourceResolved) {
 }
 
 $InstallRoot = Get-HwAgentRoot -StartPath $InstallRoot
-$Python = Find-Python -Root $InstallRoot
+$Python = $null
+try {
+  $Python = Find-Python -Root $InstallRoot
+} catch {
+  Write-Host ("Python lookup failed: " + $_.Exception.Message)
+}
 
 $ConfigDir = Join-Path $InstallRoot "config"
 New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
@@ -55,25 +60,23 @@ if (-not (Test-Path -LiteralPath $LocalConfig)) {
   Write-Host ((Get-Text "5L+d55WZ5bey5pyJ5pys5py66YWN572u77ya") + $LocalConfig)
 }
 
-$node = Get-Command node.exe -ErrorAction SilentlyContinue
-$npm = Get-Command npm.cmd -ErrorAction SilentlyContinue
-if ($node -and $npm -and (Test-Path -LiteralPath (Join-Path $InstallRoot "frontend\package.json"))) {
-  & (Join-Path $InstallRoot "scripts\build_frontend.ps1")
-}
+if ($Python) {
+  foreach ($vendorAutoLoadDir in Find-CadenceVendorAutoLoadDirs) {
+    Disable-HwAgentVendorAutoLoadScripts -VendorAutoLoadDir $vendorAutoLoadDir | Out-Null
+  }
 
-foreach ($vendorAutoLoadDir in Find-CadenceVendorAutoLoadDirs) {
-  Disable-HwAgentVendorAutoLoadScripts -VendorAutoLoadDir $vendorAutoLoadDir | Out-Null
-}
-
-$AutoLoadDirs = @()
-if ($CaptureAutoLoadDir) {
-  $AutoLoadDirs += $CaptureAutoLoadDir
+  $AutoLoadDirs = @()
+  if ($CaptureAutoLoadDir) {
+    $AutoLoadDirs += $CaptureAutoLoadDir
+  } else {
+    $AutoLoadDirs += Find-CadenceAutoLoadDirs
+  }
+  foreach ($autoLoadDir in $AutoLoadDirs) {
+    Move-HwAgentAutoLoadBackupDirs -AutoLoadDir $autoLoadDir | Out-Null
+  }
+  Install-CadenceLoader -ToolRoot $InstallRoot -PythonPath $Python -AutoLoadDirs $AutoLoadDirs | Out-Null
 } else {
-  $AutoLoadDirs += Find-CadenceAutoLoadDirs
+  Write-Host "Skipping Cadence loader deployment because Python is unavailable. Open System Status for repair guidance."
 }
-foreach ($autoLoadDir in $AutoLoadDirs) {
-  Move-HwAgentAutoLoadBackupDirs -AutoLoadDir $autoLoadDir | Out-Null
-}
-Install-CadenceLoader -ToolRoot $InstallRoot -PythonPath $Python -AutoLoadDirs $AutoLoadDirs | Out-Null
 
 Write-Host (Get-Text "5a6J6KOF5a6M5oiQ44CC6K+36YeN5ZCvIE9yQ0FEIENhcHR1cmXvvIznhLblkI7miZPlvIAgQWNjZXNzb3JpZXMgLT4g56Gs5Lu25pWI546H5bel5YW36ZuG44CC")

@@ -3,49 +3,48 @@ param([switch]$SkipFrontend)
 $ErrorActionPreference = "Stop"
 
 # Build the distributable runtime tree (HWAgent_release) from the source tree.
-# The release tree is what HWAgent_Setup.iss packages: it mirrors the install
-# layout — built app/, cadence/, config/, plugins/, scripts/, tools/, the
-# launchers and Insta360_HW.exe — but drops dev-only cruft (frontend source,
-# node_modules, tests, docs, .git).
+# User installs and OTA updates consume this runtime tree. It must not contain
+# development-only folders such as frontend source, tests, docs, or node_modules.
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Root = Split-Path -Parent $ScriptDir
 $RepoRoot = Split-Path -Parent $Root
 $Release = Join-Path $RepoRoot "HWAgent_release"
+$Version = (Get-Content -LiteralPath (Join-Path $Root "VERSION") -Raw -Encoding UTF8).Trim()
 
 Write-Host "Building release tree -> $Release" -ForegroundColor Cyan
 
-# 1. Compile the launcher exe into the source root (it is both the dev entry
-#    point and ships in the release tree).
+# 1. Compile the launcher exe into the source root.
 & (Join-Path $Root "launcher\build.ps1")
 $Exe = Join-Path $Root "Insta360_HW.exe"
 if (-not (Test-Path -LiteralPath $Exe)) { throw "Insta360_HW.exe was not built" }
 
-# 2. Build the frontend into app/frontend (skipped only when caller already did it).
+# 2. Build the frontend into app/frontend on the developer machine only.
 if (-not $SkipFrontend) {
   & (Join-Path $Root "scripts\build_frontend.ps1")
 }
 
-# 3. Recreate the release tree from source, mirroring the runtime layout.
-if (Test-Path -LiteralPath $Release) {
-  # Preserve data/ and config/local.json in an existing release so we never
-  # wipe a real install when the release dir happens to be a live install.
-} else {
-  New-Item -ItemType Directory -Force -Path $Release | Out-Null
-}
+# 3. Recreate runtime directories from source.
+New-Item -ItemType Directory -Force -Path $Release | Out-Null
 
-# Mirror top-level runtime directories that ship verbatim from source.
+# Remove known runtime directories before mirroring so deleted files do not
+# linger. Remove dev-only top-level dirs if a previous bad build copied them.
+foreach ($dir in @("app", "cadence", "config", "plugins", "scripts", "tools", "frontend", "tests", "docs", "uploads", "outputs", "history")) {
+  $dst = Join-Path $Release $dir
+  if (Test-Path -LiteralPath $dst) { Remove-Item -LiteralPath $dst -Recurse -Force }
+}
+Get-ChildItem -LiteralPath $Release -Directory -Filter "BOM*" -ErrorAction SilentlyContinue |
+  ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force }
+
 foreach ($dir in @("app", "cadence", "config", "plugins", "scripts", "tools")) {
   $src = Join-Path $Root $dir
   $dst = Join-Path $Release $dir
   if (-not (Test-Path -LiteralPath $src)) { continue }
-  if (Test-Path -LiteralPath $dst) { Remove-Item -LiteralPath $dst -Recurse -Force }
-  robocopy $src $dst /E /XD "__pycache__" ".pytest_cache" "node_modules" ".vite" /XF "*.pyc" | Out-Null
+  robocopy $src $dst /E /XD "__pycache__" ".pytest_cache" "node_modules" ".vite" "src" "dist" "tests" "docs" "BOM*" /XF "*.pyc" | Out-Null
   if ($LASTEXITCODE -ge 8) { throw "robocopy failed for $dir (exit $LASTEXITCODE)" }
 }
 
-# 4. Copy top-level launchers and the exe. Drop the dev-only .bat entry points
-#    that the single-exe model replaces, keep iac_jump.bat (Cadence menu jump).
+# 4. Copy top-level runtime launchers and metadata.
 $keepFiles = @(
   "Insta360_HW.exe",
   "launch_tool_suite.ps1",
@@ -68,14 +67,25 @@ foreach ($name in $keepFiles) {
   }
 }
 
-# 5. Ensure runtime data directories exist (empty) so first run has somewhere
-#    to write; the .gitignore already excludes their contents.
-foreach ($d in @("data", "uploads", "outputs", "history", "plugins\user\scripts")) {
-  $p = Join-Path $Release $d
-  New-Item -ItemType Directory -Force -Path $p | Out-Null
+# 5. Ensure runtime-owned data directories exist.
+foreach ($d in @("runtime", "data", "data\uploads", "data\outputs", "data\history", "data\reports\runtime", "plugins\user\scripts")) {
+  New-Item -ItemType Directory -Force -Path (Join-Path $Release $d) | Out-Null
 }
+
+# 6. Write a factual manifest for install/update/uninstall/self-check.
+$manifest = [ordered]@{
+  product = "Insta360_HW"
+  version = $Version
+  layout = "runtime"
+  generated_at = (Get-Date).ToString("s")
+  preserved_paths = @("data", "config/local.json", "plugins/user")
+  runtime_paths = @("app/backend", "app/frontend", "cadence", "config", "plugins", "scripts", "tools", "runtime", "Insta360_HW.exe")
+  excluded_dev_paths = @("frontend", "frontend/src", "frontend/node_modules", "tests", "docs", "BOM*", ".git")
+}
+$manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $Release "install_manifest.json") -Encoding UTF8
 
 Write-Host ""
 Write-Host "Release tree ready: $Release" -ForegroundColor Green
 Write-Host ("  Insta360_HW.exe present: " + (Test-Path -LiteralPath (Join-Path $Release "Insta360_HW.exe")))
 Write-Host ("  app/frontend/index.html present: " + (Test-Path -LiteralPath (Join-Path $Release "app\frontend\index.html")))
+Write-Host ("  install_manifest.json present: " + (Test-Path -LiteralPath (Join-Path $Release "install_manifest.json")))

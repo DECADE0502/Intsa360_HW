@@ -103,12 +103,45 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("Test-Path -LiteralPath $LocalConfig", text)
         self.assertIn("Install-CadenceLoader", text)
         self.assertIn("Find-Python", text)
+        self.assertIn("Python lookup failed", text)
+        self.assertIn("Skipping Cadence loader deployment", text)
         self.assertIn("Find-CadenceAutoLoadDirs", text)
         self.assertIn("Find-CadenceVendorAutoLoadDirs", text)
         self.assertIn("Disable-HwAgentVendorAutoLoadScripts", text)
         self.assertIn("robocopy", text)
-        self.assertIn("build_frontend.ps1", text)
+        self.assertNotIn("build_frontend.ps1", text)
+        self.assertNotIn("npm install", text)
+        self.assertNotIn("pip install", text)
         self.assertNotIn("Start-HwAgentService", text)
+
+    def test_release_builder_outputs_runtime_manifest_and_excludes_dev_tree(self) -> None:
+        text = (ROOT / "scripts" / "build_release.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("install_manifest.json", text)
+        self.assertIn("runtime", text)
+        self.assertIn('"frontend"', text)
+        self.assertIn('"tests"', text)
+        self.assertIn('"docs"', text)
+        self.assertIn('"BOM*"', text)
+        self.assertIn('"frontend/src"', text)
+        self.assertIn('"frontend/node_modules"', text)
+        self.assertIn('"src"', text)
+        self.assertIn('"node_modules"', text)
+
+    def test_built_release_tree_is_runtime_only_when_present(self) -> None:
+        release = ROOT.parent / "HWAgent_release"
+        if not release.exists():
+            self.skipTest("release tree has not been built")
+
+        self.assertTrue((release / "install_manifest.json").exists())
+        self.assertTrue((release / "app" / "frontend" / "index.html").exists())
+        self.assertFalse((release / "frontend").exists())
+        self.assertFalse((release / "tests").exists())
+        self.assertFalse((release / "docs").exists())
+        self.assertFalse((release / "uploads").exists())
+        self.assertFalse((release / "outputs").exists())
+        self.assertFalse((release / "history").exists())
+        self.assertFalse(any(item.name.startswith("BOM") for item in release.iterdir() if item.is_dir()))
 
     def test_tcl_script_library_disables_custom_scripts_in_vendor_autoload(self) -> None:
         text = (ROOT / "scripts" / "lib" / "TclScripts.ps1").read_text(encoding="utf-8")
@@ -636,6 +669,14 @@ class DistributionInstallTests(unittest.TestCase):
             data.decode("ascii")
         except UnicodeDecodeError as exc:
             self.fail(f"oneclick_install.ps1 must be ASCII-safe for Windows PowerShell: {exc}")
+
+    def test_oneclick_install_does_not_install_runtime_dependencies_on_user_machine(self) -> None:
+        text = (ROOT / "oneclick_install.ps1").read_text(encoding="utf-8")
+
+        self.assertNotIn("pip install", text)
+        self.assertNotIn("openpyxl is missing", text)
+        self.assertNotIn("Checking Node.js", text)
+        self.assertNotIn("Node.js is ready", text)
 
     def test_insta360_hw_exe_is_built_with_embedded_icon(self) -> None:
         exe = ROOT / "Insta360_HW.exe"
