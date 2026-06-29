@@ -41,6 +41,8 @@ def _normalize_header(value: object) -> str:
     text = str(value or "").strip()
     text = re.sub(r"##.*$", "", text)
     text = text.replace("*", "")
+    if text.startswith("{") and text.endswith("}"):
+        text = text[1:-1]
     text = text.replace(" ", "")
     return text
 
@@ -100,7 +102,7 @@ def _refine_bom_mapping(ws, header_row: int, mapping: dict[str, int]) -> dict[st
             normalized_values,
             FIELD_ALIASES[key],
             anchor_col=refined.get("part_number"),
-            prefer_after_anchor=key in {"description", "quantity", "name", "package", "value", "reference"},
+            prefer_after_anchor=key in {"description", "quantity", "name", "package", "value"},
         )
         if col:
             refined[key] = col
@@ -970,6 +972,177 @@ def _package_matches(net_package: str, bom_text: str) -> tuple[bool, str]:
     return False, "网表封装未出现在 BOM 描述/名称/封装字段"
 
 
+_SMT_HIGH_RISK_RE = re.compile(
+    r"(^|[^A-Z0-9])(BGA|WLCSP|CSP|QFN|DFN|LGA|QFP|BTB|FPC|FFC|USB|HDMI|TYPEC|EMMC|UFS|DDR|LPDDR|MIPI|CSI|DSI)",
+    re.IGNORECASE,
+)
+
+
+def _smt_status_key(status: str) -> str:
+    return {
+        "通过": "passed",
+        "近似通过": "near",
+        "需要确认": "manual",
+        "BOM 缺位号": "missing_bom",
+        "BOM 多余位号": "extra_bom",
+        "同料多封装": "multi_package",
+        "高风险封装": "high_risk",
+    }.get(status, "manual")
+
+
+def _smt_item(
+    ref: str,
+    status: str,
+    net_package: str = "",
+    bom_row: dict[str, object] | None = None,
+    note: str = "",
+    severity: str = "medium",
+    part_number: str = "",
+) -> dict[str, object]:
+    row = bom_row or {}
+    return {
+        "key": f"{status}:{ref}:{part_number or row.get('part_number', '')}",
+        "ref": ref,
+        "status": status,
+        "kind": _smt_status_key(status),
+        "severity": severity,
+        "part_number": part_number or str(row.get("part_number", "")),
+        "net_package": net_package,
+        "bom_package": str(row.get("package", "")),
+        "model": str(row.get("model", "")),
+        "description": str(row.get("description", "")),
+        "name": str(row.get("name", "")),
+        "grade": str(row.get("grade", "")),
+        "note": note,
+    }
+
+
+def _is_high_risk_package(*values: object) -> bool:
+    return bool(_SMT_HIGH_RISK_RE.search(" ".join(str(value or "") for value in values)))
+
+
+def _build_smt_package_review(parts: dict[str, str], bom_rows: list[dict[str, object]]) -> dict[str, object]:
+    by_ref = {ref: row for row in bom_rows for ref in row["refs"]}
+    items: list[dict[str, object]] = []
+    rows: list[list[object]] = []
+    status_counts = {
+        "passed": 0,
+        "near": 0,
+        "manual": 0,
+        "missing_bom": 0,
+        "extra_bom": 0,
+        "multi_package": 0,
+        "high_risk": 0,
+    }
+
+    for ref, package in sorted(parts.items(), key=lambda item: _natural_key(item[0])):
+        bom_row = by_ref.get(ref)
+        if not bom_row:
+            status = "BOM 缺位号"
+            note = "网表存在该位号，但 BOM 中没有找到。确认是否漏导、未贴或不应进入贴片 BOM。"
+            item = _smt_item(ref, status, package, None, note, "high")
+            rows.append([ref, package, "", "", "", status, note])
+        else:
+            desc = str(bom_row.get("description", ""))
+            name = str(bom_row.get("name", ""))
+            bom_package = str(bom_row.get("package", ""))
+            model = str(bom_row.get("model", ""))
+            ok, note = _package_matches(package, f"{desc} {name} {bom_package} {model}")
+            if ok and note.startswith("封装字段近似匹配"):
+                status = "近似通过"
+                severity = "low"
+            elif ok:
+                status = "通过"
+                severity = "low"
+            else:
+                status = "需要确认"
+                severity = "medium"
+            item = _smt_item(ref, status, package, bom_row, note, severity)
+            table_status = "机器初筛通过" if status in {"通过", "近似通过"} else "请人工判断"
+            rows.append([ref, package, bom_package or model, desc, name, table_status, note])
+        status_counts[_smt_status_key(status)] += 1
+        items.append(item)
+
+    for ref in sorted(set(by_ref) - set(parts), key=_natural_key):
+        bom_row = by_ref[ref]
+        note = "BOM 中存在该位号，但 pstxprt.dat 没有找到。确认是否机构/辅料、手工添加、或网表导出不完整。"
+        item = _smt_item(ref, "BOM 多余位号", "", bom_row, note, "medium")
+        items.append(item)
+        status_counts["extra_bom"] += 1
+
+    packages_by_part: dict[str, set[str]] = {}
+    refs_by_part: dict[str, list[str]] = {}
+    rows_by_part: dict[str, dict[str, object]] = {}
+    for ref, package in parts.items():
+        row = by_ref.get(ref)
+        part_number = str(row.get("part_number", "") if row else "").strip()
+        if not part_number:
+            continue
+        packages_by_part.setdefault(part_number, set()).add(package)
+        refs_by_part.setdefault(part_number, []).append(ref)
+        rows_by_part.setdefault(part_number, row)
+    for part_number, packages in sorted(packages_by_part.items(), key=lambda item: _natural_key(item[0])):
+        normalized = {re.sub(r"[^A-Z0-9]", "", package.upper()) for package in packages if package}
+        if len(normalized) <= 1:
+            continue
+        refs = sorted(refs_by_part.get(part_number, []), key=_natural_key)
+        note = "同一个物料编码对应多个网表封装：" + " / ".join(sorted(packages, key=_natural_key))
+        item = _smt_item(
+            ",".join(refs),
+            "同料多封装",
+            " / ".join(sorted(packages, key=_natural_key)),
+            rows_by_part.get(part_number),
+            note,
+            "high",
+            part_number,
+        )
+        item["refs"] = refs
+        items.append(item)
+        status_counts["multi_package"] += 1
+
+    high_risk_seen: set[str] = set()
+    for item in list(items):
+        if item["status"] in {"BOM 缺位号", "同料多封装"}:
+            continue
+        if not _is_high_risk_package(item.get("net_package"), item.get("bom_package"), item.get("model"), item.get("description"), item.get("name")):
+            continue
+        ref = str(item.get("ref", ""))
+        if ref in high_risk_seen:
+            continue
+        high_risk_seen.add(ref)
+        note = "BGA/QFN/连接器/存储/高速相关封装，建议人工确认 footprint、焊盘、硬件版本和替代料一致性。"
+        items.append(_smt_item(ref, "高风险封装", str(item.get("net_package", "")), {
+            "part_number": item.get("part_number", ""),
+            "package": item.get("bom_package", ""),
+            "model": item.get("model", ""),
+            "description": item.get("description", ""),
+            "name": item.get("name", ""),
+            "grade": item.get("grade", ""),
+        }, note, "medium"))
+        status_counts["high_risk"] += 1
+
+    priority = {"high": 0, "medium": 1, "low": 2}
+    focus_items = sorted(
+        [item for item in items if item["status"] not in {"通过"}],
+        key=lambda item: (priority.get(str(item.get("severity")), 9), _natural_key(str(item.get("ref", ""))), str(item.get("status", ""))),
+    )[:500]
+    return {
+        "items": items,
+        "focus_items": focus_items,
+        "status_counts": status_counts,
+        "table_rows": rows,
+        "review_guide": {
+            "通过": "网表封装和 BOM 封装/型号/描述中存在明确关键词匹配，通常可快速放行。",
+            "近似通过": "封装字段存在包含关系，建议抽查命名是否为同一 footprint。",
+            "需要确认": "网表封装没有在 BOM 描述、名称、型号或封装字段中匹配到，需要人工核对。",
+            "BOM 缺位号": "pstxprt.dat 中有位号但 BOM 没有，重点确认是否漏导或不应入 BOM。",
+            "BOM 多余位号": "BOM 中有位号但网表没有，重点确认手工添加、机构辅料或位号错误。",
+            "同料多封装": "同一个物料编码出现在多个 footprint 上，通常需要拆料号或确认封装兼容。",
+            "高风险封装": "BGA/QFN/连接器/存储/高速相关物料变更成本高，建议人工二次确认。",
+        },
+    }
+
+
 _CRITICAL_NET_RE = re.compile(r"(GND|VSS|VDD|VCC|POWER|BUCK|SYS_|USB|MIPI|CSI|DSI|DDR|EMMC|CLK|CLOCK|RST|RESET|I2C|SPI|UART)", re.IGNORECASE)
 
 
@@ -1248,30 +1421,32 @@ def run_smt_package_check(root: Path, params: dict[str, object]) -> dict[str, ob
         return _error("smt_package_check", error)
     parts = _parse_part_file(netlist)
     bom_rows = _read_bom_rows(bom)
-    by_ref = {ref: row for row in bom_rows for ref in row["refs"]}
-    rows = []
-    for ref, package in sorted(parts.items()):
-        bom_row = by_ref.get(ref)
-        if not bom_row:
-            status = "请人工判断"
-            desc = ""
-            name = ""
-            bom_package = ""
-            note = "BOM 中未找到该位号"
-        else:
-            desc = str(bom_row.get("description", ""))
-            name = str(bom_row.get("name", ""))
-            bom_package = str(bom_row.get("package", ""))
-            ok, note = _package_matches(package, f"{desc} {name} {bom_package} {bom_row.get('model', '')}")
-            status = "机器初筛通过" if ok else "请人工判断"
-        rows.append([ref, package, bom_package, desc, name, status, note])
+    review = _build_smt_package_review(parts, bom_rows)
+    rows = review["table_rows"]
     headers = ["位号", "网表封装", "BOM封装/型号", "描述", "名称", "状态", "说明"]
     output = _output_dir(params, root, "smt") / f"贴片封装检查结果_{_timestamp()}.xlsx"
     _write_table(output, "封装检查", headers, rows)
-    manual_count = sum(1 for row in rows if row[-2] == "请人工判断")
-    passed_count = sum(1 for row in rows if row[-2] == "机器初筛通过")
+    counts = review["status_counts"]
+    manual_count = counts["manual"] + counts["missing_bom"] + counts["extra_bom"] + counts["multi_package"]
+    passed_count = counts["passed"] + counts["near"]
     table = _table(headers, rows, status_col=5)
-    return _result("smt_package_check", [output], {"total": len(rows), "passed_count": passed_count, "manual_count": manual_count}, table)
+    result = _result(
+        "smt_package_check",
+        [output],
+        {
+            "total": len(parts),
+            "passed_count": passed_count,
+            "near_count": counts["near"],
+            "manual_count": manual_count,
+            "missing_bom": counts["missing_bom"],
+            "extra_bom": counts["extra_bom"],
+            "multi_package": counts["multi_package"],
+            "high_risk": counts["high_risk"],
+        },
+        table,
+    )
+    result["smt_package_review"] = {key: value for key, value in review.items() if key != "table_rows"}
+    return result
 
 
 def run_single_network_check(root: Path, params: dict[str, object]) -> dict[str, object]:

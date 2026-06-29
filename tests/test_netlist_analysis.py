@@ -168,5 +168,68 @@ NODE_NAME C1 1
             self.assertGreaterEqual(result["summary"]["diff_count"], 1)
 
 
+    def test_smt_package_check_builds_review_for_missing_extra_multi_package_and_high_risk(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = root / "allegro"
+            write_netlist(
+                folder,
+                parts="""PART_NAME
+ C1 'CAP_NP_C0201-0P4-B_1UF/6.3V':;
+PART_NAME
+ C2 'CAP_NP_C0402-0P4-B_1UF/6.3V':;
+PART_NAME
+ U1 'EMMC_BGA153':;
+PART_NAME
+ R9 'RES_NP_R0201_10K':;
+""",
+            )
+
+            bom = root / "bom.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["位号", "编号", "描述", "数量", "名称", "封装名", "规格型号", "等级"])
+            ws.append(["C1,C2", "C.001", "陶瓷电容,1UF/6.3V", 2, "电容", "C0201-0P4-B", "1UF", "A"])
+            ws.append(["U1", "IC.001", "eMMC 存储器 BGA153", 1, "存储器", "BGA153", "EMMC", "A"])
+            ws.append(["L5", "L.001", "电感 2.2UH", 1, "电感", "L0402", "2.2UH", "A"])
+            wb.save(bom)
+
+            result = analysis_tools.run_smt_package_check(ROOT, {"netlist": str(folder), "bom": str(bom), "output_dir": str(root)})
+
+            self.assertEqual(result["status"], "ok")
+            review = result["smt_package_review"]
+            counts = review["status_counts"]
+            self.assertEqual(counts["missing_bom"], 1)
+            self.assertEqual(counts["extra_bom"], 1)
+            self.assertEqual(counts["multi_package"], 1)
+            self.assertGreaterEqual(counts["high_risk"], 1)
+            self.assertGreaterEqual(result["summary"]["manual_count"], 1)
+            self.assertGreaterEqual(result["summary"]["high_risk"], 1)
+            self.assertTrue(any(item["status"] == "BOM 缺位号" and item["ref"] == "R9" for item in review["items"]))
+            self.assertTrue(any(item["status"] == "BOM 多余位号" and item["ref"] == "L5" for item in review["items"]))
+            self.assertTrue(any(item["status"] == "同料多封装" and item["part_number"] == "C.001" for item in review["focus_items"]))
+            self.assertTrue(any(item["status"] == "高风险封装" and item["ref"] == "U1" for item in review["focus_items"]))
+
+    def test_smt_package_check_accepts_capture_bom_headers_with_braces(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = root / "allegro"
+            write_netlist(folder, parts="PART_NAME\n C1 'CAP_NP_C0201-0P4-B_1UF/6.3V':;\n")
+
+            bom = root / "capture.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["Bill Of Materials"])
+            ws.append([""])
+            ws.append(["{Item}", "{Quantity}", "{Reference}", "{Part Number}", "{Value}", "{规格型号}", "{器件描述（新整理）}", "{物料名称}", "{等级}", "{PCB封装}", "{Designator}"])
+            ws.append([1, 1, "C1", "C.001", "1UF", "C0201-0P4-B", "陶瓷电容,1UF/6.3V", "电容", "A", "C0201-0P4-B", ""])
+            wb.save(bom)
+
+            result = analysis_tools.run_smt_package_check(ROOT, {"netlist": str(folder), "bom": str(bom), "output_dir": str(root)})
+
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(result["summary"]["passed_count"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

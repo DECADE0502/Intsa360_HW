@@ -6,10 +6,12 @@ import { toolInputs } from "./toolConfig";
 import { ResultPanel } from "../components/ResultPanel";
 import { BomComparePane } from "./BomComparePane";
 import { NetlistComparePane } from "./NetlistComparePane";
+import { SmtPackageCheckPane } from "./SmtPackageCheckPane";
 
 export function LegacyToolPane({ tool }: { tool: ToolInfo }) {
   if (tool.id === "bom_compare") return <BomComparePane tool={tool} />;
   if (tool.id === "netlist_compare") return <NetlistComparePane tool={tool} />;
+  if (tool.id === "smt_package_check") return <SmtPackageCheckPane tool={tool} />;
 
   const inputs = toolInputs[tool.id] || [];
   const [files, setFiles] = useState<Record<string, File[]>>({});

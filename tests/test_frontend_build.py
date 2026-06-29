@@ -333,6 +333,29 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn(".netlist-shell", css)
         self.assertIn(".netlist-inspector", css)
 
+    def test_smt_package_check_uses_dedicated_review_workbench(self) -> None:
+        legacy = (ROOT / "frontend" / "src" / "tools" / "LegacyToolPane.tsx").read_text(encoding="utf-8")
+        pane_path = ROOT / "frontend" / "src" / "tools" / "SmtPackageCheckPane.tsx"
+        self.assertTrue(pane_path.exists())
+        pane = pane_path.read_text(encoding="utf-8")
+        css = (ROOT / "frontend" / "src" / "styles.css").read_text(encoding="utf-8")
+
+        self.assertIn('tool.id === "smt_package_check"', legacy)
+        self.assertIn("<SmtPackageCheckPane", legacy)
+        self.assertIn("smt-workbench", pane)
+        self.assertIn("smt_package_review", pane)
+        self.assertIn("focus_items", pane)
+        self.assertIn("BOM 缺位号", pane)
+        self.assertIn("BOM 多余位号", pane)
+        self.assertIn("同料多封装", pane)
+        self.assertIn("高风险封装", pane)
+        self.assertIn('directory="true"', pane)
+        self.assertIn('webkitdirectory="true"', pane)
+        self.assertIn("pstxprt.dat", pane)
+        self.assertIn("选择 Allegro 目录", pane)
+        self.assertIn(".smt-shell", css)
+        self.assertIn(".smt-inspector", css)
+
 
 if __name__ == "__main__":
     unittest.main()
