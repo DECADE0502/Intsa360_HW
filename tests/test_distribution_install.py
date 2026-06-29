@@ -661,6 +661,13 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn(".ready", text)
         self.assertIn("ProcessWindowStyle.Hidden", text)
 
+    def test_launcher_repairs_cadence_loader_on_every_start(self) -> None:
+        text = (ROOT / "launcher" / "Insta360_HW.cs").read_text(encoding="utf-8")
+
+        self.assertIn("redeploy_cadence_loader.ps1", text)
+        self.assertIn("EnsureCadenceLoaderReady", text)
+        self.assertIn("RunPowerShellHidden(root, redeployScript", text)
+
     def test_launcher_build_script_embeds_icon_and_targets_winexe(self) -> None:
         text = (ROOT / "launcher" / "build.ps1").read_text(encoding="utf-8")
 

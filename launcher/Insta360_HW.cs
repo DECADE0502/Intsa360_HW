@@ -7,7 +7,9 @@
 //   1. Finds its sibling scripts next to itself.
 //   2. On first run, runs oneclick_install.ps1 -Silent (install openpyxl, deploy
 //      the Cadence loader, init config) and writes a .ready marker.
-//   3. On every run, runs launch_tool_suite.ps1 hidden, forwarding CLI args so
+//   3. On every run, repairs the Cadence loader if it was removed or the real
+//      Capture HOME differs from the installer assumption.
+//   4. On every run, runs launch_tool_suite.ps1 hidden, forwarding CLI args so
 //      Cadence menu deep-links (Source/Name/-Restart) keep working.
 //
 // Built with: csc.exe /target:winexe /win32icon:<icon> /out:Insta360_HW.exe
@@ -28,6 +30,7 @@ internal static class Program
         string root = exeDir.TrimEnd('\\', '/');
 
         string installScript = Path.Combine(root, "oneclick_install.ps1");
+        string redeployScript = Path.Combine(root, "scripts", "redeploy_cadence_loader.ps1");
         string launchScript = Path.Combine(root, "launch_tool_suite.ps1");
         string readyMarker = Path.Combine(root, "data", ".ready");
 
@@ -40,6 +43,16 @@ internal static class Program
             // First-run readiness is best-effort: never block the user from the
             // platform if optional setup (e.g. Cadence deploy) fails. The launch
             // step below will surface real errors via its health check.
+        }
+
+        try
+        {
+            EnsureCadenceLoaderReady(root, redeployScript);
+        }
+        catch
+        {
+            // Cadence integration repair is best-effort. The platform still
+            // opens so System Status can show diagnostics and repair actions.
         }
 
         return RunPowerShellHidden(root, launchScript, string.Join(" ", QuoteArgs(args)));
@@ -63,6 +76,12 @@ internal static class Program
         {
             // Marker is a convenience, not a requirement.
         }
+    }
+
+    private static void EnsureCadenceLoaderReady(string root, string redeployScript)
+    {
+        if (!File.Exists(redeployScript)) return;
+        RunPowerShellHidden(root, redeployScript, "");
     }
 
     private static int RunPowerShellHidden(string workingDir, string script, string extraArgs)
