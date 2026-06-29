@@ -84,22 +84,64 @@ const
   OPT_UNINSTALL = 1;
   OPT_CANCEL    = 2;
 
+function GetUninstallRegPath(): String;
+begin
+  Result := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{B7F3AC9E-2D5E-4A8C-9F6E-1A3D4E5F6B72}_is1';
+end;
+
 function GetUninstallString(): String;
 var
-  sUnInstPath: String;
   sUnInst: String;
 begin
-  sUnInstPath := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{B7F3AC9E-2D5E-4A8C-9F6E-1A3D4E5F6B72}_is1';
   Result := '';
   sUnInst := '';
-  if RegQueryStringValue(HKLM, sUnInstPath, 'UninstallString', sUnInst) then
+  if RegQueryStringValue(HKLM, GetUninstallRegPath(), 'UninstallString', sUnInst) then
     Result := sUnInst;
-  if (Result = '') and RegQueryStringValue(HKCU, sUnInstPath, 'UninstallString', sUnInst) then
+  if (Result = '') and RegQueryStringValue(HKCU, GetUninstallRegPath(), 'UninstallString', sUnInst) then
     Result := sUnInst;
+end;
+
+function GetInstallLocation(): String;
+var
+  sInstallLocation: String;
+begin
+  Result := '';
+  sInstallLocation := '';
+  if RegQueryStringValue(HKLM, GetUninstallRegPath(), 'InstallLocation', sInstallLocation) then
+    Result := sInstallLocation;
+  if (Result = '') and RegQueryStringValue(HKCU, GetUninstallRegPath(), 'InstallLocation', sInstallLocation) then
+    Result := sInstallLocation;
+end;
+
+function UninstallExeExists(UninstallString: String): Boolean;
+var
+  exePath: String;
+begin
+  exePath := RemoveQuotes(UninstallString);
+  Result := (exePath <> '') and FileExists(exePath);
+end;
+
+procedure CleanupBrokenInstallRegistration();
+var
+  uninst: String;
+  installDir: String;
+begin
+  uninst := GetUninstallString();
+  if (uninst = '') or UninstallExeExists(uninst) then
+    Exit;
+
+  installDir := RemoveBackslashUnlessRoot(GetInstallLocation());
+  if (installDir <> '') and DirExists(installDir) then begin
+    DelTree(installDir, True, True, True);
+  end;
+
+  RegDeleteKeyIncludingSubkeys(HKLM, GetUninstallRegPath());
+  RegDeleteKeyIncludingSubkeys(HKCU, GetUninstallRegPath());
 end;
 
 procedure InitializeWizard();
 begin
+  CleanupBrokenInstallRegistration();
   AlreadyInstalled := (GetUninstallString() <> '');
   if AlreadyInstalled then begin
     // The 5th arg (Exclusive) is True -> radio buttons, exactly one selectable.
@@ -180,6 +222,12 @@ begin
     Uninst := GetUninstallString();
     if Uninst <> '' then begin
       UninstExe := RemoveQuotes(Uninst);
+      if not FileExists(UninstExe) then begin
+        CleanupBrokenInstallRegistration();
+        CloseWizardSilently();
+        Result := False;
+        Exit;
+      end;
 
       // Show the progress page with an animated bar + status text.
       UninstallProgressPage.SetText('正在卸载现有版本，请稍候...', '');
@@ -198,7 +246,7 @@ begin
         // SetText each iteration forces the progress page to repaint, so the
         // bar animates and the window stays responsive (max ~60s).
         Waited := 0;
-        while (GetUninstallString() <> '') and (Waited < 600) do begin
+        while (GetUninstallString() <> '') and (Waited < 150) do begin
           UninstallProgressPage.SetText(
             '正在卸载现有版本，请稍候...' + #13#10 + '（删除程序文件与集成）', '');
           Sleep(100);
