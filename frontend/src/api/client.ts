@@ -190,10 +190,15 @@ export async function startUpdate() {
 
 export type UpdateCheck = {
   version: string;
+  revision: string;
   remote_version: string;
+  remote_revision: string;
+  display_remote: string;
   has_update: boolean;
   can_update: boolean;
+  update_reason: string;
   remote_status: string;
+  remote_revision_status: string;
   message: string;
 };
 

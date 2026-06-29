@@ -85,6 +85,37 @@ function Resolve-HwAgentReleaseAssetUrl {
   return $null
 }
 
+function Resolve-HwAgentRemoteRevision {
+  param(
+    [Parameter(Mandatory=$true)][string]$Repo,
+    [string]$Branch = "main"
+  )
+  $repoPath = ConvertTo-HwAgentRepoPath -Repo $Repo
+  $apiUrl = "https://api.github.com/repos/$repoPath/commits/$Branch"
+  try {
+    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+    $headers = @{
+      "User-Agent" = "HWAgent-Updater"
+      "Accept" = "application/vnd.github+json"
+    }
+    $commit = Invoke-RestMethod -Method Get -Uri $apiUrl -Headers $headers -TimeoutSec 15
+    return [string]$commit.sha
+  } catch {
+    Write-Host ("Remote revision lookup failed: " + $_.Exception.Message)
+    return ""
+  }
+}
+
+function Write-HwAgentRevision {
+  param(
+    [Parameter(Mandatory=$true)][string]$Root,
+    [string]$Revision = ""
+  )
+  if (-not [string]::IsNullOrWhiteSpace($Revision)) {
+    Set-Content -LiteralPath (Join-Path $Root "REVISION") -Value $Revision -Encoding UTF8
+  }
+}
+
 function Find-HwAgentUpdatePayloadRoot {
   param([Parameter(Mandatory=$true)][string]$ExtractRoot)
   $candidates = @()
@@ -147,6 +178,7 @@ function Invoke-HwAgentZipUpdate {
   }
 
   $repoPath = ConvertTo-HwAgentRepoPath -Repo $Repo
+  $remoteRevision = Resolve-HwAgentRemoteRevision -Repo $Repo -Branch $Branch
   $assetUrl = Resolve-HwAgentReleaseAssetUrl -Repo $Repo
   if ($assetUrl) {
     $zipUrl = $assetUrl
@@ -182,6 +214,7 @@ function Invoke-HwAgentZipUpdate {
 
     Write-Host "__HWAGENT_PROGRESS__ 85 restoring user data"
     Restore-HwAgentProtectedItems -Root $Root -BackupRoot $backupRoot
+    Write-HwAgentRevision -Root $Root -Revision $remoteRevision
   } finally {
     if (Test-Path -LiteralPath $tempRoot) {
       Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
@@ -227,6 +260,7 @@ function Invoke-HwAgentGitUpdate {
       $cloneRoot = Join-Path $tempRoot "repo"
       $backupRoot = Join-Path $tempRoot "protected"
       try {
+        $remoteRevision = Resolve-HwAgentRemoteRevision -Repo $Repo -Branch $Branch
         New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null
         & git clone --depth 1 --branch $Branch $Repo $cloneRoot
         if ($LASTEXITCODE -ne 0) { throw "git clone failed" }
@@ -234,6 +268,7 @@ function Invoke-HwAgentGitUpdate {
         Copy-HwAgentProtectedItems -Root $Root -BackupRoot $backupRoot
         Sync-HwAgentTree -SourceRoot $cloneRoot -TargetRoot $Root
         Restore-HwAgentProtectedItems -Root $Root -BackupRoot $backupRoot
+        Write-HwAgentRevision -Root $Root -Revision $remoteRevision
       } finally {
         if (Test-Path -LiteralPath $tempRoot) {
           Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue

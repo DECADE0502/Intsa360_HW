@@ -11,6 +11,12 @@ $Root = Split-Path -Parent $ScriptDir
 $RepoRoot = Split-Path -Parent $Root
 $Release = Join-Path $RepoRoot "HWAgent_release"
 $Version = (Get-Content -LiteralPath (Join-Path $Root "VERSION") -Raw -Encoding UTF8).Trim()
+$Revision = ""
+try {
+  $Revision = (& git -C $Root rev-parse HEAD 2>$null).Trim()
+} catch {
+  $Revision = ""
+}
 
 Write-Host "Building release tree -> $Release" -ForegroundColor Cyan
 
@@ -63,6 +69,7 @@ $keepFiles = @(
   "oneclick_uninstall.ps1",
   "oneclick_update.ps1",
   "VERSION",
+  "REVISION",
   ".gitignore"
 )
 foreach ($name in $keepFiles) {
@@ -70,6 +77,9 @@ foreach ($name in $keepFiles) {
   if (Test-Path -LiteralPath $src) {
     Copy-Item -LiteralPath $src -Destination (Join-Path $Release $name) -Force
   }
+}
+if (-not [string]::IsNullOrWhiteSpace($Revision)) {
+  Set-Content -LiteralPath (Join-Path $Release "REVISION") -Value $Revision -Encoding UTF8
 }
 
 # 5. Ensure runtime-owned data directories exist.
@@ -81,6 +91,7 @@ foreach ($d in @("runtime", "data", "data\uploads", "data\outputs", "data\histor
 $manifest = [ordered]@{
   product = "Insta360_HW"
   version = $Version
+  revision = $Revision
   layout = "runtime"
   generated_at = (Get-Date).ToString("s")
   preserved_paths = @("data", "config/local.json", "plugins/user")

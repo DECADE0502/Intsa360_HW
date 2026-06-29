@@ -43,7 +43,7 @@ export function UpdateStatus({ version }: { version: string }) {
       .then((info) => {
         if (cancelled) return;
         setHasUpdate(Boolean(info.has_update));
-        setRemoteVersion(info.remote_version || "");
+        setRemoteVersion(info.display_remote || info.remote_version || "");
         setCheckedUpdate(true);
       })
       .catch(() => {});
@@ -113,12 +113,12 @@ export function UpdateStatus({ version }: { version: string }) {
     try {
       const info = await checkUpdate();
       setHasUpdate(Boolean(info.has_update));
-      setRemoteVersion(info.remote_version || "");
+      setRemoteVersion(info.display_remote || info.remote_version || "");
       setCheckedUpdate(true);
       if (info.has_update) {
-        message.info(`发现新版本 ${info.remote_version}`);
+        message.info(`发现新版本 ${info.display_remote || info.remote_version}`);
       } else {
-        message.success(info.remote_version ? `已是最新版本 ${info.remote_version}` : "已是最新版本");
+        message.success(info.display_remote || info.remote_version ? `已是最新版本 ${info.display_remote || info.remote_version}` : "已是最新版本");
       }
     } catch (e) {
       message.error((e as Error).message || "更新检查失败");

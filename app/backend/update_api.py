@@ -13,8 +13,34 @@ def read_version(root: Path) -> str:
     return path.read_text(encoding="utf-8-sig").strip() or "0.0.0"
 
 
+def read_revision(root: Path) -> str:
+    path = root / "REVISION"
+    if path.exists():
+        value = path.read_text(encoding="utf-8-sig").strip()
+        if value:
+            return value
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            timeout=5,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        if out.returncode == 0:
+            return (out.stdout or "").strip()
+    except Exception:  # noqa: BLE001
+        pass
+    return ""
+
+
+def _short_revision(value: str) -> str:
+    return value[:7] if value else ""
+
+
 def version_payload(root: Path) -> dict[str, object]:
-    return {"status": "ok", "version": read_version(root), "message": "版本读取成功"}
+    return {"status": "ok", "version": read_version(root), "revision": read_revision(root), "message": "版本读取成功"}
 
 
 def _has_git() -> bool:
@@ -240,21 +266,52 @@ def _fetch_remote_version(root: Path) -> tuple[str, str]:
         return "", f"无法获取远程版本：{exc}"
 
 
+def _fetch_remote_revision(root: Path) -> tuple[str, str]:
+    import json
+    import urllib.request
+
+    repo = _remote_repo_path(root)
+    url = f"https://api.github.com/repos/{repo}/commits/main"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "HWAgent-Updater", "Accept": "application/vnd.github+json"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            payload = json.loads(resp.read().decode("utf-8", errors="replace"))
+        sha = str(payload.get("sha") or "").strip()
+        return sha, "ok" if sha else "empty_remote_revision"
+    except Exception as exc:  # noqa: BLE001
+        return "", f"无法获取远程修订：{exc}"
+
+
 def check_update(root: Path) -> dict[str, object]:
     config = root / "config" / "local.json"
     local_version = read_version(root)
+    local_revision = read_revision(root)
     remote_version, remote_status = _fetch_remote_version(root)
+    remote_revision, remote_revision_status = _fetch_remote_revision(root)
     has_update = False
+    update_reason = ""
     if remote_status == "ok" and remote_version:
-        has_update = _parse_version(remote_version) > _parse_version(local_version)
+        remote_tuple = _parse_version(remote_version)
+        local_tuple = _parse_version(local_version)
+        if remote_tuple > local_tuple:
+            has_update = True
+            update_reason = "version"
+        elif remote_tuple == local_tuple and remote_revision_status == "ok" and remote_revision and local_revision and remote_revision != local_revision:
+            has_update = True
+            update_reason = "revision"
     return {
         "status": "ok",
         "version": local_version,
+        "revision": local_revision,
         "remote_version": remote_version,
+        "remote_revision": remote_revision,
         "has_update": has_update,
+        "update_reason": update_reason,
         "can_update": (root / "update.ps1").exists(),
         "git_available": _has_git(),
         "remote_status": remote_status,
+        "remote_revision_status": remote_revision_status,
+        "display_remote": f"{remote_version} ({_short_revision(remote_revision)})" if remote_revision else remote_version,
         "config": str(config),
         "message": "发现新版本，可一键更新" if has_update else ("已是最新版本" if remote_status == "ok" else "远程版本检查失败"),
     }

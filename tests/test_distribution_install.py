@@ -410,6 +410,37 @@ class DistributionInstallTests(unittest.TestCase):
             # script-exists branch is reached without a git gate.
             self.assertTrue((root / "update.ps1").exists())
 
+    def test_update_api_detects_same_version_remote_revision_changes(self) -> None:
+        import sys
+        sys.path.insert(0, str(ROOT))
+        try:
+            from app.backend import update_api
+        finally:
+            sys.path.pop(0)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "install"
+            root.mkdir()
+            (root / "VERSION").write_text("0.2.1\n", encoding="utf-8")
+            (root / "REVISION").write_text("1111111111111111111111111111111111111111\n", encoding="utf-8")
+            (root / "update.ps1").write_text("echo hi\n", encoding="utf-8")
+
+            original_fetch_version = update_api._fetch_remote_version
+            original_fetch_revision = update_api._fetch_remote_revision
+            try:
+                update_api._fetch_remote_version = lambda _root: ("0.2.1", "ok")
+                update_api._fetch_remote_revision = lambda _root: ("2222222222222222222222222222222222222222", "ok")
+
+                result = update_api.check_update(root)
+            finally:
+                update_api._fetch_remote_version = original_fetch_version
+                update_api._fetch_remote_revision = original_fetch_revision
+
+            self.assertTrue(result["has_update"])
+            self.assertEqual(result["revision"], "1111111111111111111111111111111111111111")
+            self.assertEqual(result["remote_revision"], "2222222222222222222222222222222222222222")
+            self.assertEqual(result["update_reason"], "revision")
+
     def test_update_library_can_update_plain_folder_from_git_repo(self) -> None:
         if not shutil.which("git"):
             self.skipTest("git is not available")
