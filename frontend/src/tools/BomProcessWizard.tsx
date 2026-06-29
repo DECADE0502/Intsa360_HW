@@ -265,7 +265,7 @@ export function BomProcessWizard() {
           }}
         />
       )}
-      {stage === "risk" && <RiskView rrun={rrun} rres={rres} onNext={() => setStage("deliver")} onBack={() => setStage("process")} />}
+      {stage === "risk" && <RiskView rrun={rrun} rres={rres} pres={pres} onNext={() => setStage("deliver")} onBack={() => setStage("process")} />}
       {stage === "deliver" && (
         <DeliverView
           pres={pres}
@@ -503,7 +503,7 @@ function ProcessView({ running, pres, conflictChoices, setConflictChoices, onRec
   );
 }
 
-function RiskView({ rrun, rres, onNext, onBack }: any) {
+function RiskView({ rrun, rres, pres, onNext, onBack }: any) {
   if (rrun) return <Result icon={<SafetyCertificateOutlined spin />} title="正在风险审查…" subTitle="检查 PCB、屏蔽罩、NC、等级、位号类型" />;
   if (!rres) return null;
   if (rres.status === "error") return <Result status="warning" title="检查未完成" subTitle={rres.error} extra={<Button type="primary" onClick={onNext}>跳过，直接导出</Button>} />;
@@ -554,6 +554,11 @@ function RiskView({ rrun, rres, onNext, onBack }: any) {
       key: "risk-basic",
       label: `基础检查 ${warns.length ? `(${warns.length})` : ""}`,
       children: <Table size="small" rowKey={(row: any, index) => `${row.name}-${index}`} dataSource={findings} columns={findingColumns} pagination={{ pageSize: 8 }} />,
+    },
+    {
+      key: "risk-final-preview",
+      label: "最终 BOM 预览",
+      children: <BomPreviewTable preview={pres?.preview} />,
     },
     {
       key: "risk-grade",

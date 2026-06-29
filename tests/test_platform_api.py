@@ -181,6 +181,21 @@ class PlatformApiTests(unittest.TestCase):
         self.assertEqual(payload["pending_scripts"], 0)
         self.assertEqual(Path(payload["root"]).resolve(), ROOT.resolve())
 
+    def test_frontend_static_files_are_not_cached(self) -> None:
+        server = create_server(ROOT, port=0)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            host, port = server.server_address
+            with urlopen(f"http://{host}:{port}/", timeout=5) as response:
+                response.read()
+                cache_control = response.headers.get("Cache-Control")
+        finally:
+            server.shutdown()
+            server.server_close()
+
+        self.assertEqual(cache_control, "no-store")
+
     def test_history_endpoints_list_detail_delete_and_clear_runs(self) -> None:
         root = _make_temp_root()
         try:

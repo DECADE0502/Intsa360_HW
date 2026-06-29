@@ -258,6 +258,14 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn("preview.headers", wizard)
         self.assertIn("final-bom-preview", wizard)
 
+    def test_bom_risk_step_keeps_final_bom_preview(self) -> None:
+        wizard = (ROOT / "frontend" / "src" / "tools" / "BomProcessWizard.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("<RiskView rrun={rrun} rres={rres} pres={pres}", wizard)
+        self.assertIn("function RiskView({ rrun, rres, pres, onNext, onBack }: any)", wizard)
+        self.assertIn('key: "risk-final-preview"', wizard)
+        self.assertIn("<BomPreviewTable preview={pres?.preview} />", wizard)
+
 
 if __name__ == "__main__":
     unittest.main()

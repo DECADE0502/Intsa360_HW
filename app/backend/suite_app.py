@@ -390,7 +390,15 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
         content_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
         if target.suffix in {".html", ".css", ".js"}:
             content_type += "; charset=utf-8"
-        self._send(200, content, {"Content-Type": content_type, "Content-Length": str(len(content))})
+        self._send(
+            200,
+            content,
+            {
+                "Content-Type": content_type,
+                "Content-Length": str(len(content)),
+                "Cache-Control": "no-store",
+            },
+        )
 
     def log_message(self, format: str, *args) -> None:
         return
