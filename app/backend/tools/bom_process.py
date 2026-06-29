@@ -116,6 +116,11 @@ def _normalize_shield_row(row: dict[str, str], refs: list[str]) -> None:
 def exclusion_reason(row: dict[str, str], refs: list[str], include_shields: bool = False) -> str | None:
     if not row.get("part_number"):
         return "子项编码为空"
+    upper = [r.upper() for r in refs]
+    if any(r.startswith("SH") for r in upper):
+        if include_shields:
+            return None
+        return "屏蔽支架 SH*"
     value = row.get("value", "")
     if value == "NC" or value.startswith("NC/") or value.upper() == "DNP":
         return "NC/未贴"

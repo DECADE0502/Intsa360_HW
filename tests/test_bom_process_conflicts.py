@@ -197,6 +197,62 @@ class BomProcessConflictTests(unittest.TestCase):
             self.assertEqual(result["summary"]["shield_candidates"], 1)
             self.assertEqual(result["summary"]["excluded"], 0)
 
+    def test_run_bom_process_requires_confirmation_for_sh_even_when_value_is_nc(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["Item", "Quantity", "Reference", "Part Number", "Value", "Model", "Description", "Name"])
+            ws.append([1, 1, "SH1", "SH-PN", "NC", "shield bracket", "shield bracket", "shield bracket"])
+            wb.save(source)
+
+            result = run_bom_process(
+                root,
+                {
+                    "source_bom": str(source),
+                    "formats": ["plm"],
+                    "parent_code": "203010100819",
+                    "name": "TEST",
+                },
+            )
+
+            self.assertEqual(result["status"], "needs_confirmation")
+            self.assertEqual(result["reason"], "shield_bracket_candidates")
+            self.assertEqual(result["shield_candidates"][0]["refs"], ["SH1"])
+
+    def test_confirmed_sh_with_nc_value_enters_final_bom_not_nc_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            source = tmp_path / "source.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["Item", "Quantity", "Reference", "Part Number", "Value", "Model", "Description", "Name"])
+            ws.append([1, 1, "SH1", "SH-PN", "NC", "shield bracket", "shield bracket", "shield bracket"])
+            wb.save(source)
+
+            result = bom_process.process(
+                source,
+                ["plm"],
+                "203010100819",
+                "",
+                "TEST",
+                [],
+                tmp_path,
+                "STAMP",
+                None,
+                confirm_shields=True,
+            )
+
+            shield = next(record for record in result["records"] if record["code"] == "SH-PN")
+            self.assertEqual(shield["refs"], ["SH1"])
+            self.assertEqual(shield["qty"], 1)
+            self.assertEqual(result["summary"]["excluded"], 0)
+
+            nc_wb = load_workbook(result["nc_summary"], data_only=True)
+            nc_rows = list(nc_wb.active.iter_rows(values_only=True))
+            self.assertEqual(len(nc_rows), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

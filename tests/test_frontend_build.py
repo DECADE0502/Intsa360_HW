@@ -238,6 +238,26 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn("bom_risk_check", wizard)
         self.assertIn('setRres({ status: "error"', wizard)
 
+    def test_bom_risk_review_is_split_into_tabs(self) -> None:
+        wizard = (ROOT / "frontend" / "src" / "tools" / "BomProcessWizard.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("Tabs", wizard)
+        self.assertIn("riskTabs", wizard)
+        self.assertIn('key: "risk-overview"', wizard)
+        self.assertIn('key: "risk-basic"', wizard)
+        self.assertIn('key: "risk-grade"', wizard)
+        self.assertIn('key: "risk-type"', wizard)
+        self.assertIn('key: "risk-outputs"', wizard)
+
+    def test_bom_deliver_view_previews_final_bom(self) -> None:
+        wizard = (ROOT / "frontend" / "src" / "tools" / "BomProcessWizard.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("function BomPreviewTable", wizard)
+        self.assertIn("pres?.preview", wizard)
+        self.assertIn("preview.rows", wizard)
+        self.assertIn("preview.headers", wizard)
+        self.assertIn("final-bom-preview", wizard)
+
 
 if __name__ == "__main__":
     unittest.main()

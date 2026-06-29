@@ -12,6 +12,7 @@ import {
   Space,
   Steps,
   Table,
+  Tabs,
   Tag,
   Typography,
   Upload,
@@ -512,26 +513,122 @@ function RiskView({ rrun, rres, onNext, onBack }: any) {
   const warns = findings.filter((f: any) => f.status === "warn");
   const grades = rep.grade_flags || [];
   const types = rep.type_flags || [];
+  const outputs = rres.outputs || [];
+  const findingColumns = [
+    { title: "检查项", dataIndex: "name", ellipsis: true },
+    { title: "状态", dataIndex: "status", width: 90, render: (v: string) => <Tag color={v === "warn" ? "orange" : v === "ok" ? "green" : "blue"}>{v}</Tag> },
+    { title: "说明", dataIndex: "message", ellipsis: true },
+  ];
+  const gradeColumns = [
+    { title: "编号", dataIndex: "code", ellipsis: true },
+    { title: "描述", dataIndex: "desc", ellipsis: true },
+    { title: "位号", dataIndex: "refs", ellipsis: true },
+    { title: "等级", dataIndex: "grade", width: 120, render: (v: string) => <Tag color="orange">{v}</Tag> },
+  ];
+  const typeColumns = [
+    { title: "位号", dataIndex: "ref", width: 120, render: (v: string) => <Typography.Text code>{v}</Typography.Text> },
+    { title: "编号", dataIndex: "code", ellipsis: true },
+    { title: "提示", dataIndex: "note", ellipsis: true, render: (v: string) => <Tag color="orange">{v}</Tag> },
+  ];
+  const riskTabs = [
+    {
+      key: "risk-overview",
+      label: "审查概览",
+      children: (
+        <Space direction="vertical" size="middle" style={{ width: "100%" }}>
+          <Descriptions size="small" column={4}>
+            <Descriptions.Item label="检查项">{findings.length}</Descriptions.Item>
+            <Descriptions.Item label="通过">{findings.filter((f: any) => f.status === "ok").length}</Descriptions.Item>
+            <Descriptions.Item label="警告">{warns.length}</Descriptions.Item>
+            <Descriptions.Item label="提示">{findings.filter((f: any) => f.status === "info").length}</Descriptions.Item>
+          </Descriptions>
+          {warns.length ? (
+            <Alert type="warning" showIcon message={`发现 ${warns.length} 个风险项`} description="请按页签逐项核对，确认后再进入导出交付。" />
+          ) : (
+            <Alert type="success" showIcon message="审查通过，无警告项" />
+          )}
+        </Space>
+      ),
+    },
+    {
+      key: "risk-basic",
+      label: `基础检查 ${warns.length ? `(${warns.length})` : ""}`,
+      children: <Table size="small" rowKey={(row: any, index) => `${row.name}-${index}`} dataSource={findings} columns={findingColumns} pagination={{ pageSize: 8 }} />,
+    },
+    {
+      key: "risk-grade",
+      label: `优选等级 ${grades.length ? `(${grades.length})` : ""}`,
+      children: grades.length ? (
+        <Table size="small" rowKey={(row: any, index) => `${row.code}-${index}`} dataSource={grades} columns={gradeColumns} pagination={{ pageSize: 8 }} />
+      ) : (
+        <Alert type="success" showIcon message="未发现非优选等级风险" />
+      ),
+    },
+    {
+      key: "risk-type",
+      label: `位号类型 ${types.length ? `(${types.length})` : ""}`,
+      children: types.length ? (
+        <Table size="small" rowKey={(row: any, index) => `${row.ref}-${index}`} dataSource={types} columns={typeColumns} pagination={{ pageSize: 8 }} />
+      ) : (
+        <Alert type="success" showIcon message="未发现位号类型不符" />
+      ),
+    },
+    {
+      key: "risk-outputs",
+      label: `审查文件 ${outputs.length ? `(${outputs.length})` : ""}`,
+      children: (
+        <List
+          size="small"
+          dataSource={outputs}
+          renderItem={(p: string) => (
+            <List.Item>
+              <FileTextOutlined style={{ marginRight: 8, color: "#1677ff" }} />
+              {fname(p)}
+            </List.Item>
+          )}
+        />
+      ),
+    },
+  ];
 
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-      <Card size="small" title="审查概览">
-        <Descriptions size="small" column={4}>
-          <Descriptions.Item label="检查项">{findings.length}</Descriptions.Item>
-          <Descriptions.Item label="通过">{findings.filter((f: any) => f.status === "ok").length}</Descriptions.Item>
-          <Descriptions.Item label="警告">{warns.length}</Descriptions.Item>
-          <Descriptions.Item label="提示">{findings.filter((f: any) => f.status === "info").length}</Descriptions.Item>
-        </Descriptions>
+      <Card size="small" title="风险审查">
+        <Tabs items={riskTabs} />
       </Card>
-      {warns.map((f: any) => <Alert key={f.name} type="warning" showIcon message={f.name} description={f.message} />)}
-      {grades.length > 0 && <Card size="small" title="非优选等级"><Table size="small" pagination={false} rowKey="code" dataSource={grades} columns={[{ title: "编号", dataIndex: "code", ellipsis: true }, { title: "描述", dataIndex: "desc", ellipsis: true }, { title: "位号", dataIndex: "refs", ellipsis: true }, { title: "等级", dataIndex: "grade", render: (v: string) => <Tag color="orange">{v}</Tag> }]} /></Card>}
-      {types.length > 0 && <Card size="small" title="位号类型不符"><Table size="small" pagination={false} rowKey="ref" dataSource={types} columns={[{ title: "位号", dataIndex: "ref", render: (v: string) => <Typography.Text code>{v}</Typography.Text> }, { title: "编号", dataIndex: "code", ellipsis: true }, { title: "提示", dataIndex: "note", render: (v: string) => <Tag color="orange">{v}</Tag> }]} /></Card>}
-      {!warns.length && <Alert type="success" showIcon message="审查通过，无警告项" />}
       <Space>
         <Button type="primary" size="large" onClick={onNext}>进入导出交付 <RightOutlined /></Button>
         <Button onClick={onBack}>返回上一步</Button>
       </Space>
     </Space>
+  );
+}
+
+function BomPreviewTable({ preview }: any) {
+  if (!preview) {
+    return <Alert type="info" showIcon message="暂无可预览的最终 BOM 数据" />;
+  }
+  const headers = preview.headers || [];
+  const rows = preview.rows || [];
+  if (!headers.length || !rows.length) {
+    return <Alert type="info" showIcon message="暂无可预览的最终 BOM 数据" />;
+  }
+  const dataSource = rows.map((row: any[], index: number) => {
+    const item: Record<string, any> = { key: index };
+    headers.forEach((_: string, col: number) => {
+      item[`c${col}`] = row?.[col] ?? "";
+    });
+    return item;
+  });
+  const columns = headers.map((header: string, col: number) => ({
+    title: header || `列 ${col + 1}`,
+    dataIndex: `c${col}`,
+    ellipsis: true,
+  }));
+  return (
+    <div className="final-bom-preview">
+      <Table size="small" dataSource={dataSource} columns={columns} pagination={{ pageSize: 10 }} scroll={{ x: true }} />
+    </div>
   );
 }
 
@@ -541,6 +638,9 @@ function DeliverView({ pres, rres, name, onDownload, onReset }: any) {
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
       <Result status="success" title="处理完成" subTitle={`${s.records || 0} 个料号 · ${s.total_positions || 0} 个位号 · ${all.length} 个文件`} />
+      <Card size="small" title="最终 BOM 预览">
+        <BomPreviewTable preview={pres?.preview} />
+      </Card>
       <Card size="small" title="输出文件">
         <List
           size="small"
