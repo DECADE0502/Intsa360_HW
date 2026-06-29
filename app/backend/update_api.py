@@ -249,18 +249,23 @@ def _parse_version(text: str) -> tuple:
 
 
 def _fetch_remote_version(root: Path) -> tuple[str, str]:
-    """Fetch the remote VERSION over HTTPS. Returns (version, status) where
-    status is 'ok' on success or an error description. Uses urllib so no
-    third-party dependency is required."""
+    """Fetch VERSION through the GitHub Contents API.
+
+    raw.githubusercontent.com can lag behind immediately after send-pack, while
+    the Contents API follows the branch ref consistently enough for OTA checks.
+    """
+    import base64
     import json
     import urllib.request
+
     repo = _remote_repo_path(root)
-    url = f"https://raw.githubusercontent.com/{repo}/main/VERSION"
+    url = f"https://api.github.com/repos/{repo}/contents/VERSION?ref=main"
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "HWAgent-Updater"})
+        req = urllib.request.Request(url, headers={"User-Agent": "HWAgent-Updater", "Accept": "application/vnd.github+json"})
         with urllib.request.urlopen(req, timeout=10) as resp:
-            # utf-8-sig tolerates a BOM on the remote file; strip() drops newlines.
-            body = resp.read().decode("utf-8-sig", errors="replace").strip()
+            payload = json.loads(resp.read().decode("utf-8", errors="replace"))
+        content = str(payload.get("content") or "")
+        body = base64.b64decode(content).decode("utf-8-sig", errors="replace").strip()
         return body, "ok"
     except Exception as exc:  # noqa: BLE001 — network errors are expected
         return "", f"无法获取远程版本：{exc}"
