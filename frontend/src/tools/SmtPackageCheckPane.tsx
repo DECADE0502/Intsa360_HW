@@ -5,7 +5,6 @@ import {
   Card,
   Empty,
   Input,
-  Segmented,
   Space,
   Table,
   Tabs,
@@ -191,6 +190,16 @@ export function SmtPackageCheckPane({ tool }: { tool: ToolInfo }) {
   }, [items, focusItems, filter, query]);
   const selected = items.find((item) => item.key === selectedKey) || visibleItems[0] || items[0];
   const counts = review?.status_counts || {};
+  const filterOptions = [
+    { label: "重点", value: "focus", count: focusItems.length },
+    { label: "需确认", value: "manual", count: counts.manual || 0 },
+    { label: "缺位号", value: "missing_bom", count: counts.missing_bom || 0 },
+    { label: "多余", value: "extra_bom", count: counts.extra_bom || 0 },
+    { label: "多封装", value: "multi_package", count: counts.multi_package || 0 },
+    { label: "高风险", value: "high_risk", count: counts.high_risk || 0 },
+    { label: "已跳过", value: "skipped", count: (counts.nc_skipped || 0) + (counts.non_smt_skipped || 0) },
+    { label: "全部", value: "all", count: items.length },
+  ];
 
   useEffect(() => {
     if (review) setSelectedKey(review.focus_items?.[0]?.key || review.items?.[0]?.key || "");
@@ -294,21 +303,19 @@ export function SmtPackageCheckPane({ tool }: { tool: ToolInfo }) {
                 children: (
                   <div className="smt-shell">
                     <aside className="smt-rail">
-                      <Segmented
-                        block
-                        value={filter}
-                        onChange={(value) => setFilter(String(value))}
-                        options={[
-                          { label: "重点", value: "focus" },
-                          { label: "需确认", value: "manual" },
-                          { label: "缺位号", value: "missing_bom" },
-                          { label: "多余", value: "extra_bom" },
-                          { label: "多封装", value: "multi_package" },
-                          { label: "高风险", value: "high_risk" },
-                          { label: "已跳过", value: "skipped" },
-                          { label: "全部", value: "all" },
-                        ]}
-                      />
+                      <div className="smt-filter-grid">
+                        {filterOptions.map((option) => (
+                          <button
+                            key={option.value}
+                            type="button"
+                            className={`smt-filter-chip ${filter === option.value ? "is-active" : ""}`}
+                            onClick={() => setFilter(option.value)}
+                          >
+                            <span>{option.label}</span>
+                            <b>{option.count}</b>
+                          </button>
+                        ))}
+                      </div>
                       <Input allowClear prefix={<SearchOutlined />} placeholder="搜索位号 / 编码 / 封装 / 描述" value={query} onChange={(event) => setQuery(event.target.value)} />
                       <div className="smt-focus-list">
                         {visibleItems.map((item) => (
@@ -318,9 +325,12 @@ export function SmtPackageCheckPane({ tool }: { tool: ToolInfo }) {
                             className={`smt-focus-item ${selected?.key === item.key ? "is-active" : ""}`}
                             onClick={() => setSelectedKey(item.key)}
                           >
-                            <span className="smt-focus-ref">{item.ref}</span>
-                            <Tag color={statusColor(item.status)}>{item.status}</Tag>
+                            <span className="smt-focus-top">
+                              <span className="smt-focus-ref">{item.ref}</span>
+                              <Tag color={statusColor(item.status)}>{item.status}</Tag>
+                            </span>
                             <span className="smt-focus-code">{item.part_number || "-"}</span>
+                            <span className="smt-focus-package">{item.net_package || item.bom_package || "-"}</span>
                             <span className="smt-focus-msg">{item.note}</span>
                           </button>
                         ))}

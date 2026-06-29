@@ -356,12 +356,18 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn("已处理 PLM/OA 成品 BOM", pane)
         self.assertIn("不要选择 Capture 原始 BOM", pane)
         self.assertIn("选择 PLM/OA BOM", pane)
+        self.assertIn("smt-filter-grid", pane)
+        self.assertIn("smt-filter-chip", pane)
+        self.assertIn("smt-focus-package", pane)
+        self.assertNotIn("<Segmented", pane)
         self.assertIn('directory="true"', pane)
         self.assertIn('webkitdirectory="true"', pane)
         self.assertIn("pstxprt.dat", pane)
         self.assertIn("选择 Allegro 目录", pane)
         self.assertIn(".smt-shell", css)
         self.assertIn(".smt-inspector", css)
+        self.assertIn(".smt-filter-grid", css)
+        self.assertIn(".smt-filter-chip", css)
 
 
 if __name__ == "__main__":

@@ -772,8 +772,8 @@ html, body, #root { margin: 0; height: 100%; }
 
 .smt-shell {
   display: grid;
-  grid-template-columns: minmax(320px, 380px) minmax(560px, 1fr) minmax(360px, 460px);
-  gap: 14px;
+  grid-template-columns: minmax(280px, 320px) minmax(420px, 1fr) minmax(260px, 340px);
+  gap: 12px;
   min-height: 620px;
 }
 
@@ -792,6 +792,46 @@ html, body, #root { margin: 0; height: 100%; }
   gap: 10px;
   padding: 12px;
 }
+
+.smt-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.smt-filter-chip {
+  min-width: 0;
+  border: 1px solid #e6ebf1;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 8px 9px;
+  text-align: left;
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.smt-filter-chip:hover { border-color: #b8d9ff; background: #f5faff; }
+.smt-filter-chip.is-active { border-color: #1677ff; background: #eef7ff; box-shadow: inset 3px 0 0 #1677ff; }
+
+.smt-filter-chip span {
+  min-width: 0;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.smt-filter-chip b {
+  color: #64748b;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.smt-filter-chip.is-active span,
+.smt-filter-chip.is-active b { color: #0958d9; }
 
 .smt-focus-list {
   overflow: auto;
@@ -814,20 +854,37 @@ html, body, #root { margin: 0; height: 100%; }
 .smt-focus-item:hover { background: #f5f8fc; }
 .smt-focus-item.is-active { background: #eef7ff; box-shadow: inset 3px 0 0 #1677ff; }
 
+.smt-focus-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
 .smt-focus-ref {
   display: block;
-  margin-bottom: 6px;
   font-size: 14px;
   font-weight: 700;
   color: #1f2937;
   overflow-wrap: anywhere;
+  line-height: 1.35;
 }
 
 .smt-focus-code {
   display: block;
-  margin-top: 6px;
   color: #374151;
   font-size: 12px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.smt-focus-package {
+  display: block;
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.4;
   overflow-wrap: anywhere;
 }
 
