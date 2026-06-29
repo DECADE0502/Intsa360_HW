@@ -324,6 +324,12 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn("疑似拆网", pane)
         self.assertIn("疑似并网", pane)
         self.assertIn("关键网络变化", pane)
+        self.assertIn("result.warnings", pane)
+        self.assertIn("pstxprt.dat 可选", pane)
+        self.assertIn('directory="true"', pane)
+        self.assertIn('webkitdirectory="true"', pane)
+        self.assertIn("Allegro", pane)
+        self.assertIn("pstxnet.dat", pane)
         self.assertIn(".netlist-shell", css)
         self.assertIn(".netlist-inspector", css)
 

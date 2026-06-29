@@ -935,6 +935,15 @@ def _parse_part_file(folder: Path) -> dict[str, str]:
     return parts
 
 
+def _parse_part_file_optional(folder: Path) -> tuple[dict[str, str], str | None]:
+    try:
+        return _parse_part_file(folder), None
+    except ValueError as exc:
+        if "pstxprt.dat" in str(exc):
+            return {}, f"缺少 pstxprt.dat：{folder}，已跳过器件封装变化检查，仅执行网络节点对比。"
+        raise
+
+
 def _package_tokens(value: str) -> set[str]:
     raw = str(value or "").upper()
     tokens = {token for token in re.split(r"[^A-Z0-9]+", raw) if len(token) >= 2}
@@ -1142,8 +1151,9 @@ def run_netlist_compare(root: Path, params: dict[str, object]) -> dict[str, obje
         return _error("netlist_compare", error)
     nets1 = _parse_net_file(net1)
     nets2 = _parse_net_file(net2)
-    parts1 = _parse_part_file(net1)
-    parts2 = _parse_part_file(net2)
+    parts1, part_warning1 = _parse_part_file_optional(net1)
+    parts2, part_warning2 = _parse_part_file_optional(net2)
+    warnings = [warning for warning in [part_warning1, part_warning2] if warning]
 
     rows = []
     package_rows = []
@@ -1217,6 +1227,7 @@ def run_netlist_compare(root: Path, params: dict[str, object]) -> dict[str, obje
             "diff_count": diff_count + len(package_rows),
             "node_diffs": diff_count,
             "package_diffs": len(package_rows),
+            "package_check": "skipped" if warnings else "ok",
             "critical_changes": sum(1 for item in review["items"] if item.get("critical") and item.get("status") != "一致"),
         },
         table,
@@ -1224,6 +1235,7 @@ def run_netlist_compare(root: Path, params: dict[str, object]) -> dict[str, obje
     )
     result["package_table"] = package_table
     result["netlist_review"] = review
+    result["warnings"] = warnings
     return result
 
 

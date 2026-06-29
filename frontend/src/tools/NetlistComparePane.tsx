@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { type Dispatch, type SetStateAction, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Button,
@@ -73,25 +73,32 @@ function NetlistUploadSlot({
 }: {
   title: string;
   files: File[];
-  onFiles: (files: File[]) => void;
+  onFiles: Dispatch<SetStateAction<File[]>>;
 }) {
   return (
     <Card className="netlist-upload-card" size="small">
       <Typography.Text className="netlist-upload-title">{title}</Typography.Text>
       <Upload
         accept=".dat"
+        directory="true"
+        webkitdirectory="true"
         multiple
         fileList={files.map((file, index) => ({ uid: String(index), name: file.name, status: "done" as const }))}
         beforeUpload={(file) => {
-          onFiles([...files, file]);
+          if (file.name.toLowerCase().endsWith(".dat")) {
+            onFiles((prev) => {
+              if (prev.some((item) => item.name === file.name && item.size === file.size)) return prev;
+              return [...prev, file];
+            });
+          }
           return false;
         }}
         onRemove={(file) => {
-          onFiles(files.filter((_, index) => String(index) !== file.uid));
+          onFiles((prev) => prev.filter((_, index) => String(index) !== file.uid));
           return true;
         }}
       >
-        <Button icon={<FileOutlined />}>选择 pstxnet / pstxprt</Button>
+        <Button icon={<FileOutlined />}>选择 Allegro 目录</Button>
       </Upload>
     </Card>
   );
@@ -234,8 +241,11 @@ export function NetlistComparePane({ tool }: { tool: ToolInfo }) {
         </Card>
       </div>
 
-      {!result ? <Alert type="info" showIcon message="选择两版 Allegro 网表文件" description="每版建议同时选择 pstxnet.dat 和 pstxprt.dat，平台会识别网络节点、器件封装和关键网络变化。" /> : null}
+      {!result ? <Alert type="info" showIcon message="选择两版 Allegro 目录" description="直接选择包含 pstxnet.dat 的 allegro 文件夹；pstxprt.dat 可选，若目录中存在会额外检查器件封装变化。" /> : null}
       {result?.status && result.status !== "ok" ? <Alert type="error" showIcon message={result.error || result.message || "运行失败"} /> : null}
+      {result?.status === "ok" && result.warnings?.length ? (
+        <Alert type="warning" showIcon message="部分检查已跳过" description={result.warnings.join("；")} />
+      ) : null}
 
       {result?.status === "ok" ? (
         <>

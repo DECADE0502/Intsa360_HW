@@ -119,6 +119,27 @@ NODE_NAME C20 1
             self.assertEqual(result["status"], "ok")
             self.assertGreaterEqual(result["summary"]["node_diffs"], 1)
 
+    def test_netlist_compare_allows_missing_pstxprt_for_node_only_review(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            left = root / "left"
+            right = root / "right"
+            left.mkdir()
+            right.mkdir()
+            (left / "pstxnet.dat").write_text("NET_NAME\n'USB_DP'\nNODE_NAME U1 A1\nNODE_NAME R1 1\n", encoding="utf-8")
+            (right / "pstxnet.dat").write_text("NET_NAME\n'USB_DP'\nNODE_NAME U1 A1\nNODE_NAME R1 2\n", encoding="utf-8")
+
+            result = analysis_tools.run_netlist_compare(
+                ROOT,
+                {"netlist1": str(left), "netlist2": str(right), "output_dir": str(root)},
+            )
+
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(result["summary"]["package_diffs"], 0)
+            self.assertEqual(result["summary"]["package_check"], "skipped")
+            self.assertTrue(any("pstxprt.dat" in warning for warning in result["warnings"]))
+            self.assertGreaterEqual(result["summary"]["node_diffs"], 1)
+
     def test_registry_netlist_tools_run_without_missing_module_reference(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
