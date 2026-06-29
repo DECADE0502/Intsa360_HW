@@ -20,6 +20,14 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn("@tanstack/react-table", dependencies)
         self.assertIn("lucide-react", dependencies)
 
+    def test_update_controls_split_check_and_run_actions(self) -> None:
+        text = (ROOT / "frontend" / "src" / "components" / "UpdateStatus.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("onCheckUpdate", text)
+        self.assertIn("检查更新", text)
+        self.assertIn("立即更新", text)
+        self.assertNotIn("一键更新", text)
+
     def test_build_script_installs_builds_and_copies_dist_to_app_frontend(self) -> None:
         text = (ROOT / "scripts" / "build_frontend.ps1").read_text(encoding="utf-8")
 

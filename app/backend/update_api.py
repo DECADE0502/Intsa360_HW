@@ -90,6 +90,8 @@ def update_status(root: Path) -> dict[str, object]:
     for line in log_text.splitlines():
         if line.startswith("__HWAGENT_FAILED__"):
             failed_marker = line.split(None, 1)[1] if len(line.split(None, 1)) > 1 else "update failed"
+    if failed_marker:
+        running = False
 
     # Parse the latest progress marker for the percentage + step label.
     progress = 0

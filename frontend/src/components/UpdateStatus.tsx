@@ -23,8 +23,10 @@ export function UpdateStatus({ version }: { version: string }) {
   const [fullOpen, setFullOpen] = useState(false);
   const [confirmText, setConfirmText] = useState("");
   const [fulling, setFulling] = useState(false);
+  const [checking, setChecking] = useState(false);
   const [hasUpdate, setHasUpdate] = useState(false);
   const [remoteVersion, setRemoteVersion] = useState<string>("");
+  const [checkedUpdate, setCheckedUpdate] = useState(false);
 
   const [progressOpen, setProgressOpen] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatusInfo | null>(null);
@@ -42,6 +44,7 @@ export function UpdateStatus({ version }: { version: string }) {
         if (cancelled) return;
         setHasUpdate(Boolean(info.has_update));
         setRemoteVersion(info.remote_version || "");
+        setCheckedUpdate(true);
       })
       .catch(() => {});
     return () => {
@@ -106,6 +109,25 @@ export function UpdateStatus({ version }: { version: string }) {
   const updateFinished = updateStatus?.done || updateStatus?.failed;
   const uninstallFinished = uninstallStatus?.done || uninstallStatus?.failed || uninstallClosing;
 
+  async function onCheckUpdate() {
+    setChecking(true);
+    try {
+      const info = await checkUpdate();
+      setHasUpdate(Boolean(info.has_update));
+      setRemoteVersion(info.remote_version || "");
+      setCheckedUpdate(true);
+      if (info.has_update) {
+        message.info(`发现新版本 ${info.remote_version}`);
+      } else {
+        message.success(info.remote_version ? `已是最新版本 ${info.remote_version}` : "已是最新版本");
+      }
+    } catch (e) {
+      message.error((e as Error).message || "更新检查失败");
+    } finally {
+      setChecking(false);
+    }
+  }
+
   async function onUpdate() {
     setProgressOpen(true);
     setUpdateStatus(null);
@@ -159,13 +181,17 @@ export function UpdateStatus({ version }: { version: string }) {
         <Text className="maint-version-text">
           版本 {version || "-"}
           {hasUpdate && remoteVersion ? <Text className="maint-version-remote">（最新 {remoteVersion}）</Text> : null}
+          {!hasUpdate && checkedUpdate && remoteVersion ? <Text className="maint-version-remote">（已检查 {remoteVersion}）</Text> : null}
         </Text>
         {hasUpdate ? <Badge status="processing" /> : null}
       </div>
 
       <div className="maint-actions">
-        <Button className="maint-btn" size="small" icon={<SyncOutlined />} onClick={onUpdate}>
-          {hasUpdate ? `一键更新到 ${remoteVersion}` : "一键更新"}
+        <Button className="maint-btn" size="small" icon={<SyncOutlined />} loading={checking} onClick={onCheckUpdate}>
+          检查更新
+        </Button>
+        <Button className="maint-btn" size="small" type={hasUpdate ? "primary" : "default"} onClick={onUpdate}>
+          {hasUpdate && remoteVersion ? `更新到 ${remoteVersion}` : "立即更新"}
         </Button>
         <Button
           className="maint-btn"
