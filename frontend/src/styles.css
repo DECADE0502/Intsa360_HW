@@ -737,7 +737,7 @@ html, body, #root { margin: 0; height: 100%; }
 
 .smt-summary-grid {
   display: grid;
-  grid-template-columns: repeat(7, minmax(128px, 1fr));
+  grid-template-columns: repeat(8, minmax(118px, 1fr));
   gap: 10px;
 }
 
@@ -768,6 +768,7 @@ html, body, #root { margin: 0; height: 100%; }
 .smt-metric-warn { border-color: #ffe1b8; background: #fffaf0; }
 .smt-metric-danger { border-color: #ffc8c1; background: #fff7f6; }
 .smt-metric-risk { border-color: #e8dcff; background: #fbf8ff; }
+.smt-metric-skip { border-color: #d9e2ec; background: #f8fafc; }
 
 .smt-shell {
   display: grid;

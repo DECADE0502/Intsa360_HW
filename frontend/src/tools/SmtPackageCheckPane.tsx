@@ -102,7 +102,7 @@ function SmtUploadSlot({
 function BomUploadSlot({ file, onFile }: { file?: File; onFile: (file?: File) => void }) {
   return (
     <Card className="smt-upload-card" size="small">
-      <Typography.Text className="smt-upload-title">贴片 BOM / 成品 BOM</Typography.Text>
+      <Typography.Text className="smt-upload-title">已处理 PLM/OA 成品 BOM</Typography.Text>
       <Upload
         accept=".xlsx,.xls"
         maxCount={1}
@@ -116,7 +116,7 @@ function BomUploadSlot({ file, onFile }: { file?: File; onFile: (file?: File) =>
           return true;
         }}
       >
-        <Button icon={<FileExcelOutlined />}>选择 BOM 文件</Button>
+        <Button icon={<FileExcelOutlined />}>选择 PLM/OA BOM</Button>
       </Upload>
     </Card>
   );
@@ -163,6 +163,7 @@ function filterOf(item: SmtReviewItem) {
   if (item.status === "BOM 多余位号") return "extra_bom";
   if (item.status === "同料多封装") return "multi_package";
   if (item.status === "高风险封装") return "high_risk";
+  if (item.status === "NC 未贴跳过" || item.status === "非贴片对象跳过") return "skipped";
   if (item.status === "需要确认") return "manual";
   return item.kind || "all";
 }
@@ -201,7 +202,7 @@ export function SmtPackageCheckPane({ tool }: { tool: ToolInfo }) {
       return;
     }
     if (!bomFile) {
-      setResult({ status: "error", error: "请选择需要检查的 BOM Excel 文件。" });
+      setResult({ status: "error", error: "请选择 BOM 处理后生成的 PLM 或 OA 成品 BOM，不要选择 Capture 原始 BOM。" });
       return;
     }
     setRunning(true);
@@ -265,8 +266,8 @@ export function SmtPackageCheckPane({ tool }: { tool: ToolInfo }) {
         <Alert
           type="info"
           showIcon
-          message="选择 Allegro 目录和 BOM 后开始检查"
-          description="目录中必须包含 pstxprt.dat；系统会按位号比对网表封装与 BOM 的封装、型号、描述和名称，并提示同料多封装、高风险封装等复核项。"
+          message="选择 Allegro 目录和已处理后的 PLM/OA BOM 后开始检查"
+          description="请使用 BOM 处理工具生成的 PLM 或 OA 成品 BOM，不要选择 Capture 原始 BOM；目录中必须包含 pstxprt.dat，系统会自动跳过 NC 未贴、测试点、短接和安装孔等非贴片对象。"
         />
       ) : null}
       {result?.status && result.status !== "ok" ? <Alert type="error" showIcon message={result.error || result.message || "运行失败"} /> : null}
@@ -281,6 +282,7 @@ export function SmtPackageCheckPane({ tool }: { tool: ToolInfo }) {
             <Metric label="BOM 多余位号" value={counts.extra_bom || 0} tone="warn" />
             <Metric label="同料多封装" value={counts.multi_package || 0} tone="danger" />
             <Metric label="高风险封装" value={counts.high_risk || 0} tone="risk" />
+            <Metric label="跳过未贴/工艺" value={(counts.nc_skipped || 0) + (counts.non_smt_skipped || 0)} tone="skip" />
           </div>
 
           <Tabs
@@ -303,6 +305,7 @@ export function SmtPackageCheckPane({ tool }: { tool: ToolInfo }) {
                           { label: "多余", value: "extra_bom" },
                           { label: "多封装", value: "multi_package" },
                           { label: "高风险", value: "high_risk" },
+                          { label: "已跳过", value: "skipped" },
                           { label: "全部", value: "all" },
                         ]}
                       />
@@ -370,7 +373,7 @@ export function SmtPackageCheckPane({ tool }: { tool: ToolInfo }) {
                     <aside className="smt-inspector">
                       <Typography.Title level={5}>复核规则</Typography.Title>
                       <div className="smt-guide-list">
-                        {["BOM 缺位号", "BOM 多余位号", "同料多封装", "高风险封装", "需要确认"].map((key) => (
+                        {["BOM 缺位号", "BOM 多余位号", "同料多封装", "高风险封装", "NC 未贴跳过", "非贴片对象跳过", "需要确认"].map((key) => (
                           <div key={key} className="smt-guide-item">
                             <Tag color={statusColor(key)}>{key}</Tag>
                             <Typography.Paragraph type="secondary">{review?.review_guide?.[key]}</Typography.Paragraph>

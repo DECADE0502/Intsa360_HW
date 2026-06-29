@@ -955,6 +955,27 @@ def _package_tokens(value: str) -> set[str]:
     return tokens
 
 
+_COMMON_PACKAGE_SIZES = {
+    "008004", "01005", "0201", "03015", "0402", "0603", "0805", "0806", "1005", "1206", "1210",
+    "1608", "2012", "2016", "2520", "3216", "3225", "3528", "4020", "5032", "6032", "7343",
+}
+
+_VENDOR_SIZE_PATTERNS = [
+    (re.compile(r"\b(CL03|GRM03|GJM03|0201X|RC0201|WR02|RTT01|0201WMF)"), "0201"),
+    (re.compile(r"\b(CL05|GRM15[35]|GCM15[35]|GJM15[35]|TDK105|C0402|0402X|RC0402|WR04|RTT02|0402WMF)"), "0402"),
+]
+
+
+def _package_size_codes(value: str) -> set[str]:
+    text = str(value or "").upper()
+    found = {match.group(1) for match in re.finditer(r"(?<!\d)(\d{4,6})(?!\d)", text) if match.group(1) in _COMMON_PACKAGE_SIZES}
+    found.update(match.group(1) for match in re.finditer(r"[CRL](\d{4})(?:[^0-9]|$)", text) if match.group(1) in _COMMON_PACKAGE_SIZES)
+    for pattern, size in _VENDOR_SIZE_PATTERNS:
+        if pattern.search(text):
+            found.add(size)
+    return found
+
+
 def _package_matches(net_package: str, bom_text: str) -> tuple[bool, str]:
     net_tokens = _package_tokens(net_package)
     bom_tokens = _package_tokens(bom_text)
@@ -969,6 +990,9 @@ def _package_matches(net_package: str, bom_text: str) -> tuple[bool, str]:
         for b in long_bom:
             if a in b or b in a:
                 return True, f"封装字段近似匹配: {a}/{b}"
+    common_sizes = _package_size_codes(net_package) & _package_size_codes(bom_text)
+    if common_sizes:
+        return True, "匹配到封装尺寸码: " + ",".join(sorted(common_sizes, key=_natural_key)[:5])
     return False, "网表封装未出现在 BOM 描述/名称/封装字段"
 
 
@@ -987,6 +1011,8 @@ def _smt_status_key(status: str) -> str:
         "BOM 多余位号": "extra_bom",
         "同料多封装": "multi_package",
         "高风险封装": "high_risk",
+        "NC 未贴跳过": "nc_skipped",
+        "非贴片对象跳过": "non_smt_skipped",
     }.get(status, "manual")
 
 
@@ -1021,6 +1047,21 @@ def _is_high_risk_package(*values: object) -> bool:
     return bool(_SMT_HIGH_RISK_RE.search(" ".join(str(value or "") for value in values)))
 
 
+def _is_nc_package(value: object) -> bool:
+    text = str(value or "").upper()
+    return bool(re.search(r"(^|[^A-Z0-9])NC([_/\\\-\s]|$)", text))
+
+
+def _is_non_smt_netlist_part(ref: object, package: object) -> bool:
+    ref_text = str(ref or "").upper()
+    pkg = str(package or "").upper()
+    if ref_text.startswith(("TP", "JP", "MTG", "MH")):
+        return True
+    if ref_text.startswith("H") and re.match(r"^H\d+", ref_text):
+        return True
+    return any(token in pkg for token in ["SHORT", "TP_", "MARK", "FID", "HOLE", "SCREW", "MTG", "MOUNT"])
+
+
 def _build_smt_package_review(parts: dict[str, str], bom_rows: list[dict[str, object]]) -> dict[str, object]:
     by_ref = {ref: row for row in bom_rows for ref in row["refs"]}
     items: list[dict[str, object]] = []
@@ -1033,15 +1074,26 @@ def _build_smt_package_review(parts: dict[str, str], bom_rows: list[dict[str, ob
         "extra_bom": 0,
         "multi_package": 0,
         "high_risk": 0,
+        "nc_skipped": 0,
+        "non_smt_skipped": 0,
     }
 
     for ref, package in sorted(parts.items(), key=lambda item: _natural_key(item[0])):
         bom_row = by_ref.get(ref)
         if not bom_row:
-            status = "BOM 缺位号"
-            note = "网表存在该位号，但 BOM 中没有找到。确认是否漏导、未贴或不应进入贴片 BOM。"
-            item = _smt_item(ref, status, package, None, note, "high")
-            rows.append([ref, package, "", "", "", status, note])
+            if _is_nc_package(package):
+                status = "NC 未贴跳过"
+                note = "网表中为 NC/未贴器件，最终 PCBA BOM 不包含该位号属于正常情况。"
+                item = _smt_item(ref, status, package, None, note, "low")
+            elif _is_non_smt_netlist_part(ref, package):
+                status = "非贴片对象跳过"
+                note = "测试点、短接、安装孔或工艺对象通常不进入最终贴片 BOM，未在 BOM 中出现时不按缺失处理。"
+                item = _smt_item(ref, status, package, None, note, "low")
+            else:
+                status = "BOM 缺位号"
+                note = "网表存在该位号，但 BOM 中没有找到。确认是否漏导、未贴或不应进入贴片 BOM。"
+                item = _smt_item(ref, status, package, None, note, "high")
+                rows.append([ref, package, "", "", "", status, note])
         else:
             desc = str(bom_row.get("description", ""))
             name = str(bom_row.get("name", ""))
@@ -1123,7 +1175,7 @@ def _build_smt_package_review(parts: dict[str, str], bom_rows: list[dict[str, ob
 
     priority = {"high": 0, "medium": 1, "low": 2}
     focus_items = sorted(
-        [item for item in items if item["status"] not in {"通过"}],
+        [item for item in items if item["status"] not in {"通过", "近似通过", "高风险封装", "NC 未贴跳过", "非贴片对象跳过"}],
         key=lambda item: (priority.get(str(item.get("severity")), 9), _natural_key(str(item.get("ref", ""))), str(item.get("status", ""))),
     )[:500]
     return {
@@ -1139,6 +1191,8 @@ def _build_smt_package_review(parts: dict[str, str], bom_rows: list[dict[str, ob
             "BOM 多余位号": "BOM 中有位号但网表没有，重点确认手工添加、机构辅料或位号错误。",
             "同料多封装": "同一个物料编码出现在多个 footprint 上，通常需要拆料号或确认封装兼容。",
             "高风险封装": "BGA/QFN/连接器/存储/高速相关物料变更成本高，建议人工二次确认。",
+            "NC 未贴跳过": "网表中标为 NC/未贴且最终 PCBA BOM 不包含时，不作为缺失异常处理。",
+            "非贴片对象跳过": "测试点、短接、安装孔或工艺对象不进入最终贴片 BOM 时，不作为缺失异常处理。",
         },
     }
 
@@ -1553,7 +1607,7 @@ def create_analysis_tools(root: Path) -> list[Tool]:
         Tool("bom_compare", "BOM 差异比较", "比较两个 BOM Excel，输出位号、编号、描述、数量差异报告。", "available", "BOM", lambda params=None: run_bom_compare(root, params or {})),
         Tool("bom_risk_check", "BOM 风险检查", "单份 BOM 导入前体检：PCB/屏蔽支架/NC 未贴/机构件/测试点/重复位号/数量一致性/eMMC-DDR 版本提醒。", "available", "BOM", lambda params=None: run_bom_risk_check(root, params or {})),
         Tool("netlist_compare", "网表差异比较", "比较两个网表文件夹中的网络节点和器件信息。", "available", "Netlist", lambda params=None: run_netlist_compare(root, params or {})),
-        Tool("smt_package_check", "贴片封装检查", "检查网表封装信息与 BOM 描述/名称的一致性。", "available", "SMT", lambda params=None: run_smt_package_check(root, params or {})),
+        Tool("smt_package_check", "贴片封装检查", "选择 Allegro 目录和已处理后的 PLM/OA 成品 BOM，检查网表封装与 BOM 型号/描述的一致性。", "available", "SMT", lambda params=None: run_smt_package_check(root, params or {})),
         Tool("single_network_check", "单网络检查", "提取 NC 网络和只有单一位号的网络，辅助硬件检查。", "available", "Netlist", lambda params=None: run_single_network_check(root, params or {})),
     ]
 

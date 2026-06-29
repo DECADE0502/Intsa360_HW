@@ -208,7 +208,7 @@ PART_NAME
             self.assertTrue(any(item["status"] == "BOM 缺位号" and item["ref"] == "R9" for item in review["items"]))
             self.assertTrue(any(item["status"] == "BOM 多余位号" and item["ref"] == "L5" for item in review["items"]))
             self.assertTrue(any(item["status"] == "同料多封装" and item["part_number"] == "C.001" for item in review["focus_items"]))
-            self.assertTrue(any(item["status"] == "高风险封装" and item["ref"] == "U1" for item in review["focus_items"]))
+            self.assertTrue(any(item["status"] == "高风险封装" and item["ref"] == "U1" for item in review["items"]))
 
     def test_smt_package_check_accepts_capture_bom_headers_with_braces(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -229,6 +229,150 @@ PART_NAME
 
             self.assertEqual(result["status"], "ok")
             self.assertEqual(result["summary"]["passed_count"], 1)
+
+    def test_smt_package_check_treats_missing_nc_parts_as_skipped_not_bom_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = root / "allegro"
+            write_netlist(
+                folder,
+                parts="""PART_NAME
+ C1 'CAP_NP_C0201-0P4-B_1UF/6.3V':;
+PART_NAME
+ C2 'CAP_NP_C0201-0P4-B_NC/0.1UF/10V':;
+""",
+            )
+
+            bom = root / "pcba.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["父项编码", "描述", "子项编码", "名称", "型号", "描述", "单位", "数量", "位号"])
+            ws.append(["PCBA", "demo", "C.001", "", "C0201-0P4-B", "陶瓷电容,1UF/6.3V", "ea", 1, "C1"])
+            wb.save(bom)
+
+            result = analysis_tools.run_smt_package_check(ROOT, {"netlist": str(folder), "bom": str(bom), "output_dir": str(root)})
+
+            self.assertEqual(result["status"], "ok")
+            review = result["smt_package_review"]
+            self.assertEqual(review["status_counts"]["missing_bom"], 0)
+            self.assertEqual(review["status_counts"]["nc_skipped"], 1)
+            self.assertEqual(result["summary"]["manual_count"], 0)
+            self.assertFalse(any(item["ref"] == "C2" for item in review["focus_items"]))
+
+    def test_smt_package_check_accepts_processed_oa_bom_headers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = root / "allegro"
+            write_netlist(folder, parts="PART_NAME\n C1 'CAP_NP_C0201-0P4-B_1UF/6.3V':;\n")
+
+            bom = root / "oa.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.append([
+                "序号",
+                "编码（父）*##bmf",
+                "描述（父）##msf",
+                "编码（子）*##bm",
+                "描述（子）##ms",
+                "数量*##sl",
+                "单位*##dw",
+                "位号##wh",
+                "备注##bz",
+                "物料优选等级##tdyxj",
+            ])
+            ws.append(["", "PCBA", "demo", "C.001", "陶瓷电容,1UF/6.3V,C0201", 1, "ea", "C1", "", "优选"])
+            wb.save(bom)
+
+            result = analysis_tools.run_smt_package_check(ROOT, {"netlist": str(folder), "bom": str(bom), "output_dir": str(root)})
+
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(result["summary"]["passed_count"], 1)
+            self.assertEqual(result["summary"]["manual_count"], 0)
+
+    def test_smt_package_check_treats_missing_non_smt_parts_as_skipped_not_bom_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = root / "allegro"
+            write_netlist(
+                folder,
+                parts="""PART_NAME
+ C1 'CAP_NP_C0201-0P4-B_1UF/6.3V':;
+PART_NAME
+ JP1 'SHORT_L3_SP2-L1_SHORT_L1':;
+PART_NAME
+ TP1 'TP_NP_TP0P4_TP0P4':;
+PART_NAME
+ H1 '1516A_2_HOLE_PC2P6DC1P6_302020400107':;
+""",
+            )
+
+            bom = root / "pcba.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["父项编码", "描述", "子项编码", "名称", "型号", "描述", "单位", "数量", "位号"])
+            ws.append(["PCBA", "demo", "C.001", "", "C0201-0P4-B", "陶瓷电容,1UF/6.3V", "ea", 1, "C1"])
+            wb.save(bom)
+
+            result = analysis_tools.run_smt_package_check(ROOT, {"netlist": str(folder), "bom": str(bom), "output_dir": str(root)})
+
+            self.assertEqual(result["status"], "ok")
+            review = result["smt_package_review"]
+            self.assertEqual(review["status_counts"]["missing_bom"], 0)
+            self.assertEqual(review["status_counts"]["non_smt_skipped"], 3)
+            self.assertEqual(result["summary"]["manual_count"], 0)
+            self.assertEqual(review["focus_items"], [])
+
+    def test_smt_package_check_does_not_put_matched_high_risk_parts_in_default_focus(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = root / "allegro"
+            write_netlist(folder, parts="PART_NAME\n U1 'EMMC_BGA153':;\n")
+
+            bom = root / "pcba.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["父项编码", "描述", "子项编码", "名称", "型号", "描述", "单位", "数量", "位号"])
+            ws.append(["PCBA", "demo", "IC.001", "", "EMMC BGA153", "eMMC 存储器 BGA153", "ea", 1, "U1"])
+            wb.save(bom)
+
+            result = analysis_tools.run_smt_package_check(ROOT, {"netlist": str(folder), "bom": str(bom), "output_dir": str(root)})
+
+            self.assertEqual(result["status"], "ok")
+            review = result["smt_package_review"]
+            self.assertEqual(review["status_counts"]["high_risk"], 1)
+            self.assertEqual(result["summary"]["manual_count"], 0)
+            self.assertEqual(review["focus_items"], [])
+
+
+    def test_smt_package_check_matches_common_metric_size_codes_inside_supplier_models(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = root / "net"
+            write_netlist(
+                folder,
+                parts="""PART_NAME
+ C1 'CAP_NP_C0201-0P4-B_1UF/6.3V':;
+PART_NAME
+ R1 'RES_NP_R0201-0P26-A_2.2K/F':;
+PART_NAME
+ C2 'CAP_NP_C0402-0P7-D_4.7UF/25V':;
+""",
+            )
+
+            bom = root / "pcba.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["父项编码", "描述", "子项编码", "名称", "型号", "描述", "单位", "数量", "位号"])
+            ws.append(["PCBA", "demo", "C.001", "", "CL03A105MQ3CSNH,0201X105M6R3NT", "", "ea", 1, "C1"])
+            ws.append(["PCBA", "demo", "R.001", "", "RC0201FR-072K2L,0201WMF2201TEE", "贴片电阻", "ea", 1, "R1"])
+            ws.append(["PCBA", "demo", "C.002", "", "TDK105CBJ475MV-F,GRM155R61E475ME1#,CL05A475MA5NUNC", "", "ea", 1, "C2"])
+            wb.save(bom)
+
+            result = analysis_tools.run_smt_package_check(ROOT, {"netlist": str(folder), "bom": str(bom), "output_dir": str(root)})
+
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(result["summary"]["passed_count"], 3)
+            self.assertEqual(result["summary"]["manual_count"], 0)
 
 
 if __name__ == "__main__":
