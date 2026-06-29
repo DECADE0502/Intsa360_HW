@@ -291,12 +291,32 @@ def _required_file(params: dict[str, object], key: str, label: str) -> tuple[Pat
 
 
 def _required_folder(params: dict[str, object], key: str, label: str) -> tuple[Path | None, str | None]:
+    raw_value = params.get(key)
+    if isinstance(raw_value, list):
+        candidates = [Path(str(item)) for item in raw_value if str(item or "").strip()]
+        folder = _folder_from_uploaded_netlist_files(candidates)
+        if folder is not None:
+            return folder, None
+        return None, f"输入必须包含同一文件夹下的 pstxnet.dat / pstxprt.dat：{label}"
     path, error = _required_path(params, key, label)
     if error:
         return None, error
     if path is None or not path.is_dir():
         return None, f"输入必须是文件夹：{label}（{path}）"
     return path, None
+
+
+def _folder_from_uploaded_netlist_files(paths: list[Path]) -> Path | None:
+    by_parent: dict[Path, set[str]] = {}
+    for path in paths:
+        by_parent.setdefault(path.parent, set()).add(path.name.lower())
+    for parent, names in by_parent.items():
+        if {"pstxnet.dat", "pstxprt.dat"} <= names:
+            return parent
+    for parent, names in by_parent.items():
+        if "pstxnet.dat" in names:
+            return parent
+    return None
 
 
 def _index_by_ref(rows: list[dict[str, object]]) -> dict[str, dict[str, object]]:
@@ -941,6 +961,178 @@ def _package_matches(net_package: str, bom_text: str) -> tuple[bool, str]:
     return False, "网表封装未出现在 BOM 描述/名称/封装字段"
 
 
+_CRITICAL_NET_RE = re.compile(r"(GND|VSS|VDD|VCC|POWER|BUCK|SYS_|USB|MIPI|CSI|DSI|DDR|EMMC|CLK|CLOCK|RST|RESET|I2C|SPI|UART)", re.IGNORECASE)
+
+
+def _net_signature(net: dict[str, list[str]]) -> tuple[str, ...]:
+    return tuple(sorted(net.get("nodes", []), key=_natural_key))
+
+
+def _is_critical_net(name: str) -> bool:
+    return bool(_CRITICAL_NET_RE.search(str(name or "")))
+
+
+def _net_item(
+    key: str,
+    status: str,
+    kind: str,
+    left: dict[str, object] | None,
+    right: dict[str, object] | None,
+    diff: list[str],
+    message: str,
+    severity: str = "medium",
+) -> dict[str, object]:
+    if status == "关键网络变化":
+        severity = "high"
+    return {
+        "key": key,
+        "status": status,
+        "kind": kind,
+        "left": left,
+        "right": right,
+        "diff": diff,
+        "message": message,
+        "severity": severity,
+        "critical": _is_critical_net(key) or (left and _is_critical_net(str(left.get("网络", "")))) or (right and _is_critical_net(str(right.get("网络", "")))),
+    }
+
+
+def _build_netlist_review(nets1: dict[str, dict[str, list[str]]], nets2: dict[str, dict[str, list[str]]], package_rows: list[list[object]]) -> dict[str, object]:
+    sig1: dict[tuple[str, ...], list[str]] = {}
+    sig2: dict[tuple[str, ...], list[str]] = {}
+    for name, data in nets1.items():
+        sig1.setdefault(_net_signature(data), []).append(name)
+    for name, data in nets2.items():
+        sig2.setdefault(_net_signature(data), []).append(name)
+
+    left_node_to_net = {node: name for name, data in nets1.items() for node in data.get("nodes", [])}
+    right_node_to_net = {node: name for name, data in nets2.items() for node in data.get("nodes", [])}
+    covered_left: set[str] = set()
+    covered_right: set[str] = set()
+    items: list[dict[str, object]] = []
+    status_counts = {"rename": 0, "split": 0, "merge": 0, "node_change": 0, "added": 0, "removed": 0, "package": 0, "same": 0}
+
+    def side(name: str, data: dict[str, list[str]]) -> dict[str, object]:
+        return {"网络": name, "位号": _natural_join(data.get("refs", [])), "节点": _natural_join(data.get("nodes", [])), "节点数": len(data.get("nodes", []))}
+
+    for signature, left_names in sig1.items():
+        right_names = sig2.get(signature, [])
+        if len(left_names) == 1 and len(right_names) == 1 and left_names[0] != right_names[0]:
+            left_name, right_name = left_names[0], right_names[0]
+            covered_left.add(left_name)
+            covered_right.add(right_name)
+            status_counts["rename"] += 1
+            items.append(_net_item(
+                f"{left_name} -> {right_name}",
+                "网络改名",
+                "rename",
+                side(left_name, nets1[left_name]),
+                side(right_name, nets2[right_name]),
+                ["网络名"],
+                "节点集合完全一致，仅网络名变化。",
+                "low",
+            ))
+
+    for left_name, left_data in nets1.items():
+        if left_name in covered_left or left_name in nets2:
+            continue
+        nodes = set(left_data.get("nodes", []))
+        targets = sorted({right_node_to_net[node] for node in nodes if node in right_node_to_net}, key=_natural_key)
+        if len(targets) >= 2 and nodes and all(node in right_node_to_net for node in nodes):
+            covered_left.add(left_name)
+            covered_right.update(targets)
+            status_counts["split"] += 1
+            items.append(_net_item(
+                left_name,
+                "疑似拆网",
+                "split",
+                side(left_name, left_data),
+                {"网络": ",".join(targets), "节点": _natural_join(node for name in targets for node in nets2[name].get("nodes", []))},
+                ["节点"],
+                "旧版一个网络的节点在新版分散到多个网络。",
+                "high",
+            ))
+
+    for right_name, right_data in nets2.items():
+        if right_name in covered_right or right_name in nets1:
+            continue
+        nodes = set(right_data.get("nodes", []))
+        sources = sorted({left_node_to_net[node] for node in nodes if node in left_node_to_net}, key=_natural_key)
+        if len(sources) >= 2 and nodes and all(node in left_node_to_net for node in nodes):
+            covered_right.add(right_name)
+            covered_left.update(sources)
+            status_counts["merge"] += 1
+            items.append(_net_item(
+                right_name,
+                "疑似并网",
+                "merge",
+                {"网络": ",".join(sources), "节点": _natural_join(node for name in sources for node in nets1[name].get("nodes", []))},
+                side(right_name, right_data),
+                ["节点"],
+                "旧版多个网络的节点在新版合并到一个网络。",
+                "high",
+            ))
+
+    for name in sorted(set(nets1) | set(nets2), key=_natural_key):
+        if name in covered_left or name in covered_right:
+            continue
+        in1, in2 = name in nets1, name in nets2
+        if in1 and not in2:
+            status_counts["removed"] += 1
+            items.append(_net_item(name, "网络删除", "removed", side(name, nets1[name]), None, ["节点"], "该网络只存在于网表1。", "medium"))
+        elif in2 and not in1:
+            status_counts["added"] += 1
+            items.append(_net_item(name, "网络新增", "added", None, side(name, nets2[name]), ["节点"], "该网络只存在于网表2。", "medium"))
+        else:
+            left_nodes = set(nets1[name].get("nodes", []))
+            right_nodes = set(nets2[name].get("nodes", []))
+            if left_nodes != right_nodes:
+                status_counts["node_change"] += 1
+                status = "关键网络变化" if _is_critical_net(name) else "节点变化"
+                items.append(_net_item(
+                    name,
+                    status,
+                    "node_change",
+                    side(name, nets1[name]),
+                    side(name, nets2[name]),
+                    ["节点"],
+                    "同名网络的连接节点发生变化。",
+                    "high" if _is_critical_net(name) else "medium",
+                ))
+            else:
+                status_counts["same"] += 1
+
+    for row in package_rows:
+        ref = str(row[0])
+        status_counts["package"] += 1
+        items.append(_net_item(
+            f"器件:{ref}",
+            "封装变化",
+            "package",
+            {"位号": ref, "封装": row[1]},
+            {"位号": ref, "封装": row[2]},
+            ["封装"],
+            "同一位号在两版网表中的封装不同。",
+            "medium",
+        ))
+
+    priority = {"high": 0, "medium": 1, "low": 2}
+    focus_items = sorted([item for item in items if item["status"] != "一致"], key=lambda item: (priority.get(str(item.get("severity")), 9), _natural_key(str(item.get("key", "")))))[:300]
+    return {
+        "items": items,
+        "focus_items": focus_items,
+        "status_counts": status_counts,
+        "review_guide": {
+            "网络改名": "节点集合一致但网络名变化，通常用于确认命名整理或跨页网络名变更是否符合预期。",
+            "节点变化": "同名网络的 pin 连接发生变化，需要确认新增/删除节点是否为设计变更。",
+            "关键网络变化": "电源、时钟、复位、高速或存储相关网络发生连接变化，优先人工复核。",
+            "疑似拆网": "旧版一个网络在新版拆成多个网络，重点确认是否误断开。",
+            "疑似并网": "旧版多个网络在新版合成一个网络，重点确认是否误短接。",
+            "封装变化": "同位号封装变化，需要确认 PCB footprint 和 BOM 描述同步。",
+        },
+    }
+
+
 def run_netlist_compare(root: Path, params: dict[str, object]) -> dict[str, object]:
     net1, error = _required_folder(params, "netlist1", "网表1文件夹")
     if error:
@@ -1017,14 +1209,21 @@ def run_netlist_compare(root: Path, params: dict[str, object]) -> dict[str, obje
     table = _table(headers, rows, status_col=5, diff_pairs=[[2, 3]])
     package_table = _table(package_headers, package_rows, status_col=3, diff_pairs=[[1, 2]])
     compare = _compare("对象", "网表1", "网表2", ["节点", "封装"], compare_items)
+    review = _build_netlist_review(nets1, nets2, package_rows)
     result = _result(
         "netlist_compare",
         [output],
-        {"diff_count": diff_count + len(package_rows), "node_diffs": diff_count, "package_diffs": len(package_rows)},
+        {
+            "diff_count": diff_count + len(package_rows),
+            "node_diffs": diff_count,
+            "package_diffs": len(package_rows),
+            "critical_changes": sum(1 for item in review["items"] if item.get("critical") and item.get("status") != "一致"),
+        },
         table,
         compare,
     )
     result["package_table"] = package_table
+    result["netlist_review"] = review
     return result
 
 
@@ -1166,8 +1365,8 @@ def create_analysis_tools(root: Path) -> list[Tool]:
         Tool("bom_process", "BOM 处理", "Capture 原始 BOM → 可导入 PLM/OA 成品（过滤、合并、可加 PCB/屏蔽支架等附加物料）。", "available", "BOM", lambda params=None: run_bom_process(root, params or {})),
         Tool("bom_compare", "BOM 差异比较", "比较两个 BOM Excel，输出位号、编号、描述、数量差异报告。", "available", "BOM", lambda params=None: run_bom_compare(root, params or {})),
         Tool("bom_risk_check", "BOM 风险检查", "单份 BOM 导入前体检：PCB/屏蔽支架/NC 未贴/机构件/测试点/重复位号/数量一致性/eMMC-DDR 版本提醒。", "available", "BOM", lambda params=None: run_bom_risk_check(root, params or {})),
-        Tool("netlist_compare", "网表差异比较", "比较两个网表文件夹中的网络节点和器件信息。", "available", "Netlist", lambda params=None: netlist_tools.run_netlist_compare(root, params or {})),
-        Tool("smt_package_check", "贴片封装检查", "检查网表封装信息与 BOM 描述/名称的一致性。", "available", "SMT", lambda params=None: netlist_tools.run_smt_package_check(root, params or {})),
-        Tool("single_network_check", "单网络检查", "提取 NC 网络和只有单一位号的网络，辅助硬件检查。", "available", "Netlist", lambda params=None: netlist_tools.run_single_network_check(root, params or {})),
+        Tool("netlist_compare", "网表差异比较", "比较两个网表文件夹中的网络节点和器件信息。", "available", "Netlist", lambda params=None: run_netlist_compare(root, params or {})),
+        Tool("smt_package_check", "贴片封装检查", "检查网表封装信息与 BOM 描述/名称的一致性。", "available", "SMT", lambda params=None: run_smt_package_check(root, params or {})),
+        Tool("single_network_check", "单网络检查", "提取 NC 网络和只有单一位号的网络，辅助硬件检查。", "available", "Netlist", lambda params=None: run_single_network_check(root, params or {})),
     ]
 

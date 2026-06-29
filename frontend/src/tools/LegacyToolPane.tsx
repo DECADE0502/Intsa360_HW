@@ -5,9 +5,11 @@ import { runTool, uploadFiles, type ToolInfo } from "../api/client";
 import { toolInputs } from "./toolConfig";
 import { ResultPanel } from "../components/ResultPanel";
 import { BomComparePane } from "./BomComparePane";
+import { NetlistComparePane } from "./NetlistComparePane";
 
 export function LegacyToolPane({ tool }: { tool: ToolInfo }) {
   if (tool.id === "bom_compare") return <BomComparePane tool={tool} />;
+  if (tool.id === "netlist_compare") return <NetlistComparePane tool={tool} />;
 
   const inputs = toolInputs[tool.id] || [];
   const [files, setFiles] = useState<Record<string, File[]>>({});

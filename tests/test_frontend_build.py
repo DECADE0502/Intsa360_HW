@@ -308,6 +308,25 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIsNotNone(shell)
         self.assertIn("minmax(320px, 380px) minmax(560px, 1fr) minmax(420px, 520px)", shell.group("body"))
 
+    def test_netlist_compare_uses_dedicated_review_workbench(self) -> None:
+        legacy = (ROOT / "frontend" / "src" / "tools" / "LegacyToolPane.tsx").read_text(encoding="utf-8")
+        pane_path = ROOT / "frontend" / "src" / "tools" / "NetlistComparePane.tsx"
+        self.assertTrue(pane_path.exists())
+        pane = pane_path.read_text(encoding="utf-8")
+        css = (ROOT / "frontend" / "src" / "styles.css").read_text(encoding="utf-8")
+
+        self.assertIn('tool.id === "netlist_compare"', legacy)
+        self.assertIn("<NetlistComparePane", legacy)
+        self.assertIn("netlist-workbench", pane)
+        self.assertIn("netlist_review", pane)
+        self.assertIn("focus_items", pane)
+        self.assertIn("网络改名", pane)
+        self.assertIn("疑似拆网", pane)
+        self.assertIn("疑似并网", pane)
+        self.assertIn("关键网络变化", pane)
+        self.assertIn(".netlist-shell", css)
+        self.assertIn(".netlist-inspector", css)
+
 
 if __name__ == "__main__":
     unittest.main()

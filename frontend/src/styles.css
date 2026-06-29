@@ -481,6 +481,221 @@ html, body, #root { margin: 0; height: 100%; }
   overflow-wrap: anywhere;
 }
 
+.netlist-workbench {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.netlist-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.netlist-head .ant-typography { margin-bottom: 4px; }
+
+.netlist-upload-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 1fr) minmax(320px, 1fr) minmax(260px, 320px);
+  gap: 12px;
+}
+
+.netlist-upload-card,
+.netlist-run-card {
+  border-radius: 8px;
+}
+
+.netlist-upload-title {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.netlist-run-card {
+  display: flex;
+  align-items: center;
+}
+
+.netlist-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(128px, 1fr));
+  gap: 10px;
+}
+
+.netlist-metric {
+  min-height: 78px;
+  border: 1px solid #e8edf3;
+  border-radius: 8px;
+  background: #fff;
+  padding: 12px 14px;
+}
+
+.netlist-metric-value {
+  font-size: 24px;
+  line-height: 1.1;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #1f2937;
+}
+
+.netlist-metric-label {
+  margin-top: 7px;
+  font-size: 12px;
+  color: #7b8494;
+}
+
+.netlist-metric-critical { border-color: #ffc8c1; background: #fff7f6; }
+.netlist-metric-diff { border-color: #bfdbfe; background: #f5f9ff; }
+.netlist-metric-node { border-color: #ffe1b8; background: #fffaf0; }
+.netlist-metric-rename { border-color: #b5f5ec; background: #f0fffc; }
+.netlist-metric-package { border-color: #e8dcff; background: #fbf8ff; }
+
+.netlist-shell {
+  display: grid;
+  grid-template-columns: minmax(320px, 380px) minmax(560px, 1fr) minmax(360px, 460px);
+  gap: 14px;
+  min-height: 620px;
+}
+
+.netlist-rail,
+.netlist-detail,
+.netlist-inspector {
+  min-width: 0;
+  border: 1px solid #e9edf3;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.netlist-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+}
+
+.netlist-focus-list {
+  overflow: auto;
+  min-height: 0;
+  max-height: 530px;
+  padding-right: 2px;
+}
+
+.netlist-focus-item {
+  width: 100%;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  padding: 10px;
+  margin-bottom: 6px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.netlist-focus-item:hover { background: #f5f8fc; }
+.netlist-focus-item.is-active { background: #eef7ff; box-shadow: inset 3px 0 0 #1677ff; }
+
+.netlist-focus-key {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #1f2937;
+  overflow-wrap: anywhere;
+}
+
+.netlist-focus-msg {
+  display: block;
+  margin-top: 6px;
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.netlist-detail {
+  padding: 16px;
+  overflow: auto;
+}
+
+.netlist-detail-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #eef1f5;
+  margin-bottom: 14px;
+}
+
+.netlist-side-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.netlist-side {
+  min-width: 0;
+  border: 1px solid #edf0f4;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfcfe;
+}
+
+.netlist-side-title {
+  display: block;
+  margin-bottom: 10px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.netlist-side-field {
+  border-top: 1px solid #edf0f4;
+  padding: 9px 0;
+}
+
+.netlist-side-field span {
+  display: block;
+  color: #8a93a3;
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.netlist-side-field p {
+  margin: 0;
+  color: #1f2937;
+  line-height: 1.55;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.netlist-section-title { margin: 18px 0 10px !important; }
+
+.netlist-inspector {
+  padding: 14px;
+  overflow: auto;
+}
+
+.netlist-guide-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.netlist-guide-item {
+  border: 1px solid #eef1f5;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fbfcfe;
+}
+
+.netlist-guide-item .ant-typography {
+  margin: 8px 0 0;
+  overflow-wrap: anywhere;
+}
+
 .history-head {
   display: flex;
   align-items: flex-start;
@@ -569,6 +784,12 @@ html, body, #root { margin: 0; height: 100%; }
   .compare-focus-list { max-height: 260px; }
   .compare-field-values { grid-template-columns: 1fr; }
   .compare-field-values > div + div { border-left: 0; border-top: 1px solid #edf0f4; }
+  .netlist-head { flex-direction: column; }
+  .netlist-upload-grid { grid-template-columns: 1fr; }
+  .netlist-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .netlist-shell { grid-template-columns: 1fr; min-height: 0; }
+  .netlist-focus-list { max-height: 260px; }
+  .netlist-side-grid { grid-template-columns: 1fr; }
   .history-head { flex-direction: column; }
   .script-manager-head { flex-direction: column; }
   .capture-reload-tip { flex-direction: column; }
