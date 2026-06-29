@@ -100,7 +100,20 @@ def _cell(ws, row: int, mapping: dict[str, int], key: str) -> str:
     return str(ws.cell(row, col).value or "").strip() if col else ""
 
 
-def exclusion_reason(row: dict[str, str], refs: list[str]) -> str | None:
+def has_shield_refs(refs: list[str]) -> bool:
+    return any(ref.upper().startswith("SH") for ref in refs)
+
+
+def _normalize_shield_row(row: dict[str, str], refs: list[str]) -> None:
+    if not has_shield_refs(refs):
+        return
+    if not row.get("name", "").strip():
+        row["name"] = "屏蔽支架"
+    if not row.get("desc", "").strip():
+        row["desc"] = row.get("value", "").strip() or "屏蔽支架"
+
+
+def exclusion_reason(row: dict[str, str], refs: list[str], include_shields: bool = False) -> str | None:
     if not row.get("part_number"):
         return "子项编码为空"
     value = row.get("value", "")
@@ -111,7 +124,7 @@ def exclusion_reason(row: dict[str, str], refs: list[str]) -> str | None:
         return "跳线 JP*"
     if any(r.startswith(("TP", "Z_TP")) for r in upper):
         return "测试点 TP*/Z_TP*"
-    if any(r.startswith("SH") for r in upper):
+    if any(r.startswith("SH") for r in upper) and not include_shields:
         return "屏蔽/非贴装 SH*"
     text = " ".join(str(v) for v in row.values())
     for token in ("Test", "测试点", "跳线"):
@@ -120,7 +133,7 @@ def exclusion_reason(row: dict[str, str], refs: list[str]) -> str | None:
     return None
 
 
-def load_source(path: Path) -> tuple[list[dict[str, str]], list[list[object]]]:
+def load_source(path: Path, include_shields: bool = False) -> tuple[list[dict[str, str]], list[list[object]]]:
     from openpyxl import load_workbook
 
     wb = load_workbook(path, data_only=True)
@@ -139,13 +152,35 @@ def load_source(path: Path) -> tuple[list[dict[str, str]], list[list[object]]]:
         if not any(row.values()):
             continue
         refs = [normalize_ref(r) for r in split_refs(row.get("reference"))]
-        reason = exclusion_reason(row, refs)
+        _normalize_shield_row(row, refs)
+        reason = exclusion_reason(row, refs, include_shields=include_shields)
         if reason:
             excluded.append([row_num, ",".join(refs), row.get("part_number"), row.get("name"),
                              row.get("model"), row.get("desc"), row.get("value"), reason])
             continue
         rows.append(row)
     return rows, excluded
+
+
+def detect_shield_candidates(source_rows: list[dict[str, str]]) -> list[dict[str, object]]:
+    candidates = []
+    for row in source_rows:
+        refs = sorted({normalize_ref(r) for r in split_refs(row.get("reference"))}, key=natural_key)
+        shield_refs = [ref for ref in refs if ref.upper().startswith("SH")]
+        if not shield_refs:
+            continue
+        candidates.append(
+            {
+                "code": row.get("part_number", "").strip(),
+                "name": row.get("name", "").strip() or "屏蔽支架",
+                "model": row.get("model", "").strip(),
+                "desc": row.get("desc", "").strip() or "屏蔽支架",
+                "grade": row.get("grade", "").strip(),
+                "refs": shield_refs,
+                "count": len(shield_refs),
+            }
+        )
+    return candidates
 
 
 def _grade_rank(value: str) -> int:
@@ -235,9 +270,10 @@ def build_records(
     path: Path,
     merge_conflicts: bool = False,
     conflict_choices: dict[str, object] | None = None,
+    include_shields: bool = False,
 ) -> list[dict[str, object]]:
     groups: "OrderedDict[tuple, dict[str, object]]" = OrderedDict()
-    source_rows, _ = load_source(path)
+    source_rows, _ = load_source(path, include_shields=include_shields)
     for row in source_rows:
         refs = sorted({normalize_ref(r) for r in split_refs(row.get("reference"))}, key=natural_key)
         code = row.get("part_number", "").strip()
@@ -466,17 +502,21 @@ def process(
     template: Path | None = None,
     merge_conflicts: bool = False,
     conflict_choices: dict[str, object] | None = None,
+    confirm_shields: bool = False,
 ) -> dict[str, object]:
     name = (name or source_path.stem).strip() or "BOM"
     parent_code = (parent_code or "").strip()
     parent_desc = (parent_desc or name).strip()
 
-    source_rows, excluded = load_source(source_path)
+    source_rows_for_checks, _ = load_source(source_path, include_shields=True)
+    shield_candidates = detect_shield_candidates(source_rows_for_checks)
+    source_rows, excluded = load_source(source_path, include_shields=confirm_shields)
     conflicts = detect_part_conflicts(source_rows)
     records = _extra_records(extras) + build_records(
         source_path,
         merge_conflicts=merge_conflicts,
         conflict_choices=conflict_choices,
+        include_shields=confirm_shields,
     )
 
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -506,6 +546,9 @@ def process(
             "extras": len(_extra_records(extras)),
             "conflicts": len(conflicts),
             "merge_conflicts": merge_conflicts,
+            "shield_candidates": len(shield_candidates),
+            "confirm_shields": confirm_shields,
         },
         "conflicts": conflicts,
+        "shield_candidates": shield_candidates,
     }

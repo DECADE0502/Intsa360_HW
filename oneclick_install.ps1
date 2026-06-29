@@ -1,116 +1,105 @@
-﻿param([switch]$Silent)
+param([switch]$Silent, [switch]$NoStart)
 
 $ErrorActionPreference = "Continue"
-$Host.UI.RawUI.WindowTitle = "HWAgent 一键安装"
+$Host.UI.RawUI.WindowTitle = "HWAgent Installer"
 
-if (-not $Silent) {
-  Write-Host "==========================================" -ForegroundColor Cyan
-  Write-Host "  Insta360 硬件效率工具集 - 一键安装" -ForegroundColor Cyan
-  Write-Host "==========================================" -ForegroundColor Cyan
-  Write-Host ""
+function Say {
+  param(
+    [Parameter(Mandatory=$true)][string]$Text,
+    [ConsoleColor]$Color = [ConsoleColor]::White
+  )
+  if (-not $Silent) {
+    Write-Host $Text -ForegroundColor $Color
+  }
 }
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $InstallScript = Join-Path $ScriptDir "install.ps1"
 
-# ── 1. 检查 Python ──
-if (-not $Silent) { Write-Host "[1/4] 检查 Python 环境..." -ForegroundColor White }
+Say "==========================================" Cyan
+Say "  Insta360_HW Installer" Cyan
+Say "==========================================" Cyan
+Say ""
+
+Say "[1/4] Checking Python..."
 $pythonExe = $null
 
 $pythonCmd = Get-Command python.exe -ErrorAction SilentlyContinue
 if ($pythonCmd) {
-    $pythonExe = "python"
-    if (-not $Silent) { Write-Host "  $(python --version 2>&1)" -ForegroundColor Green }
+  $pythonExe = "python"
+  Say ("  " + (& python --version 2>&1)) Green
 }
 
 if (-not $pythonExe) {
-    $codexPy = Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
-    if (Test-Path -LiteralPath $codexPy) {
-        $pythonExe = $codexPy
-        if (-not $Silent) { Write-Host "  [i] 找到 Codex 内置 Python: $codexPy" -ForegroundColor Yellow }
-    }
+  $codexPy = Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
+  if (Test-Path -LiteralPath $codexPy) {
+    $pythonExe = $codexPy
+    Say ("  Found bundled Python: " + $codexPy) Yellow
+  }
 }
 
 if (-not $pythonExe) {
-    $venvPy = Join-Path $ScriptDir ".venv\Scripts\python.exe"
-    if (Test-Path -LiteralPath $venvPy) {
-        $pythonExe = $venvPy
-        if (-not $Silent) { Write-Host "  [i] 找到虚拟环境 Python: $venvPy" -ForegroundColor Yellow }
-    }
+  $venvPy = Join-Path $ScriptDir ".venv\Scripts\python.exe"
+  if (Test-Path -LiteralPath $venvPy) {
+    $pythonExe = $venvPy
+    Say ("  Found virtualenv Python: " + $venvPy) Yellow
+  }
 }
 
 if (-not $pythonExe) {
-    if (-not $Silent) {
-        Write-Host "  [X] 未找到 Python，请先安装 Python 3" -ForegroundColor Red
-        Write-Host "      下载: https://www.python.org/downloads/" -ForegroundColor Gray
-        Write-Host "      安装时务必勾选 Add Python to PATH" -ForegroundColor Gray
-    }
-    exit 1
+  Say "  [X] Python was not found. Please install Python 3 first." Red
+  Say "      Download: https://www.python.org/downloads/" Gray
+  Say "      Enable: Add Python to PATH" Gray
+  exit 1
 }
-if (-not $Silent) {
-    Write-Host "  [OK] Python 已就绪" -ForegroundColor Green
-    Write-Host ""
-}
+Say "  [OK] Python is ready." Green
+Say ""
 
-# ── 2. 检查 openpyxl ──
-if (-not $Silent) { Write-Host "[2/4] 检查 openpyxl 依赖..." -ForegroundColor White }
-$hasOpenpyxl = & $pythonExe -c "import openpyxl" 2>$null
+Say "[2/4] Checking openpyxl..."
+& $pythonExe -c "import openpyxl" 2>$null
 if ($LASTEXITCODE -ne 0) {
-    if (-not $Silent) { Write-Host "  [!] openpyxl 未安装，正在自动安装..." -ForegroundColor Yellow }
-    & $pythonExe -m pip install openpyxl
-    if ($LASTEXITCODE -ne 0) {
-        if (-not $Silent) { Write-Host "  [X] openpyxl 安装失败，请手动执行: pip install openpyxl" -ForegroundColor Red }
-        exit 1
-    }
+  Say "  [!] openpyxl is missing. Installing..." Yellow
+  & $pythonExe -m pip install openpyxl
+  if ($LASTEXITCODE -ne 0) {
+    Say "  [X] Failed to install openpyxl. Run manually: pip install openpyxl" Red
+    exit 1
+  }
 }
-if (-not $Silent) {
-    Write-Host "  [OK] openpyxl 已就绪" -ForegroundColor Green
-    Write-Host ""
-}
+Say "  [OK] openpyxl is ready." Green
+Say ""
 
-# ── 3. 检查 Node.js（可选） ──
-if (-not $Silent) { Write-Host "[3/4] 检查 Node.js（可选）..." -ForegroundColor White }
+Say "[3/4] Checking Node.js (optional)..."
 $nodeCmd = Get-Command node.exe -ErrorAction SilentlyContinue
 if (-not $nodeCmd) {
-    if (-not $Silent) { Write-Host "  [i] Node.js 未安装，将跳过前端编译（使用预构建界面）" -ForegroundColor Yellow }
+  Say "  [i] Node.js was not found. Prebuilt frontend will be used." Yellow
 } else {
-    if (-not $Silent) {
-        Write-Host "  $(node --version 2>&1)" -ForegroundColor Green
-        Write-Host "  [OK] Node.js 已就绪" -ForegroundColor Green
-    }
+  Say ("  " + (& node --version 2>&1)) Green
+  Say "  [OK] Node.js is ready." Green
 }
-if (-not $Silent) { Write-Host "" }
+Say ""
 
-# ── 4. 执行安装 ──
-if (-not $Silent) {
-    Write-Host "[4/4] 开始安装..." -ForegroundColor White
-    Write-Host "==========================================" -ForegroundColor Gray
-    Write-Host ""
-}
+Say "[4/4] Running installer..."
+Say "==========================================" Gray
+Say ""
 
 if (-not (Test-Path -LiteralPath $InstallScript)) {
-    if (-not $Silent) { Write-Host "  [X] 未找到 install.ps1，请确认文件完整性" -ForegroundColor Red }
-    exit 1
+  Say "  [X] install.ps1 was not found. The package is incomplete." Red
+  exit 1
 }
 
-& powershell -NoProfile -ExecutionPolicy Bypass -File $InstallScript
+$installArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $InstallScript)
+if ($NoStart) { $installArgs += "-NoStart" }
+& powershell @installArgs
 if ($LASTEXITCODE -ne 0) {
-    if (-not $Silent) {
-        Write-Host ""
-        Write-Host "  [X] 安装过程出错，请查看上方日志" -ForegroundColor Red
-    }
-    exit 1
+  Say ""
+  Say "  [X] Install failed. Check the log above." Red
+  exit 1
 }
 
-if (-not $Silent) {
-    Write-Host ""
-    Write-Host "==========================================" -ForegroundColor Cyan
-    Write-Host "  安装成功！" -ForegroundColor Green
-    Write-Host ""
-    Write-Host "  使用方式:" -ForegroundColor White
-    Write-Host "    双击 Insta360_HW.exe 打开平台" -ForegroundColor Gray
-    Write-Host ""
-    Write-Host "  如已安装 Cadence，请重启 OrCAD Capture" -ForegroundColor Yellow
-    Write-Host "  以加载 insta360_HW 菜单" -ForegroundColor Yellow
-    Write-Host "==========================================" -ForegroundColor Cyan
-}
+Say ""
+Say "==========================================" Cyan
+Say "  Install complete." Green
+Say ""
+Say "  Start from: Insta360_HW.exe" Gray
+Say "  Restart OrCAD Capture to load the insta360_HW menu." Yellow
+Say "==========================================" Cyan

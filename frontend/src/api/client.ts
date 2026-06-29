@@ -200,6 +200,15 @@ export async function fetchUpdateStatus(): Promise<UpdateStatusInfo> {
   return payload;
 }
 
+export type UninstallStatusInfo = UpdateStatusInfo;
+
+export async function fetchUninstallStatus(): Promise<UninstallStatusInfo> {
+  const res = await fetch("/api/uninstall/status");
+  const payload = await res.json();
+  if (!res.ok || payload.status !== "ok") throw new Error(payload.error || "卸载状态获取失败");
+  return payload;
+}
+
 export type UninstallCheck = {
   can_uninstall: boolean;
   modes: string[];

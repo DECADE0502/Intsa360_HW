@@ -164,6 +164,9 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/uninstall/check":
             self._send_json(update_api.check_uninstall(self.root))
             return
+        if parsed.path == "/api/uninstall/status":
+            self._send_json(update_api.uninstall_status(self.root))
+            return
         if parsed.path == "/api/history":
             self._send_json({"runs": history.list_runs(self.root)})
             return

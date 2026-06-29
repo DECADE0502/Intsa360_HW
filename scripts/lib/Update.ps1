@@ -5,52 +5,89 @@ function Get-HwAgentText {
   return [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($Base64))
 }
 
-# Items preserved across an update: user data, outputs, history, local config
-# and custom plugins. Kept as a single source of truth used by both the zip
-# and git paths so neither can drift on what is protected.
 $script:HwAgentProtected = @("data", "uploads", "outputs", "history", "config/local.json", "plugins/user")
-
-# Dirs/files excluded when mirroring the freshly-fetched tree over the live
-# install: the protected items above, plus dev-only and transient caches that
-# must never land in an installed copy.
 $script:HwAgentExcludeDirs = @(".git", "data", "uploads", "outputs", "history", "plugins\user", "frontend\node_modules", ".pytest_cache", "__pycache__")
 $script:HwAgentExcludeFiles = @("local.json")
 
+function Copy-HwAgentProtectedItems {
+  param(
+    [Parameter(Mandatory=$true)][string]$Root,
+    [Parameter(Mandatory=$true)][string]$BackupRoot
+  )
+  foreach ($item in $script:HwAgentProtected) {
+    $sourcePath = Join-Path $Root $item
+    if (Test-Path -LiteralPath $sourcePath) {
+      $backupPath = Join-Path $BackupRoot $item
+      $backupParent = Split-Path -Parent $backupPath
+      if ($backupParent) { New-Item -ItemType Directory -Force -Path $backupParent | Out-Null }
+      Copy-Item -LiteralPath $sourcePath -Destination $backupPath -Recurse -Force
+    }
+  }
+}
 
-# ── ZIP-based update (primary, zero-dependency) ───────────────────────
-# Downloads a source snapshot as a zip from GitHub (no git required on the
-# user's machine), extracts it, then mirrors it over the install root while
-# preserving protected items.
+function Restore-HwAgentProtectedItems {
+  param(
+    [Parameter(Mandatory=$true)][string]$Root,
+    [Parameter(Mandatory=$true)][string]$BackupRoot
+  )
+  foreach ($item in $script:HwAgentProtected) {
+    $backupPath = Join-Path $BackupRoot $item
+    if (Test-Path -LiteralPath $backupPath) {
+      $targetPath = Join-Path $Root $item
+      $targetParent = Split-Path -Parent $targetPath
+      if ($targetParent) { New-Item -ItemType Directory -Force -Path $targetParent | Out-Null }
+      Copy-Item -LiteralPath $backupPath -Destination $targetPath -Recurse -Force
+    }
+  }
+}
+
+function Sync-HwAgentTree {
+  param(
+    [Parameter(Mandatory=$true)][string]$SourceRoot,
+    [Parameter(Mandatory=$true)][string]$TargetRoot
+  )
+  $args = @($SourceRoot, $TargetRoot, "/MIR", "/XD") + $script:HwAgentExcludeDirs + @("/XF") + $script:HwAgentExcludeFiles
+  & robocopy @args | Out-Null
+  if ($LASTEXITCODE -ge 8) {
+    throw ("robocopy failed: " + $LASTEXITCODE)
+  }
+}
+
+function ConvertTo-HwAgentRepoPath {
+  param([Parameter(Mandatory=$true)][string]$Repo)
+  $repoPath = $Repo
+  if ($repoPath -match '^https?://github\.com/(.+?)(\.git)?/?$') {
+    $repoPath = $Matches[1]
+  }
+  return $repoPath.Trim("/")
+}
+
 function Invoke-HwAgentZipUpdate {
   param(
     [Parameter(Mandatory=$true)][string]$Root,
     [string]$Repo = "",
     [string]$Branch = "main"
   )
-  Write-Host ((Get-HwAgentText "5pu05paw5pe25Lya5L+d55WZ77ya") + ($script:HwAgentProtected -join ", "))
+  Write-Host ("Update will preserve: " + ($script:HwAgentProtected -join ", "))
 
   if ([string]::IsNullOrWhiteSpace($Repo)) {
-    Write-Host (Get-HwAgentText "5LuT5bqT5Zyw5Z2A5Li656m677yM6Lez6L+HIFpJUCDmm7TmlrDjgII=")
+    Write-Host "Repository is empty; skip ZIP update."
     return @{ skipped = $true; reason = "empty_repo" }
   }
 
-  # Normalize "owner/repo" or a full URL into owner/repo for codeload.
-  $repoPath = $Repo
-  if ($repoPath -match '^https?://github\.com/(.+?)(\.git)?/?$') { $repoPath = $Matches[1] }
+  $repoPath = ConvertTo-HwAgentRepoPath -Repo $Repo
   $zipUrl = "https://codeload.github.com/$repoPath/zip/refs/heads/$Branch"
-  Write-Host ((Get-HwAgentText "5LiL6K+tIFpJUCDmupDnoIHkuI3pobkuLi4g") + $zipUrl)
-  Write-Host "__HWAGENT_PROGRESS__ 10 正在下载更新包..."
+  Write-Host ("Downloading ZIP source: " + $zipUrl)
+  Write-Host "__HWAGENT_PROGRESS__ 10 downloading update package"
 
   $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("insta360_hw_update_" + [System.Guid]::NewGuid().ToString("N"))
   $zipPath = Join-Path $tempRoot "update.zip"
   $extractRoot = Join-Path $tempRoot "extracted"
   $cloneRoot = Join-Path $extractRoot "source"
   $backupRoot = Join-Path $tempRoot "protected"
+
   try {
     New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null
-
-    # Download via .NET so no shell/Internet Explorer dependency is needed and
-    # TLS 1.2 is negotiated for GitHub.
     [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
     $client = New-Object System.Net.WebClient
     $client.Headers.Add("User-Agent", "HWAgent-Updater")
@@ -59,87 +96,61 @@ function Invoke-HwAgentZipUpdate {
     } finally {
       $client.Dispose()
     }
-    if (-not (Test-Path -LiteralPath $zipPath)) { throw (Get-HwAgentText "WklQIOS4i+i9veWksei0pe+8jOivt+ajgOafpee9kee7nOi/nuaOpeWQjuWGjeivlQ==") }
-    Write-Host "__HWAGENT_PROGRESS__ 30 更新包下载完成"
+    if (-not (Test-Path -LiteralPath $zipPath)) { throw "ZIP download failed." }
+    Write-Host "__HWAGENT_PROGRESS__ 30 update package downloaded"
 
-    # Extract with the shell-less Expand-Archive, then locate the single
-    # top-level folder GitHub wraps the archive in (owner-repo-branch).
-    Write-Host "__HWAGENT_PROGRESS__ 40 正在解压更新包..."
+    Write-Host "__HWAGENT_PROGRESS__ 40 extracting update package"
     Expand-Archive -LiteralPath $zipPath -DestinationPath $extractRoot -Force
     $top = Get-ChildItem -LiteralPath $extractRoot -Directory | Select-Object -First 1
-    if (-not $top) { throw (Get-HwAgentText "6Kej5Y6L5ZCO55qEIFpJUCDnvLrlsJHpobblsYLnm67lvZU=") }
+    if (-not $top) { throw "Extracted ZIP has no top-level folder." }
     Rename-Item -LiteralPath $top.FullName -NewName "source" -Force
-    if (-not (Test-Path -LiteralPath $cloneRoot)) { throw (Get-HwAgentText "6Kej5Y6L5ZCO55qEIFpJUCDlhoXmnKrmib7liLDlubPlj7Dnm67lvZU=") }
+    if (-not (Test-Path -LiteralPath $cloneRoot)) { throw "Extracted ZIP does not contain platform root." }
 
-    # Backup protected items, mirror, restore — same contract as the git path.
-    Write-Host "__HWAGENT_PROGRESS__ 55 正在备份用户数据..."
-    foreach ($item in $script:HwAgentProtected) {
-      $sourcePath = Join-Path $Root $item
-      if (Test-Path -LiteralPath $sourcePath) {
-        $backupPath = Join-Path $backupRoot $item
-        $backupParent = Split-Path -Parent $backupPath
-        if ($backupParent) { New-Item -ItemType Directory -Force -Path $backupParent | Out-Null }
-        Copy-Item -LiteralPath $sourcePath -Destination $backupPath -Recurse -Force
-      }
-    }
+    Write-Host "__HWAGENT_PROGRESS__ 55 backing up user data"
+    Copy-HwAgentProtectedItems -Root $Root -BackupRoot $backupRoot
 
-    Write-Host "__HWAGENT_PROGRESS__ 70 正应用更新文件..."
-    $args = @($cloneRoot, $Root, "/MIR", "/XD") + $script:HwAgentExcludeDirs + @("/XF") + $script:HwAgentExcludeFiles
-    & robocopy @args | Out-Null
-    if ($LASTEXITCODE -ge 8) {
-      throw ((Get-HwAgentText "cm9ib2NvcHkg5aSx6LSl77yMZXhpdCBjb2RlOiA=") + $LASTEXITCODE)
-    }
+    Write-Host "__HWAGENT_PROGRESS__ 70 applying update files"
+    Sync-HwAgentTree -SourceRoot $cloneRoot -TargetRoot $Root
 
-    Write-Host "__HWAGENT_PROGRESS__ 85 正在恢复用户数据..."
-    foreach ($item in $script:HwAgentProtected) {
-      $backupPath = Join-Path $backupRoot $item
-      if (Test-Path -LiteralPath $backupPath) {
-        $targetPath = Join-Path $Root $item
-        $targetParent = Split-Path -Parent $targetPath
-        if ($targetParent) { New-Item -ItemType Directory -Force -Path $targetParent | Out-Null }
-        Copy-Item -LiteralPath $backupPath -Destination $targetPath -Recurse -Force
-      }
-    }
+    Write-Host "__HWAGENT_PROGRESS__ 85 restoring user data"
+    Restore-HwAgentProtectedItems -Root $Root -BackupRoot $backupRoot
   } finally {
     if (Test-Path -LiteralPath $tempRoot) {
       Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
   }
-  Write-Host "__HWAGENT_PROGRESS__ 95 正在完成更新..."
-  Write-Host (Get-HwAgentText "WklQIOmVnOWDj+abtOaWsOWujOaIkO+8jOW8gOWni+mqjOivgeOAgg==")
+
+  Write-Host "__HWAGENT_PROGRESS__ 95 finishing update"
+  Write-Host "ZIP update complete; starting verification."
   return @{ skipped = $false; branch = $Branch; method = "zip" }
 }
 
-
-# ── Git-based update (fallback when git is present) ───────────────────
 function Invoke-HwAgentGitUpdate {
   param(
     [Parameter(Mandatory=$true)][string]$Root,
     [string]$Repo = "",
     [string]$Branch = "main"
   )
-  Write-Host ((Get-HwAgentText "5pu05paw5pe25Lya5L+d55WZ77ya") + ($script:HwAgentProtected -join ", "))
+  Write-Host ("Update will preserve: " + ($script:HwAgentProtected -join ", "))
 
   if ([string]::IsNullOrWhiteSpace($Repo)) {
-    Write-Host (Get-HwAgentText "5LuT5bqT5Zyw5Z2A5Li656m677yM6Lez6L+HIGdpdCDmm7TmlrDjgII=")
+    Write-Host "Repository is empty; skip git update."
     return @{ skipped = $true; reason = "empty_repo" }
   }
 
   $git = Get-Command git.exe -ErrorAction SilentlyContinue
-  if (-not $git) { throw (Get-HwAgentText "5pyq5om+5YiwIGdpdO+8jOaXoOazleabtOaWsOOAgg==") }
+  if (-not $git) { throw "git.exe was not found; cannot use git update." }
 
   Push-Location $Root
   try {
     if (Test-Path -LiteralPath (Join-Path $Root ".git")) {
-      if (-not [string]::IsNullOrWhiteSpace($Repo)) {
-        $remote = (& git remote get-url origin 2>$null)
-        if ($LASTEXITCODE -ne 0) {
-          & git remote add origin $Repo
-          if ($LASTEXITCODE -ne 0) { throw "git remote add failed" }
-        } elseif ($remote -ne $Repo) {
-          & git remote set-url origin $Repo
-          if ($LASTEXITCODE -ne 0) { throw "git remote set-url failed" }
-        }
+      $remote = (& git remote get-url origin 2>$null)
+      if ($LASTEXITCODE -ne 0) {
+        & git remote add origin $Repo
+        if ($LASTEXITCODE -ne 0) { throw "git remote add failed" }
+      } elseif ($remote -ne $Repo) {
+        & git remote set-url origin $Repo
+        if ($LASTEXITCODE -ne 0) { throw "git remote set-url failed" }
       }
       & git pull --ff-only
       if ($LASTEXITCODE -ne 0) { throw "git pull failed" }
@@ -152,47 +163,22 @@ function Invoke-HwAgentGitUpdate {
         & git clone --depth 1 --branch $Branch $Repo $cloneRoot
         if ($LASTEXITCODE -ne 0) { throw "git clone failed" }
 
-        foreach ($item in $script:HwAgentProtected) {
-          $sourcePath = Join-Path $Root $item
-          if (Test-Path -LiteralPath $sourcePath) {
-            $backupPath = Join-Path $backupRoot $item
-            $backupParent = Split-Path -Parent $backupPath
-            if ($backupParent) { New-Item -ItemType Directory -Force -Path $backupParent | Out-Null }
-            Copy-Item -LiteralPath $sourcePath -Destination $backupPath -Recurse -Force
-          }
-        }
-
-        $args = @($cloneRoot, $Root, "/MIR", "/XD") + $script:HwAgentExcludeDirs + @("/XF") + $script:HwAgentExcludeFiles
-        & robocopy @args | Out-Null
-        if ($LASTEXITCODE -ge 8) {
-          throw ("robocopy failed: " + $LASTEXITCODE)
-        }
-
-        foreach ($item in $script:HwAgentProtected) {
-          $backupPath = Join-Path $backupRoot $item
-          if (Test-Path -LiteralPath $backupPath) {
-            $targetPath = Join-Path $Root $item
-            $targetParent = Split-Path -Parent $targetPath
-            if ($targetParent) { New-Item -ItemType Directory -Force -Path $targetParent | Out-Null }
-            Copy-Item -LiteralPath $backupPath -Destination $targetPath -Recurse -Force
-          }
-        }
+        Copy-HwAgentProtectedItems -Root $Root -BackupRoot $backupRoot
+        Sync-HwAgentTree -SourceRoot $cloneRoot -TargetRoot $Root
+        Restore-HwAgentProtectedItems -Root $Root -BackupRoot $backupRoot
       } finally {
         if (Test-Path -LiteralPath $tempRoot) {
-          Remove-Item -LiteralPath $tempRoot -Recurse -Force
+          Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
         }
       }
     }
   } finally {
     Pop-Location
   }
-  Write-Host (Get-HwAgentText "5pu05paw5a6M5oiQ77yM5byA5aeL6aqM6K+B44CC")
-  return @{ skipped = $false; branch = $Branch }
+  Write-Host "git update complete; starting verification."
+  return @{ skipped = $false; branch = $Branch; method = "git" }
 }
 
-
-# Decide the update path: zip by default (no git needed on user machines),
-# git only when explicitly requested. Callers pass the chosen method.
 function Invoke-HwAgentUpdate {
   param(
     [Parameter(Mandatory=$true)][string]$Root,

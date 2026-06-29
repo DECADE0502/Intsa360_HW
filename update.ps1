@@ -7,11 +7,6 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-function Get-Text {
-  param([Parameter(Mandatory=$true)][string]$Base64)
-  return [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($Base64))
-}
-
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 . (Join-Path $Root "scripts\lib\Paths.ps1")
@@ -20,9 +15,9 @@ $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $Root "scripts\lib\TclScripts.ps1")
 
 $Root = Get-HwAgentRoot -StartPath $Root
-Write-Host "__HWAGENT_PROGRESS__ 0 开始更新..."
-Write-Host (Get-Text "5byA5aeL5pu05paw56Gs5Lu25pWI546H5bel5YW36ZuGLi4u")
-Write-Host (Get-Text "55So5oi35pWw5o2u5L+d5oqk6IyD5Zu077yaZGF0YSwgdXBsb2Fkcywgb3V0cHV0cywgaGlzdG9yeSwgY29uZmlnL2xvY2FsLmpzb24=")
+Write-Host "__HWAGENT_PROGRESS__ 0 starting update"
+Write-Host "Starting Insta360_HW update..."
+Write-Host "User data will be preserved: data, uploads, outputs, history, config/local.json, plugins/user"
 
 # Default to zip-based update so end users need nothing installed (no git).
 # Falls back to git only when -Method git is passed explicitly.
@@ -48,17 +43,17 @@ Install-CadenceLoader -ToolRoot $Root -PythonPath $Python -AutoLoadDirs $AutoLoa
 
 $verify = Join-Path $Root "scripts\verify_all.ps1"
 # verify_all needs tests/ and frontend/ source, which only exist in the dev
-# repo — installed (runtime) copies lack them. Run it only when present so
-# updates on an installed copy don't hard-fail at the verification step.
+# repo. Installed runtime copies lack them, so updates there must not fail
+# merely because the development verification tree is absent.
 if ((Test-Path -LiteralPath $verify) -and (Test-Path -LiteralPath (Join-Path $Root "tests"))) {
-  Write-Host "__HWAGENT_PROGRESS__ 98 正在验证..."
-  Write-Host (Get-Text "5byA5aeL6aqM6K+BLi4u")
+  Write-Host "__HWAGENT_PROGRESS__ 98 verifying update"
+  Write-Host "Starting verification..."
   & $verify
-  if ($LASTEXITCODE -ne 0) { throw (Get-Text "6aqM6K+B5aSx6LSl") }
+  if ($LASTEXITCODE -ne 0) { throw "Verification failed." }
 } else {
-  Write-Host (Get-Text "5pyq5om+5Yiw6aqM6K+B6ISa5pys77yM6Lez6L+H6aqM6K+B44CC")
+  Write-Host "Verification script or test tree not found; skipping verification."
 }
 
-Write-Host (Get-Text "5pu05paw5rWB56iL5a6M5oiQ44CC")
-Write-Host "__HWAGENT_PROGRESS__ 100 更新完成，正在重启服务..."
+Write-Host "Update flow complete."
+Write-Host "__HWAGENT_PROGRESS__ 100 update complete; restarting service"
 Write-Host "__HWAGENT_DONE__"

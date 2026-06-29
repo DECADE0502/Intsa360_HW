@@ -182,7 +182,9 @@ export function ScriptManager({
           <Typography.Paragraph type="secondary" style={{ margin: "4px 0 0" }}>
             在 Capture 的 Command Window 粘贴执行，可重新加载当前菜单脚本，避免每次挂载后都重启 Capture。
           </Typography.Paragraph>
-          <Typography.Text code copyable={false}>{captureReloadCommand}</Typography.Text>
+          <Typography.Text code copyable={false}>
+            {captureReloadCommand}
+          </Typography.Text>
         </div>
         <Button onClick={copyCaptureReloadCommand}>复制指令</Button>
       </div>

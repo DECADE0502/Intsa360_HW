@@ -1052,7 +1052,20 @@ def run_bom_process(root: Path, params: dict[str, object]) -> dict[str, object]:
     extras = params.get("extras") if isinstance(params.get("extras"), list) else []
     out_dir = _output_dir(params, root, "bom")
     template = next(root.rglob("203010100819_ERP_BOM导入模板.xlsx"), None)
-    source_rows, _ = bom_process.load_source(source)
+    source_rows_for_checks, _ = bom_process.load_source(source, include_shields=True)
+    shield_candidates = bom_process.detect_shield_candidates(source_rows_for_checks)
+    if shield_candidates and "confirm_shields" not in params:
+        return {
+            "status": "needs_confirmation",
+            "tool": "bom_process",
+            "reason": "shield_bracket_candidates",
+            "message": "发现 SH 位号物料，疑似屏蔽支架/屏蔽罩。请确认是否作为结构件进入最终 BOM。",
+            "shield_count": len(shield_candidates),
+            "shield_candidates": shield_candidates,
+            "summary": {"shield_candidates": len(shield_candidates)},
+        }
+    confirm_shields = bool(params.get("confirm_shields"))
+    source_rows, _ = bom_process.load_source(source, include_shields=confirm_shields)
     conflicts = bom_process.conflict_summary(source_rows)
     if conflicts and "merge_conflicts" not in params:
         return {
@@ -1078,6 +1091,7 @@ def run_bom_process(root: Path, params: dict[str, object]) -> dict[str, object]:
         template,
         merge_conflicts,
         conflict_choices,
+        confirm_shields,
     )
     outputs = [str(p) for p in result["outputs"]] + [str(result["nc_summary"])]
     preview_rows = [

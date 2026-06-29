@@ -28,6 +28,10 @@ def _update_log_path(root: Path) -> Path:
     return root / "data" / "reports" / "runtime" / "update_latest.log"
 
 
+def _uninstall_log_path(root: Path) -> Path:
+    return root / "data" / "reports" / "runtime" / "uninstall_latest.log"
+
+
 def _is_update_running(root: Path) -> bool:
     """True if an update.ps1 process is currently running. Used to distinguish
     'update finished' from 'update crashed' — if the process is gone but the
@@ -42,6 +46,21 @@ def _is_update_running(root: Path) -> bool:
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         return "update.ps1" in (out.stdout or "")
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _is_uninstall_running(root: Path) -> bool:
+    try:
+        out = subprocess.run(
+            ["wmic", "process", "where", "name='powershell.exe'", "get", "commandline"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        text = out.stdout or ""
+        return "uninstall.ps1" in text or "hwagent_full_uninstall.ps1" in text
     except Exception:  # noqa: BLE001
         return False
 
@@ -98,6 +117,59 @@ def update_status(root: Path) -> dict[str, object]:
         message = "更新失败，请查看日志"
     elif not running and not log_text:
         message = "无更新任务"
+
+    return {
+        "status": "ok",
+        "running": running,
+        "done": done,
+        "failed": failed,
+        "progress": progress,
+        "step": step,
+        "message": message,
+        "log_tail": clean_tail,
+    }
+
+
+def uninstall_status(root: Path) -> dict[str, object]:
+    log_path = _uninstall_log_path(root)
+    log_text = ""
+    log_tail: list[str] = []
+    if log_path.exists():
+        try:
+            log_text = log_path.read_text(encoding="utf-8", errors="replace")
+            log_tail = [ln for ln in log_text.splitlines() if ln.strip()][-30:]
+        except OSError:
+            pass
+
+    running = _is_uninstall_running(root)
+    done = "__HWAGENT_UNINSTALL_DONE__" in log_text
+
+    progress = 0
+    step = ""
+    last_marker = None
+    for line in log_text.splitlines():
+        if line.startswith("__HWAGENT_UNINSTALL_PROGRESS__"):
+            last_marker = line
+    if last_marker:
+        parts = last_marker.split(None, 2)
+        if len(parts) >= 2:
+            try:
+                progress = int(parts[1])
+            except ValueError:
+                pass
+        if len(parts) >= 3:
+            step = parts[2]
+
+    failed = (not running) and (not done) and bool(log_text) and progress > 0
+    clean_tail = [ln for ln in log_tail if not ln.startswith("__HWAGENT")]
+
+    message = "卸载进行中"
+    if done:
+        message = "卸载完成"
+    elif failed:
+        message = "卸载可能已中断，请查看日志"
+    elif not running and not log_text:
+        message = "暂无卸载任务"
 
     return {
         "status": "ok",
@@ -221,8 +293,7 @@ def check_uninstall(root: Path) -> dict[str, object]:
 def run_uninstall(root: Path, mode: str = "detach") -> dict[str, object]:
     """Trigger uninstallation. Detach only removes Cadence integration; Full
     deletes the whole platform directory. Because the running backend lives in
-    that directory, Full uses a detached helper process that waits for this
-    service to exit before deleting — so the directory is not locked.
+    that directory, Full uses a detached helper process from TEMP.
     """
     if mode not in {"detach", "full"}:
         return {"status": "error", "error": "无效的卸载模式"}
@@ -230,6 +301,14 @@ def run_uninstall(root: Path, mode: str = "detach") -> dict[str, object]:
     script = root / "uninstall.ps1"
     if not script.exists():
         return {"status": "error", "error": "未找到卸载脚本"}
+
+    log_dir = root / "data" / "reports" / "runtime"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = _uninstall_log_path(root)
+    try:
+        log_file.write_text("__HWAGENT_UNINSTALL_PROGRESS__ 0 Preparing uninstall\n", encoding="utf-8")
+    except OSError:
+        pass
 
     pwsh_mode = "Detach" if mode == "detach" else "Full"
     cmd = [
@@ -243,22 +322,25 @@ def run_uninstall(root: Path, mode: str = "detach") -> dict[str, object]:
     if mode == "detach":
         # Detach is safe to run while the service is up; it only touches the
         # Cadence autoload dirs, not the install root.
+        try:
+            log_out = open(log_file, "a", encoding="utf-8")
+        except OSError:
+            log_out = None
         subprocess.Popen(
             cmd,
             cwd=str(root),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=log_out if log_out else subprocess.DEVNULL,
+            stderr=subprocess.STDOUT if log_out else subprocess.DEVNULL,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
-        return {"status": "ok", "message": "已移除 Cadence 集成，平台文件已保留", "mode": "detach"}
+        return {"status": "ok", "message": "已开始移除 Cadence 集成", "mode": "detach"}
 
     # Full: the running service holds the install directory open, so we cannot
-    # delete it from this process. Spawn a detached helper that waits for the
-    # backend to exit, then runs the recursive removal from a neutral CWD.
+    # delete it from this process. Spawn a detached helper from a neutral CWD.
     temp_dir = _get_temp_path()
     ps_helper = temp_dir / "hwagent_full_uninstall.ps1"
     ps_helper.write_text(
-        _full_uninstall_helper(root, cmd),
+        _full_uninstall_helper(root, cmd, log_file),
         encoding="utf-8",
     )
     subprocess.Popen(
@@ -278,28 +360,27 @@ def _get_temp_path() -> Path:
     return Path(tempfile.gettempdir())
 
 
-def _full_uninstall_helper(root: Path, uninstall_cmd: list[str]) -> str:
-    """Build a detached helper script that waits for the backend to exit, then
-    invokes uninstall.ps1 in Full mode. Waiting avoids the directory lock; the
-    helper itself runs from TEMP so it never sits inside the dir being removed.
+def _full_uninstall_helper(root: Path, uninstall_cmd: list[str], log_path: Path | None = None) -> str:
+    """Build a detached helper script that invokes uninstall.ps1 in Full mode.
+    The helper itself runs from TEMP so it never sits inside the dir being removed.
     """
     import json
     cmd_json = json.dumps(uninstall_cmd)
+    log_json = json.dumps(str(log_path or _uninstall_log_path(root)))
     return (
         "$ErrorActionPreference='Continue'\n"
         "Set-Location $env:TEMP\n"
-        "# Wait until no suite_app.py python process holds the install dir.\n"
-        "for ($i=0; $i -lt 120; $i++) {\n"
-        "  $busy = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | "
-        "Where-Object { $_.Name -like 'python*' -and $_.CommandLine -and "
-        "$_.CommandLine.Contains('suite_app.py') }\n"
-        "  if (-not $busy) { break }\n"
-        "  Start-Sleep -Milliseconds 500\n"
+        f"$log = {log_json}\n"
+        "function Mark([int]$p, [string]$s) {\n"
+        "  try { Add-Content -LiteralPath $log -Encoding UTF8 -Value (\"__HWAGENT_UNINSTALL_PROGRESS__ \" + $p + \" \" + $s) } catch {}\n"
         "}\n"
-        "# Give the browser a moment to release file handles too.\n"
-        "Start-Sleep -Seconds 1\n"
+        "Mark 10 'Uninstall request accepted'\n"
+        "Start-Sleep -Milliseconds 700\n"
+        "Mark 30 'Removing Cadence integration'\n"
+        "Start-Sleep -Milliseconds 700\n"
+        "Mark 60 'Stopping platform service and deleting files'\n"
         f"$cmd = {cmd_json}\n"
-        "try { & $cmd[0] @($cmd | Select-Object -Skip 1) } catch {}\n"
+        "try { & $cmd[0] @($cmd | Select-Object -Skip 1) *> $null } catch {}\n"
         "# Self-cleanup of this helper script.\n"
         "try { Remove-Item $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue } catch {}\n"
     )

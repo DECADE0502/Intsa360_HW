@@ -37,6 +37,7 @@ class DistributionInstallTests(unittest.TestCase):
             "update.ps1",
             "uninstall.ps1",
             "oneclick_update.ps1",
+            "scripts/build_installer.ps1",
             "scripts/lib/Paths.ps1",
             "scripts/lib/Cadence.ps1",
             "scripts/lib/Service.ps1",
@@ -56,7 +57,9 @@ class DistributionInstallTests(unittest.TestCase):
             "install.ps1",
             "update.ps1",
             "uninstall.ps1",
+            "oneclick_install.ps1",
             "oneclick_update.ps1",
+            "oneclick_uninstall.ps1",
             "launch_tool_suite.ps1",
             "scripts/lib/Paths.ps1",
             "scripts/lib/Cadence.ps1",
@@ -64,6 +67,7 @@ class DistributionInstallTests(unittest.TestCase):
             "scripts/lib/Update.ps1",
             "scripts/lib/TclScripts.ps1",
             "scripts/build_frontend.ps1",
+            "scripts/build_installer.ps1",
             "scripts/verify_all.ps1",
             "scripts/redeploy_cadence_loader.ps1",
             "scripts/diagnose_platform.ps1",
@@ -104,6 +108,7 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("Disable-HwAgentVendorAutoLoadScripts", text)
         self.assertIn("robocopy", text)
         self.assertIn("build_frontend.ps1", text)
+        self.assertNotIn("Start-HwAgentService", text)
 
     def test_tcl_script_library_disables_custom_scripts_in_vendor_autoload(self) -> None:
         text = (ROOT / "scripts" / "lib" / "TclScripts.ps1").read_text(encoding="utf-8")
@@ -591,9 +596,18 @@ class DistributionInstallTests(unittest.TestCase):
     def test_oneclick_install_supports_silent_mode(self) -> None:
         text = (ROOT / "oneclick_install.ps1").read_text(encoding="utf-8")
 
-        self.assertIn("param([switch]$Silent)", text)
+        self.assertIn("[switch]$Silent", text)
+        self.assertIn("[switch]$NoStart", text)
         # Silent mode must not prompt; it gates all interactive Write-Host output.
         self.assertIn("-not $Silent", text)
+
+    def test_oneclick_install_is_ascii_safe_for_windows_powershell(self) -> None:
+        data = (ROOT / "oneclick_install.ps1").read_bytes()
+
+        try:
+            data.decode("ascii")
+        except UnicodeDecodeError as exc:
+            self.fail(f"oneclick_install.ps1 must be ASCII-safe for Windows PowerShell: {exc}")
 
     def test_insta360_hw_exe_is_built_with_embedded_icon(self) -> None:
         exe = ROOT / "Insta360_HW.exe"
@@ -618,8 +632,10 @@ class DistributionInstallTests(unittest.TestCase):
 
         self.assertIn("/api/uninstall/check", text)
         self.assertIn("/api/uninstall/run", text)
+        self.assertIn("/api/uninstall/status", text)
         self.assertIn("update_api.check_uninstall", text)
         self.assertIn("update_api.run_uninstall", text)
+        self.assertIn("update_api.uninstall_status", text)
 
     def test_suite_app_exposes_update_status_endpoint(self) -> None:
         text = (ROOT / "app" / "backend" / "suite_app.py").read_text(encoding="utf-8")
@@ -631,12 +647,50 @@ class DistributionInstallTests(unittest.TestCase):
 
         self.assertIn("def check_uninstall", text)
         self.assertIn("def run_uninstall", text)
+        self.assertIn("def uninstall_status", text)
         # Detach must be safe to run while the service is up; Full must defer
         # deletion to a detached helper that waits for the backend to exit.
         self.assertIn('"detach"', text)
         self.assertIn('"full"', text)
         self.assertIn("DETACHED_PROCESS", text)
-        self.assertIn("suite_app.py", text)
+        self.assertIn("__HWAGENT_UNINSTALL_PROGRESS__", text)
+        self.assertIn("Stopping platform service and deleting files", text)
+
+    def test_uninstall_status_parses_progress_markers_from_log(self) -> None:
+        import sys
+
+        sys.path.insert(0, str(ROOT))
+        try:
+            from app.backend import update_api
+        finally:
+            sys.path.pop(0)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "install"
+            log_dir = root / "data" / "reports" / "runtime"
+            log_dir.mkdir(parents=True)
+            log = log_dir / "uninstall_latest.log"
+
+            log.write_text(
+                "__HWAGENT_UNINSTALL_PROGRESS__ 20 Removing Cadence integration\n"
+                "__HWAGENT_UNINSTALL_PROGRESS__ 70 Waiting for platform service to exit\n",
+                encoding="utf-8",
+            )
+            status = update_api.uninstall_status(root)
+            self.assertEqual(status["progress"], 70)
+            self.assertIn("Waiting", status["step"])
+            self.assertFalse(status["done"])
+
+            log.write_text(
+                "__HWAGENT_UNINSTALL_PROGRESS__ 100 Complete\n"
+                "__HWAGENT_UNINSTALL_DONE__\n",
+                encoding="utf-8",
+            )
+            done = update_api.uninstall_status(root)
+            self.assertTrue(done["done"])
+            self.assertEqual(done["progress"], 100)
+            for line in done["log_tail"]:
+                self.assertFalse(line.startswith("__HWAGENT"))
 
     def test_update_api_full_uninstall_helper_runs_from_temp_and_waits(self) -> None:
         import sys
@@ -652,8 +706,9 @@ class DistributionInstallTests(unittest.TestCase):
             root.mkdir()
             helper = update_api._full_uninstall_helper(root, ["powershell", "-File", "uninstall.ps1", "-Mode", "Full"])
             self.assertIn("Set-Location $env:TEMP", helper)
-            self.assertIn("suite_app.py", helper)
             self.assertIn("uninstall.ps1", helper)
+            self.assertIn("__HWAGENT_UNINSTALL_PROGRESS__", helper)
+            self.assertIn("Stopping platform service and deleting files", helper)
 
             check = update_api.check_uninstall(root)
             self.assertFalse(check["can_uninstall"])
@@ -670,6 +725,36 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn(r"UninstallDisplayIcon={app}\Insta360_HW.exe", text)
         # Installer runs the silent oneclick install.
         self.assertIn('oneclick_install.ps1"" -Silent', text)
+
+    def test_inno_setup_version_matches_runtime_version(self) -> None:
+        iss = ROOT.parent / "HWAgent_Setup.iss"
+        text = iss.read_text(encoding="utf-8")
+        version = (ROOT / "VERSION").read_text(encoding="utf-8-sig").strip()
+
+        self.assertIn(f'#define MyAppVersion "{version}"', text)
+
+    def test_installer_build_script_finds_inno_and_outputs_named_setup(self) -> None:
+        text = (ROOT / "scripts" / "build_installer.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("HWAgent_Setup.iss", text)
+        self.assertIn("Insta360_HW_Setup.exe", text)
+        self.assertIn("ISCC.exe", text)
+        self.assertIn("Inno Setup", text)
+        self.assertIn("build_release.ps1", text)
+
+    def test_inno_setup_preserves_user_state_on_upgrade_and_does_not_start_service(self) -> None:
+        iss = ROOT.parent / "HWAgent_Setup.iss"
+        text = iss.read_text(encoding="utf-8")
+
+        self.assertIn('Excludes: "data\\*,uploads\\*,outputs\\*,history\\*,config\\local.json,plugins\\user\\*"', text)
+        self.assertIn('oneclick_install.ps1"" -Silent -NoStart', text)
+        self.assertNotIn("Start-HwAgentService", text)
+        self.assertIn("[InstallDelete]", text)
+        for stale_dir in ["app", "cadence", "scripts", "tools"]:
+            self.assertIn(f'Type: filesandordirs; Name: "{{app}}\\{stale_dir}"', text)
+        self.assertIn("[UninstallDelete]", text)
+        self.assertIn('Type: filesandordirs; Name: "{app}"', text)
+        self.assertIn('uninstall.ps1"" -Mode Detach', text)
 
 
 if __name__ == "__main__":

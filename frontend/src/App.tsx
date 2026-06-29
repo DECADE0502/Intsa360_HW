@@ -7,6 +7,7 @@ import {
   fetchPlatformStatus,
   fetchPlugins,
   fetchTools,
+  fetchVersion,
   type Capability,
   type HistoryRun,
   type PluginInfo,
@@ -40,8 +41,8 @@ export default function App() {
   }
 
   useEffect(() => {
-    Promise.allSettled([fetchTools(), fetchCapabilities(), fetchPlugins(), fetchHistory(), fetchPlatformStatus()])
-      .then(([toolsResult, capsResult, pluginsResult, historyResult, statusResult]) => {
+    Promise.allSettled([fetchTools(), fetchCapabilities(), fetchPlugins(), fetchHistory(), fetchPlatformStatus(), fetchVersion()])
+      .then(([toolsResult, capsResult, pluginsResult, historyResult, statusResult, versionResult]) => {
         const tls = toolsResult.status === "fulfilled" ? toolsResult.value : [];
         const cp = capsResult.status === "fulfilled" ? capsResult.value : { capabilities: [] };
         const pl =
@@ -62,12 +63,13 @@ export default function App() {
                   user: [],
                 },
               };
-        const st = statusResult.status === "fulfilled" ? statusResult.value : null;
+        const st = statusResult.status === "fulfilled" ? statusResult.value : {};
+        const version = versionResult.status === "fulfilled" ? versionResult.value : "";
         setTools(tls);
         setCaps(cp.capabilities || []);
         setPlugins({ system: [], platform: [], user: [], ...(pl.groups || {}) });
         setHistoryRuns(historyResult.status === "fulfilled" ? historyResult.value : []);
-        setStatus(st);
+        setStatus({ ...st, version: version || st?.version });
         let requested = new URLSearchParams(window.location.search).get("tool") || "";
         if (requested && !tls.some((tool) => tool.id === requested)) requested = "";
         setActive(requested || "__home");
@@ -124,9 +126,18 @@ export default function App() {
           <div className="app-footer">
             <UpdateStatus version={status?.version} />
             <div className="app-footer-meta">
-              <a href="/api/logs/download" className="app-footer-link">导出全部日志</a>
+              <a href="/api/logs/download" className="app-footer-link">
+                导出全部日志
+              </a>
               <span className="app-footer-sep">·</span>
-              <a href="https://github.com/DECADE0502/Intsa360_HW" target="_blank" rel="noopener" className="app-footer-link">源码仓库</a>
+              <a
+                href="https://github.com/DECADE0502/Intsa360_HW"
+                target="_blank"
+                rel="noopener"
+                className="app-footer-link"
+              >
+                源码仓库
+              </a>
             </div>
             <div className="app-footer-author">wuqiyou@insta360.com</div>
           </div>

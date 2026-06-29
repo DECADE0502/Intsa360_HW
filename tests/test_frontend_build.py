@@ -154,12 +154,28 @@ class FrontendBuildTests(unittest.TestCase):
 
         self.assertIn("merge_conflicts", wizard)
         self.assertIn("conflict_choices", wizard)
-        self.assertIn('pres?.status === "needs_confirmation"', wizard)
+        self.assertIn('pres?.reason === "part_property_conflicts"', wizard)
         self.assertIn("conflicts.length", wizard)
         self.assertIn("onApply", wizard)
         self.assertIn("onSplit", wizard)
         self.assertIn("CConflict", wizard)
         self.assertIn("conflictChoices", wizard)
+
+    def test_bom_conflict_review_supports_recommended_merge_without_manual_choices(self) -> None:
+        wizard = (ROOT / "frontend" / "src" / "tools" / "BomProcessWizard.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("applyRecommendedMerge", wizard)
+        self.assertIn("onRecommendedMerge", wizard)
+        self.assertIn("按推荐合并", wizard)
+        self.assertIn("conflict_choices: {}", wizard)
+
+    def test_bom_process_wizard_confirms_shield_bracket_candidates(self) -> None:
+        wizard = (ROOT / "frontend" / "src" / "tools" / "BomProcessWizard.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("shield_bracket_candidates", wizard)
+        self.assertIn("confirm_shields", wizard)
+        self.assertIn("shield_candidates", wizard)
+        self.assertIn("确认作为屏蔽支架进入 BOM", wizard)
 
     def test_bom_wizard_does_not_treat_successful_merge_summary_as_pending_conflict(self) -> None:
         wizard = (ROOT / "frontend" / "src" / "tools" / "BomProcessWizard.tsx").read_text(encoding="utf-8")
@@ -167,7 +183,7 @@ class FrontendBuildTests(unittest.TestCase):
         helper = re.search(r"function hasBomConflicts\(pres: any\) \{(?P<body>[\s\S]+?)\n\}", wizard)
         self.assertIsNotNone(helper)
         body = helper.group("body")
-        self.assertIn('pres?.status === "needs_confirmation"', body)
+        self.assertIn('pres?.reason === "part_property_conflicts"', body)
         self.assertIn("conflict_count", body)
         self.assertNotIn("summary?.conflicts", body)
         self.assertIn('r.status === "ok"', wizard)

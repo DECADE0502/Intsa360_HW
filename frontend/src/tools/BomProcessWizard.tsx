@@ -45,7 +45,11 @@ function bname(p: string) {
 
 function hasBomConflicts(pres: any) {
   const conflicts = pres?.conflicts || [];
-  return pres?.status === "needs_confirmation" || (pres?.status !== "ok" && ((pres?.conflict_count || 0) > 0 || conflicts.length > 0));
+  return pres?.reason === "part_property_conflicts" || (pres?.status !== "ok" && ((pres?.conflict_count || 0) > 0 || conflicts.length > 0));
+}
+
+function hasShieldCandidates(pres: any) {
+  return pres?.reason === "shield_bracket_candidates" && (pres?.shield_candidates || []).length > 0;
 }
 
 function renderFullRefs(refs: string[] = []) {
@@ -76,6 +80,7 @@ export function BomProcessWizard() {
   const [rrun, setRrun] = useState(false);
   const [running, setRunning] = useState(false);
   const [conflictChoices, setConflictChoices] = useState<Record<string, number>>({});
+  const [confirmShields, setConfirmShields] = useState(false);
 
   const steps = ["来源", "识别", "处理", "审查", "交付"];
   const si = { source: 0, review: 1, process: 2, risk: 3, deliver: 4 }[stage];
@@ -101,9 +106,10 @@ export function BomProcessWizard() {
       formats: fmts,
       name,
       parent_code: pcode,
-      parent_desc: pdesc,
-      extras: extras.filter((e) => e.code),
-    })
+        parent_desc: pdesc,
+        extras: extras.filter((e) => e.code),
+        confirm_shields: confirmShields ? true : undefined,
+      })
       .then((r) => {
         setPres(r);
         if (r.status === "ok" && !hasBomConflicts(r)) setStage("risk");
@@ -138,10 +144,57 @@ export function BomProcessWizard() {
         extras: extras.filter((e) => e.code),
         merge_conflicts: merge,
         conflict_choices: merge ? conflictChoices : {},
+        confirm_shields: confirmShields,
       });
       setPres(r);
       setConflictChoices({});
       if (r.status === "ok" && !hasBomConflicts(r)) setStage("risk");
+    } catch (e: any) {
+      setPres({ status: "error", error: e.message });
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  async function applyRecommendedMerge() {
+    setRunning(true);
+    try {
+      const r = await runTool("bom_process", {
+        source_bom: sp,
+        formats: fmts,
+        name,
+        parent_code: pcode,
+        parent_desc: pdesc,
+        extras: extras.filter((e) => e.code),
+        merge_conflicts: true,
+        conflict_choices: {},
+        confirm_shields: confirmShields,
+      });
+      setPres(r);
+      setConflictChoices({});
+      if (r.status === "ok" && !hasBomConflicts(r)) setStage("risk");
+    } catch (e: any) {
+      setPres({ status: "error", error: e.message });
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  async function confirmShieldBrackets() {
+    setRunning(true);
+    try {
+      setConfirmShields(true);
+      const r = await runTool("bom_process", {
+        source_bom: sp,
+        formats: fmts,
+        name,
+        parent_code: pcode,
+        parent_desc: pdesc,
+        extras: extras.filter((e) => e.code),
+        confirm_shields: true,
+      });
+      setPres(r);
+      if (r.status === "ok" && !hasBomConflicts(r) && !hasShieldCandidates(r)) setStage("risk");
     } catch (e: any) {
       setPres({ status: "error", error: e.message });
     } finally {
@@ -200,8 +253,10 @@ export function BomProcessWizard() {
           pres={pres}
           conflictChoices={conflictChoices}
           setConflictChoices={setConflictChoices}
+          onRecommendedMerge={applyRecommendedMerge}
           onApply={() => applyMerge(true)}
           onSplit={() => applyMerge(false)}
+          onConfirmShields={confirmShieldBrackets}
           onNext={() => setStage("risk")}
           onBack={() => {
             setPres(null);
@@ -301,7 +356,7 @@ function ReviewView(props: any) {
   );
 }
 
-function ProcessView({ running, pres, conflictChoices, setConflictChoices, onApply, onSplit, onNext, onBack }: any) {
+function ProcessView({ running, pres, conflictChoices, setConflictChoices, onRecommendedMerge, onApply, onSplit, onConfirmShields, onNext, onBack }: any) {
   const [activeConflictCode, setActiveConflictCode] = useState<string>("");
   if (running) return <Result icon={<FileTextOutlined spin />} title="正在处理 BOM…" subTitle="解析字段、过滤 NC 器件、合并位号、生成 PLM/OA" />;
   if (!pres) return null;
@@ -310,6 +365,8 @@ function ProcessView({ running, pres, conflictChoices, setConflictChoices, onApp
   const s = pres.summary || {};
   const conflicts = pres.conflicts || [];
   const hasC = hasBomConflicts(pres);
+  const hasS = hasShieldCandidates(pres);
+  const shieldCandidates = pres.shield_candidates || [];
   const allDone = !hasC || conflicts.every((c: any) => conflictChoices[c.code] !== undefined);
   const activeConflict = conflicts.find((c: any) => c.code === activeConflictCode) || conflicts[0];
   const selectedCount = conflicts.filter((c: any) => conflictChoices[c.code] !== undefined).length;
@@ -326,9 +383,22 @@ function ProcessView({ running, pres, conflictChoices, setConflictChoices, onApp
           </Descriptions>
         </Card>
         <Card size="small" title="下一步">
-          {hasC ? (
+          {hasS ? (
             <Space direction="vertical" style={{ width: "100%" }}>
-              <Typography.Text type="secondary">逐项选择要保留的描述后合并，或保留原始差异继续。</Typography.Text>
+              <Typography.Text type="secondary">请确认 SH 位号是否为屏蔽支架/屏蔽罩。确认后这些物料会进入最终 BOM。</Typography.Text>
+              <Button type="primary" block onClick={onConfirmShields}>
+                确认作为屏蔽支架进入 BOM
+              </Button>
+              <Button block onClick={onBack}>
+                返回修改附加物料
+              </Button>
+            </Space>
+          ) : hasC ? (
+            <Space direction="vertical" style={{ width: "100%" }}>
+              <Typography.Text type="secondary">可直接按系统推荐合并；需要精修时再逐项选择要保留的描述。</Typography.Text>
+              <Button type="primary" block onClick={onRecommendedMerge}>
+                按推荐合并
+              </Button>
               <Button type="primary" block disabled={!allDone} onClick={onApply}>
                 按所选项合并
               </Button>
@@ -350,7 +420,33 @@ function ProcessView({ running, pres, conflictChoices, setConflictChoices, onApp
         </Card>
       </div>
       <div className="conflict-main">
-        {hasC ? (
+        {hasS ? (
+          <Card
+            size="small"
+            title={<><WarningOutlined style={{ color: "#f0a040" }} /> 发现 {shieldCandidates.length} 个 SH 屏蔽支架候选</>}
+          >
+            <Alert
+              type="warning"
+              showIcon
+              message="SH 位号将作为屏蔽支架/屏蔽罩进入最终 BOM"
+              description="请核对物料编码、名称、型号和位号，确认无误后继续。"
+              style={{ marginBottom: 12 }}
+            />
+            <Table
+              size="small"
+              pagination={false}
+              rowKey={(row: any, index) => `${row.code}-${index}`}
+              dataSource={shieldCandidates}
+              columns={[
+                { title: "子项编码", dataIndex: "code", width: 150 },
+                { title: "名称", dataIndex: "name", width: 140 },
+                { title: "型号", dataIndex: "model", ellipsis: true },
+                { title: "描述", dataIndex: "desc", ellipsis: true },
+                { title: "位号", dataIndex: "refs", render: (refs: string[]) => renderFullRefs(refs) },
+              ]}
+            />
+          </Card>
+        ) : hasC ? (
           <Card
             size="small"
             title={<><WarningOutlined style={{ color: "#f0a040" }} /> 发现 {conflicts.length} 个编码冲突</>}

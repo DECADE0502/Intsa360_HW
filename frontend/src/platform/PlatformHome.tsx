@@ -16,7 +16,9 @@ export function PlatformHome({
   return (
     <>
       <div className="home-hero">
-        <Typography.Title level={3} className="home-hero-title">硬件提效平台</Typography.Title>
+        <Typography.Title level={3} className="home-hero-title">
+          硬件提效平台
+        </Typography.Title>
         <Typography.Paragraph className="home-hero-sub">
           BOM 处理 · 差异对比 · 风险检查 · 网表分析 · 插件管理 · OTA 更新
         </Typography.Paragraph>
@@ -58,7 +60,8 @@ export function PlatformHome({
         Cadence 插件
       </Typography.Title>
       <Typography.Text type="secondary">
-        Cadence 官方脚本 {plugins.system.length} 个只读展示；平台脚本 {plugins.platform.length || scripts.length} 个、自定义脚本 {plugins.user.length} 个可管理。启用后统一挂载到 Capture 的 insta360_HW 菜单。
+        Cadence 官方脚本 {plugins.system.length} 个只读展示；平台脚本 {plugins.platform.length || scripts.length} 个、
+        自定义脚本 {plugins.user.length} 个可管理。启用后统一挂载到 Capture 的 insta360_HW 菜单。
       </Typography.Text>
     </>
   );

@@ -67,10 +67,10 @@
     {
       "id": "cadence_nc_toggle",
       "type": "cadence_tcl",
-      "name": "选中器件切换NC",
+      "name": "选中器件切换 NC",
       "description": "对 Capture 中选中的器件切换 NC 前缀和灰色显示。",
       "category": "Cadence 脚本",
-      "status": "available",
+      "status": "disabled",
       "command": "::capNCToggleSelected::toggleFromMenu",
       "danger_level": "medium",
       "requires_confirmation": false,
@@ -86,7 +86,7 @@
     {
       "id": "cadence_ground_name_visible",
       "type": "cadence_tcl",
-      "name": "显示GND网络名",
+      "name": "显示 GND 网络名",
       "description": "显示 GND 网络名。",
       "category": "Cadence 脚本",
       "status": "disabled",
@@ -101,7 +101,7 @@
     {
       "id": "cadence_ground_name_hidden",
       "type": "cadence_tcl",
-      "name": "隐藏GND网络名",
+      "name": "隐藏 GND 网络名",
       "description": "隐藏 GND 网络名。",
       "category": "Cadence 脚本",
       "status": "disabled",
@@ -131,7 +131,7 @@
     {
       "id": "cadence_nc_part_gray",
       "type": "cadence_tcl",
-      "name": "NC器件置灰",
+      "name": "NC 器件置灰",
       "description": "将 NC 器件置灰。",
       "category": "Cadence 脚本",
       "status": "disabled",
@@ -161,7 +161,7 @@
     {
       "id": "cadence_grayed_part_value_nc",
       "type": "cadence_tcl",
-      "name": "NC器件Value改为NC",
+      "name": "NC 器件 Value 改为 NC",
       "description": "将灰色 NC 器件 Value 改为 NC。",
       "category": "Cadence 脚本",
       "status": "disabled",
@@ -236,7 +236,7 @@
     {
       "id": "cadence_hide_u_value",
       "type": "cadence_tcl",
-      "name": "隐藏U器件Value",
+      "name": "隐藏 U 器件 Value",
       "description": "隐藏 U 器件 Value。",
       "category": "Cadence 脚本",
       "status": "disabled",
@@ -251,7 +251,7 @@
     {
       "id": "cadence_show_u_value",
       "type": "cadence_tcl",
-      "name": "显示U器件Value",
+      "name": "显示 U 器件 Value",
       "description": "显示 U 器件 Value。",
       "category": "Cadence 脚本",
       "status": "disabled",
@@ -266,7 +266,7 @@
     {
       "id": "cadence_hide_all_value",
       "type": "cadence_tcl",
-      "name": "隐藏所有器件Value",
+      "name": "隐藏所有器件 Value",
       "description": "隐藏所有器件 Value。",
       "category": "Cadence 脚本",
       "status": "disabled",
@@ -281,7 +281,7 @@
     {
       "id": "cadence_show_all_value",
       "type": "cadence_tcl",
-      "name": "显示所有器件Value",
+      "name": "显示所有器件 Value",
       "description": "显示所有器件 Value。",
       "category": "Cadence 脚本",
       "status": "disabled",
@@ -296,7 +296,7 @@
     {
       "id": "cadence_hide_u_pin_names",
       "type": "cadence_tcl",
-      "name": "隐藏U器件Pin名",
+      "name": "隐藏 U 器件 Pin 名",
       "description": "隐藏 U 器件 Pin 名。",
       "category": "Cadence 脚本",
       "status": "disabled",
@@ -314,7 +314,7 @@
       "name": "一键按要求脱敏",
       "description": "按要求脱敏 Value 和规格型号，并生成恢复文件。",
       "category": "Cadence 脚本",
-      "status": "disabled",
+      "status": "available",
       "command": "::capRequiredSanitize::sanitizeFromMenu",
       "danger_level": "high",
       "requires_confirmation": true,

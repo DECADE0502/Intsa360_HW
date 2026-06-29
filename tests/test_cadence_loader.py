@@ -353,8 +353,8 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
 
             decoded = out.read_bytes().decode("gbk")
             self.assertIn('source "$::IAC_ROOT/cadence/modules/gnd_net_visibility.tcl"', decoded)
-            self.assertIn('AddAccessoryMenu "insta360_HW" "显示GND网络名" "::capMenuUtil::GroundNameVisible"', decoded)
-            self.assertIn('AddAccessoryMenu "insta360_HW" "隐藏GND网络名" "::capMenuUtil::GroundNameHidden"', decoded)
+            self.assertIn('AddAccessoryMenu "insta360_HW" "显示 GND 网络名" "::capMenuUtil::GroundNameVisible"', decoded)
+            self.assertIn('AddAccessoryMenu "insta360_HW" "隐藏 GND 网络名" "::capMenuUtil::GroundNameHidden"', decoded)
             self.assertNotIn("RegisterAction \"_cdnCapTclAddDesignCustomMenu\" \"::capMenuUtil", decoded)
 
 

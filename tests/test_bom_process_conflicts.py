@@ -141,6 +141,62 @@ class BomProcessConflictTests(unittest.TestCase):
             self.assertEqual(len(p1_records), 2)
             self.assertEqual([record["qty"] for record in p1_records], [1, 1])
 
+    def test_run_bom_process_requires_confirmation_for_sh_shield_brackets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["Item", "Quantity", "Reference", "Part Number", "Value", "规格型号", "器件描述（新整理）", "物料名称", "等级"])
+            ws.append([1, 1, "SH1", "SH-PN", "SHIELD", "shield bracket", "屏蔽支架", "屏蔽支架", "正常"])
+            wb.save(source)
+
+            result = run_bom_process(
+                root,
+                {
+                    "source_bom": str(source),
+                    "formats": ["plm"],
+                    "parent_code": "203010100819",
+                    "name": "TEST",
+                },
+            )
+
+            self.assertEqual(result["status"], "needs_confirmation")
+            self.assertEqual(result["reason"], "shield_bracket_candidates")
+            self.assertEqual(result["shield_count"], 1)
+            self.assertEqual(result["shield_candidates"][0]["refs"], ["SH1"])
+            self.assertEqual(result["shield_candidates"][0]["code"], "SH-PN")
+
+    def test_confirmed_sh_shield_brackets_enter_final_bom_not_nc_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            source = tmp_path / "source.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["Item", "Quantity", "Reference", "Part Number", "Value", "规格型号", "器件描述（新整理）", "物料名称", "等级"])
+            ws.append([1, 1, "SH1", "SH-PN", "SHIELD", "shield bracket", "屏蔽支架", "屏蔽支架", "正常"])
+            wb.save(source)
+
+            result = bom_process.process(
+                source,
+                ["plm"],
+                "203010100819",
+                "",
+                "TEST",
+                [],
+                tmp_path,
+                "STAMP",
+                None,
+                confirm_shields=True,
+            )
+
+            shield = next(record for record in result["records"] if record["code"] == "SH-PN")
+            self.assertEqual(shield["refs"], ["SH1"])
+            self.assertEqual(shield["qty"], 1)
+            self.assertEqual(shield["name"], "屏蔽支架")
+            self.assertEqual(result["summary"]["shield_candidates"], 1)
+            self.assertEqual(result["summary"]["excluded"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

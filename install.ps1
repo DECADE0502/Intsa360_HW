@@ -1,6 +1,7 @@
 param(
   [string]$InstallDir = "",
-  [string]$CaptureAutoLoadDir = ""
+  [string]$CaptureAutoLoadDir = "",
+  [switch]$NoStart
 )
 
 $ErrorActionPreference = "Stop"
@@ -74,6 +75,5 @@ foreach ($autoLoadDir in $AutoLoadDirs) {
   Move-HwAgentAutoLoadBackupDirs -AutoLoadDir $autoLoadDir | Out-Null
 }
 Install-CadenceLoader -ToolRoot $InstallRoot -PythonPath $Python -AutoLoadDirs $AutoLoadDirs | Out-Null
-Start-HwAgentService -Root $InstallRoot -PythonPath $Python | Out-Null
 
 Write-Host (Get-Text "5a6J6KOF5a6M5oiQ44CC6K+36YeN5ZCvIE9yQ0FEIENhcHR1cmXvvIznhLblkI7miZPlvIAgQWNjZXNzb3JpZXMgLT4g56Gs5Lu25pWI546H5bel5YW36ZuG44CC")
