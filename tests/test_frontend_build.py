@@ -268,6 +268,29 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn('key: "risk-final-preview"', wizard)
         self.assertIn("<BomPreviewTable preview={pres?.preview} />", wizard)
 
+    def test_bom_compare_uses_dedicated_horizontal_workbench(self) -> None:
+        legacy = (ROOT / "frontend" / "src" / "tools" / "LegacyToolPane.tsx").read_text(encoding="utf-8")
+        pane_path = ROOT / "frontend" / "src" / "tools" / "BomComparePane.tsx"
+        self.assertTrue(pane_path.exists())
+        pane = pane_path.read_text(encoding="utf-8")
+        css = (ROOT / "frontend" / "src" / "styles.css").read_text(encoding="utf-8")
+
+        self.assertIn('tool.id === "bom_compare"', legacy)
+        self.assertIn("<BomComparePane", legacy)
+        self.assertIn("compare-workbench", pane)
+        self.assertIn("compare-shell", pane)
+        self.assertIn("compare-rail", pane)
+        self.assertIn("compare-detail", pane)
+        self.assertIn("compare-inspector", pane)
+        self.assertIn("part_summary", pane)
+        self.assertIn("origin", pane)
+        self.assertIn("risks", pane)
+        self.assertIn("review_guide", pane)
+        self.assertIn("focus_items", pane)
+        self.assertIn(".compare-shell", css)
+        self.assertIn("grid-template-columns: minmax(260px, 320px) minmax(0, 1fr) minmax(300px, 360px)", css)
+        self.assertIn(".compare-inspector", css)
+
 
 if __name__ == "__main__":
     unittest.main()

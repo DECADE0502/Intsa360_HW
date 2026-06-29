@@ -543,6 +543,7 @@ def run_bom_compare(root: Path, params: dict[str, object]) -> dict[str, object]:
 
     pos_rows: list[list[object]] = []
     pos_items: list[dict[str, object]] = []
+    status_counts = {"same": 0, "swap": 0, "added": 0, "removed": 0, "param": 0}
     changed = 0
     for ref in all_refs:
         left = ref1.get(ref)
@@ -550,18 +551,23 @@ def run_bom_compare(root: Path, params: dict[str, object]) -> dict[str, object]:
         diffs: list[str] = []
         if left and not right:
             status, kind, badge = "删除/未贴", "only_left", "删除"
+            status_counts["removed"] += 1
         elif right and not left:
             status, kind, badge = "新增贴装", "only_right", "新增"
+            status_counts["added"] += 1
         else:
             for field in ("编号", "型号", "描述"):
                 if str(left.get(field, "")) != str(right.get(field, "")):
                     diffs.append(field)
             if "编号" in diffs:
                 status, kind, badge = "换料", "diff", "换料"
+                status_counts["swap"] += 1
             elif diffs:
                 status, kind, badge = "参数差异", "diff", "参数差异"
+                status_counts["param"] += 1
             else:
                 status, kind, badge = "一致", "same", "一致"
+                status_counts["same"] += 1
         if kind != "same":
             changed += 1
         pos_rows.append(
@@ -642,14 +648,34 @@ def run_bom_compare(root: Path, params: dict[str, object]) -> dict[str, object]:
         "total_right": len(rows2),
     }
 
+    focus_priority = {"换料": 0, "删除/未贴": 1, "新增贴装": 2, "参数差异": 3}
+    focus_items = sorted(
+        [item for item in pos_items if item["kind"] != "same"],
+        key=lambda item: (focus_priority.get(str(item.get("status")), 9), _natural_key(str(item.get("key", "")))),
+    )[:200]
+    review_guide = {
+        "换料": "重点确认同一位号的物料编码是否按设计变更替换，并回查型号、描述和替代关系。",
+        "新增贴装": "确认是否为新增器件、原 NC 改贴或设计补料，必要时同步工艺和采购。",
+        "删除/未贴": "确认是否为删除器件、改 NC/DNP 或漏导出，避免误删应贴物料。",
+        "参数差异": "料号未变但型号/描述变化，通常用于确认库属性、规格描述和 PLM 元数据是否同步。",
+        "料号用量": "从采购/ERP 视角核对每个编码的数量变化，识别替入、替出、新增和移除。",
+    }
+
     result = _result(
         "bom_compare",
         [output],
-        {"total_positions": len(all_refs), "changed_positions": changed, "part_changes": len(summary_rows)},
+        {
+            "total_positions": len(all_refs),
+            "changed_positions": changed,
+            "part_changes": len(summary_rows),
+            "status_counts": status_counts,
+        },
         table,
         compare,
     )
     result["part_summary"] = part_summary
+    result["focus_items"] = focus_items
+    result["review_guide"] = review_guide
     result["origin"] = origin
     result["risks"] = {
         "left_label": "BOM1",
