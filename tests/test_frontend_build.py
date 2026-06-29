@@ -288,8 +288,25 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn("review_guide", pane)
         self.assertIn("focus_items", pane)
         self.assertIn(".compare-shell", css)
-        self.assertIn("grid-template-columns: minmax(260px, 320px) minmax(0, 1fr) minmax(300px, 360px)", css)
+        self.assertIn("grid-template-columns: minmax(320px, 380px) minmax(560px, 1fr) minmax(420px, 520px)", css)
         self.assertIn(".compare-inspector", css)
+
+    def test_bom_compare_can_use_wide_desktop_space(self) -> None:
+        css = (ROOT / "frontend" / "src" / "styles.css").read_text(encoding="utf-8")
+
+        app_content = re.search(r"\.app-content\s*\{(?P<body>[^}]+)\}", css)
+        self.assertIsNotNone(app_content)
+        self.assertNotIn("max-width: 1280px", app_content.group("body"))
+        self.assertIn("width: 100%", app_content.group("body"))
+
+        workbench = re.search(r"\.compare-workbench\s*\{(?P<body>[^}]+)\}", css)
+        self.assertIsNotNone(workbench)
+        self.assertIn("width: 100%", workbench.group("body"))
+        self.assertNotIn("1480px", workbench.group("body"))
+
+        shell = re.search(r"\.compare-shell\s*\{(?P<body>[^}]+)\}", css)
+        self.assertIsNotNone(shell)
+        self.assertIn("minmax(320px, 380px) minmax(560px, 1fr) minmax(420px, 520px)", shell.group("body"))
 
 
 if __name__ == "__main__":
