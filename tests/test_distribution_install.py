@@ -1008,6 +1008,7 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("[switch]$NoStart", text)
         # Silent mode must not prompt; it gates all interactive Write-Host output.
         self.assertIn("-not $Silent", text)
+        self.assertIn("[AllowEmptyString()]", text)
 
     def test_oneclick_install_is_ascii_safe_for_windows_powershell(self) -> None:
         data = (ROOT / "oneclick_install.ps1").read_bytes()

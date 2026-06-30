@@ -5,7 +5,7 @@ $Host.UI.RawUI.WindowTitle = "Insta360_HW Setup"
 
 function Say {
   param(
-    [Parameter(Mandatory=$true)][string]$Text,
+    [Parameter(Mandatory=$true)][AllowEmptyString()][string]$Text,
     [ConsoleColor]$Color = [ConsoleColor]::White
   )
   if (-not $Silent) {
