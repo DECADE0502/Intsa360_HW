@@ -5,9 +5,12 @@ function Get-HwAgentText {
   return [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($Base64))
 }
 
-$script:HwAgentProtected = @("data", "config/local.json", "plugins/user")
-$script:HwAgentExcludeDirs = @(".git", "data", "plugins\user", "frontend", "tests", "docs", "frontend\node_modules", ".pytest_cache", "__pycache__")
-$script:HwAgentExcludeFiles = @("local.json")
+$script:HwAgentProtected = @("data", "config/local.json", "plugins/user", "unins000.exe", "unins000.dat", "unins000.msg")
+$script:HwAgentInstallerOwned = @("unins000.exe", "unins000.dat", "unins000.msg")
+$script:HwAgentExcludeDirs = @(".git", "data", "plugins\user", "tests", "docs", "launcher", "BOM*", "node_modules", ".pytest_cache", "__pycache__")
+$script:HwAgentExcludeFiles = @("local.json", ".gitignore", "HWAgent_Setup.iss", "Insta360_HW_Setup.exe")
+$script:HwAgentSourceOnlyRootDirs = @("frontend", "tests", "docs", "launcher")
+$script:HwAgentSourceOnlyRootFiles = @(".gitignore", "HWAgent_Setup.iss", "Insta360_HW_Setup.exe")
 
 function Copy-HwAgentProtectedItems {
   param(
@@ -46,10 +49,45 @@ function Sync-HwAgentTree {
     [Parameter(Mandatory=$true)][string]$SourceRoot,
     [Parameter(Mandatory=$true)][string]$TargetRoot
   )
-  $args = @($SourceRoot, $TargetRoot, "/MIR", "/XD") + $script:HwAgentExcludeDirs + @("/XF") + $script:HwAgentExcludeFiles
-  & robocopy @args | Out-Null
-  if ($LASTEXITCODE -ge 8) {
-    throw ("robocopy failed: " + $LASTEXITCODE)
+  $installerBackupRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("insta360_hw_installer_owned_" + [System.Guid]::NewGuid().ToString("N"))
+  try {
+    foreach ($item in $script:HwAgentInstallerOwned) {
+      $sourcePath = Join-Path $TargetRoot $item
+      if (Test-Path -LiteralPath $sourcePath) {
+        New-Item -ItemType Directory -Force -Path $installerBackupRoot | Out-Null
+        Copy-Item -LiteralPath $sourcePath -Destination (Join-Path $installerBackupRoot $item) -Force
+      }
+    }
+
+    $args = @($SourceRoot, $TargetRoot, "/MIR", "/XD") + $script:HwAgentExcludeDirs + @("/XF") + $script:HwAgentExcludeFiles
+    & robocopy @args | Out-Null
+    if ($LASTEXITCODE -ge 8) {
+      throw ("robocopy failed: " + $LASTEXITCODE)
+    }
+
+    foreach ($item in $script:HwAgentInstallerOwned) {
+      $backupPath = Join-Path $installerBackupRoot $item
+      if (Test-Path -LiteralPath $backupPath) {
+        Copy-Item -LiteralPath $backupPath -Destination (Join-Path $TargetRoot $item) -Force
+      }
+    }
+
+    foreach ($dir in $script:HwAgentSourceOnlyRootDirs) {
+      $path = Join-Path $TargetRoot $dir
+      if (Test-Path -LiteralPath $path) {
+        Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
+      }
+    }
+    foreach ($file in $script:HwAgentSourceOnlyRootFiles) {
+      $path = Join-Path $TargetRoot $file
+      if (Test-Path -LiteralPath $path) {
+        Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+      }
+    }
+  } finally {
+    if (Test-Path -LiteralPath $installerBackupRoot) {
+      Remove-Item -LiteralPath $installerBackupRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
   }
 }
 
