@@ -249,6 +249,9 @@ def _parse_version(text: str) -> tuple:
     return tuple(nums[:3])
 
 
+_REMOTE_VERSION_OK_STATUSES = {"ok", "ok_raw", "ok_zip", "ok_notice_version"}
+
+
 def _fetch_remote_version(root: Path) -> tuple[str, str]:
     """Fetch remote VERSION. Prefer GitHub Contents API, fall back to raw."""
     import base64
@@ -391,7 +394,7 @@ def check_update(root: Path) -> dict[str, object]:
     has_update = False
     update_reason = ""
     local_tuple = _parse_version(local_version)
-    if remote_status in {"ok", "ok_raw"} and remote_version:
+    if remote_status in _REMOTE_VERSION_OK_STATUSES and remote_version:
         remote_tuple = _parse_version(remote_version)
         if remote_tuple > local_tuple:
             has_update = True
@@ -400,7 +403,7 @@ def check_update(root: Path) -> dict[str, object]:
             has_update = True
             update_reason = "revision"
     notice_version = str(remote_notice.get("version") or "").strip() if remote_notice else ""
-    if not has_update and notice_status in {"ok", "ok_raw"} and notice_version:
+    if not has_update and notice_status in _REMOTE_VERSION_OK_STATUSES and notice_version:
         notice_tuple = _parse_version(notice_version)
         if notice_tuple > local_tuple:
             remote_version = notice_version
