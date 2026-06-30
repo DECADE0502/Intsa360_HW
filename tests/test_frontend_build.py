@@ -61,6 +61,26 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn("useToolWorkspace", legacy)
         self.assertIn("useToolWorkspace", wizard)
 
+    def test_bom_finish_syncs_history_assets_and_resets_for_next_bom(self) -> None:
+        wizard = (ROOT / "frontend" / "src" / "tools" / "BomProcessWizard.tsx").read_text(encoding="utf-8")
+        picker = (ROOT / "frontend" / "src" / "components" / "HistoryBomPicker.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("insta360_hw:assets-updated", wizard)
+        self.assertIn("window.dispatchEvent", wizard)
+        self.assertIn("完成并处理新的 BOM", wizard)
+        self.assertIn("finishAndStartNewBom", wizard)
+        self.assertIn("window.history.replaceState", wizard)
+        self.assertIn('setStage("source")', wizard)
+        self.assertIn("setSp(\"\")", wizard)
+        self.assertIn("setPres(null)", wizard)
+        self.assertIn("setRres(null)", wizard)
+        self.assertIn("setPresetConsumed(true)", wizard)
+
+        self.assertIn("insta360_hw:assets-updated", picker)
+        self.assertIn("addEventListener", picker)
+        self.assertIn("removeEventListener", picker)
+        self.assertIn("load()", picker)
+
     def test_update_controls_split_check_and_run_actions(self) -> None:
         text = (ROOT / "frontend" / "src" / "components" / "UpdateStatus.tsx").read_text(encoding="utf-8")
         client = (ROOT / "frontend" / "src" / "api" / "client.ts").read_text(encoding="utf-8")

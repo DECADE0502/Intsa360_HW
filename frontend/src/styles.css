@@ -154,6 +154,16 @@ html, body, #root { margin: 0; height: 100%; }
 
 .conflict-main { min-width: 0; }
 
+.deliver-actions {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr);
+  gap: 12px;
+}
+
+.deliver-actions .ant-btn {
+  width: 100%;
+}
+
 .conflict-workbench {
   display: grid;
   grid-template-columns: minmax(190px, 240px) minmax(0, 1fr);
@@ -1333,6 +1343,7 @@ html, body, #root { margin: 0; height: 100%; }
 @media (max-width: 980px) {
   .app-content { padding: 24px; }
   .process-grid { grid-template-columns: 1fr; }
+  .deliver-actions { grid-template-columns: 1fr; }
   .conflict-workbench { grid-template-columns: 1fr; height: auto; }
   .conflict-index-list { max-height: 220px; }
   .variant-fields { grid-template-columns: 1fr; }

@@ -39,6 +39,12 @@ export function HistoryBomPicker({ value, onChange, placeholder = "从历史记�
     load();
   }, []);
 
+  useEffect(() => {
+    const onAssetsUpdated = () => load();
+    window.addEventListener("insta360_hw:assets-updated", onAssetsUpdated);
+    return () => window.removeEventListener("insta360_hw:assets-updated", onAssetsUpdated);
+  }, []);
+
   const options = useMemo(
     () =>
       assets.map((asset) => ({

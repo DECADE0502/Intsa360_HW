@@ -31,8 +31,13 @@ import { runTool, uploadFiles } from "../api/client";
 import { useToolWorkspace } from "../state/toolWorkspace";
 
 const { Dragger } = Upload;
+const ASSETS_UPDATED_EVENT = "insta360_hw:assets-updated";
 const CONFIG =
   "{Item}\\t{Quantity}\\t{Reference}\\t{Part Number}\\t{Value}\\t{规格型号}\\t{器件描述（新整理）}\\t{物料名称}\\t{等级}\\t{PCB Footprint}\\t{PCB封装}\\t{Part Type}\\t{Part Reference}\\t{Source Package}\\t{Source Part}";
+
+function notifyAssetsUpdated() {
+  window.dispatchEvent(new Event(ASSETS_UPDATED_EVENT));
+}
 
 type Stage = "source" | "review" | "process" | "risk" | "deliver";
 type Extra = { code: string; model: string; desc: string; qty: string; refs: string };
@@ -69,6 +74,7 @@ export function BomProcessWizard() {
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const presetSource = params.get("source") || "";
   const presetName = params.get("name") || "";
+  const [presetConsumed, setPresetConsumed] = useState(false);
   const [workspace, setWorkspace, resetWorkspace] = useToolWorkspace("bom_process", {
     stage: presetSource ? "review" : "source",
     sp: presetSource,
@@ -82,11 +88,13 @@ export function BomProcessWizard() {
     conflictChoices: {} as Record<string, number>,
     confirmShields: false,
   });
-  const freshPreset = Boolean(presetSource && presetSource !== workspace.sp);
+  const activePresetSource = presetConsumed ? "" : presetSource;
+  const activePresetName = presetConsumed ? "" : presetName;
+  const freshPreset = Boolean(activePresetSource && activePresetSource !== workspace.sp);
 
-  const [stage, setStage] = useState<Stage>(presetSource ? "review" : (String(workspace.stage || "source") as Stage));
-  const [sp, setSp] = useState(String(presetSource || workspace.sp || ""));
-  const [name, setName] = useState(String(presetName || workspace.name || ""));
+  const [stage, setStage] = useState<Stage>(activePresetSource ? "review" : (String(workspace.stage || "source") as Stage));
+  const [sp, setSp] = useState(String(activePresetSource || workspace.sp || ""));
+  const [name, setName] = useState(String(activePresetName || workspace.name || ""));
   const [pcode, setPcode] = useState(String(workspace.pcode || "203010100819"));
   const [pdesc, setPdesc] = useState(String(workspace.pdesc || ""));
   const [fmts, setFmts] = useState<string[]>(Array.isArray(workspace.fmts) ? (workspace.fmts as string[]) : ["plm", "oa"]);
@@ -132,6 +140,7 @@ export function BomProcessWizard() {
       })
       .then((r) => {
         setPres(r);
+        if (r.status === "ok") notifyAssetsUpdated();
         if (r.status === "ok" && !hasBomConflicts(r)) setStage("risk");
       })
       .catch((e) => setPres({ status: "error", error: e.message }))
@@ -167,6 +176,7 @@ export function BomProcessWizard() {
         confirm_shields: confirmShields,
       });
       setPres(r);
+      if (r.status === "ok") notifyAssetsUpdated();
       setConflictChoices({});
       if (r.status === "ok" && !hasBomConflicts(r)) setStage("risk");
     } catch (e: any) {
@@ -191,6 +201,7 @@ export function BomProcessWizard() {
         confirm_shields: confirmShields,
       });
       setPres(r);
+      if (r.status === "ok") notifyAssetsUpdated();
       setConflictChoices({});
       if (r.status === "ok" && !hasBomConflicts(r)) setStage("risk");
     } catch (e: any) {
@@ -214,6 +225,7 @@ export function BomProcessWizard() {
         confirm_shields: true,
       });
       setPres(r);
+      if (r.status === "ok") notifyAssetsUpdated();
       if (r.status === "ok" && !hasBomConflicts(r) && !hasShieldCandidates(r)) setStage("risk");
     } catch (e: any) {
       setPres({ status: "error", error: e.message });
@@ -247,10 +259,32 @@ export function BomProcessWizard() {
     }
   }
 
+  function finishAndStartNewBom() {
+    notifyAssetsUpdated();
+    resetWorkspace();
+    setPresetConsumed(true);
+    setStage("source");
+    setSp("");
+    setName("");
+    setPcode("203010100819");
+    setPdesc("");
+    setFmts(["plm", "oa"]);
+    setExtras([]);
+    setPres(null);
+    setRres(null);
+    setRrun(false);
+    setRunning(false);
+    setConflictChoices({});
+    setConfirmShields(false);
+    const cleanUrl = `${window.location.pathname}?tool=bom_process`;
+    window.history.replaceState({}, "", cleanUrl);
+    message.success("已同步历史 BOM，可以处理新的 BOM");
+  }
+
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
       <Steps size="small" current={si} items={steps.map((t) => ({ title: t }))} />
-      {stage === "source" && <SourceView presetSource={presetSource} onFile={onFile} onUsePreset={() => setStage("review")} />}
+      {stage === "source" && <SourceView presetSource={activePresetSource} onFile={onFile} onUsePreset={() => setStage("review")} />}
       {stage === "review" && (
         <ReviewView
           sp={sp}
@@ -291,6 +325,7 @@ export function BomProcessWizard() {
           rres={rres}
           name={name}
           onDownload={dl}
+          onFinish={finishAndStartNewBom}
           onReset={() => {
             setPres(null);
             setRres(null);
@@ -657,7 +692,7 @@ function BomPreviewTable({ preview }: any) {
   );
 }
 
-function DeliverView({ pres, rres, name, onDownload, onReset }: any) {
+function DeliverView({ pres, rres, name, onDownload, onFinish, onReset }: any) {
   const all = [...(pres?.outputs || []), ...(rres?.outputs || [])];
   const s = pres?.summary || {};
   return (
@@ -678,8 +713,15 @@ function DeliverView({ pres, rres, name, onDownload, onReset }: any) {
           )}
         />
       </Card>
-      <Button type="primary" size="large" block icon={<DownloadOutlined />} onClick={onDownload}>下载全部资源（ZIP）</Button>
-      <div style={{ textAlign: "center" }}><Button type="link" icon={<ReloadOutlined />} onClick={onReset}>重新处理</Button></div>
+      <div className="deliver-actions">
+        <Button type="primary" size="large" icon={<DownloadOutlined />} onClick={onDownload}>
+          下载全部资源（ZIP）
+        </Button>
+        <Button size="large" type="primary" ghost icon={<RightOutlined />} onClick={onFinish}>
+          完成并处理新的 BOM
+        </Button>
+      </div>
+      <div style={{ textAlign: "center" }}><Button type="link" icon={<ReloadOutlined />} onClick={onReset}>返回修改并重新处理</Button></div>
     </Space>
   );
 }
