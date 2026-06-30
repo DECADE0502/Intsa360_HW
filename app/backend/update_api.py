@@ -412,6 +412,12 @@ def check_update(root: Path) -> dict[str, object]:
             update_reason = "notice_version"
     if remote_notice:
         remote_notice = _normalize_update_notice(dict(remote_notice), remote_version, remote_revision)
+    if has_update:
+        message = "发现新版本，可一键更新"
+    elif remote_status in _REMOTE_VERSION_OK_STATUSES:
+        message = "已是最新版本"
+    else:
+        message = "远程版本检查失败"
     return {
         "status": "ok",
         "version": local_version,
@@ -428,7 +434,7 @@ def check_update(root: Path) -> dict[str, object]:
         "remote_revision_status": remote_revision_status,
         "display_remote": f"{remote_version} ({_short_revision(remote_revision)})" if remote_revision else remote_version,
         "config": str(config),
-        "message": "发现新版本，可一键更新" if has_update else ("已是最新版本" if remote_status == "ok" else "远程版本检查失败"),
+        "message": message,
     }
 
 

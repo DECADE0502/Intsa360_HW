@@ -562,6 +562,40 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertEqual(result["notice_status"], "ok_zip")
             self.assertEqual(result["update_notice"]["title"], "ZIP version probe")
 
+    def test_update_api_reports_latest_when_codeload_zip_version_matches_local(self) -> None:
+        import sys
+        sys.path.insert(0, str(ROOT))
+        try:
+            from app.backend import update_api
+        finally:
+            sys.path.pop(0)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "install"
+            root.mkdir()
+            (root / "VERSION").write_text("0.2.6\n", encoding="utf-8")
+            (root / "update.ps1").write_text("echo hi\n", encoding="utf-8")
+
+            original_fetch_version = update_api._fetch_remote_version
+            original_fetch_revision = update_api._fetch_remote_revision
+            original_fetch_notice = update_api._fetch_remote_update_notice
+            try:
+                update_api._fetch_remote_version = lambda _root: ("0.2.6", "ok_zip")
+                update_api._fetch_remote_revision = lambda _root: ("", "rate limited")
+                update_api._fetch_remote_update_notice = lambda _root: ({
+                    "version": "0.2.6",
+                    "title": "Current ZIP version",
+                }, "ok_zip")
+                result = update_api.check_update(root)
+            finally:
+                update_api._fetch_remote_version = original_fetch_version
+                update_api._fetch_remote_revision = original_fetch_revision
+                update_api._fetch_remote_update_notice = original_fetch_notice
+
+            self.assertFalse(result["has_update"])
+            self.assertEqual(result["remote_status"], "ok_zip")
+            self.assertIn("最新", result["message"])
+
     def test_update_api_falls_back_when_github_contents_api_is_rate_limited(self) -> None:
         import sys
         import urllib.error
