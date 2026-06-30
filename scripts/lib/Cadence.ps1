@@ -33,9 +33,6 @@ function Get-HwAgentShortcutActionId {
   if (Test-HwAgentProperty -Object $Object -Name "shortcut_action") {
     return [string]$Object.shortcut_action
   }
-  if ([string]$Object.id -eq "cadence_nc_toggle") {
-    return "NC Toggle Selected Parts"
-  }
   return (([string]$Object.id) + "_shortcut")
 }
 
@@ -81,7 +78,7 @@ function Get-EnabledCadenceMenuItems {
       $ns = [string]$item.command
       if ($ns -match '^(::[^:]+)') {
         $nsName = $matches[1]
-        if (-not $registeredNamespaces.ContainsKey($nsName)) {
+        if ((-not (Test-HwAgentProperty -Object $item -Name "shortcut")) -and -not $registeredNamespaces.ContainsKey($nsName)) {
           $registeredNamespaces[$nsName] = $true
         }
       }
@@ -133,39 +130,31 @@ function Get-EnabledCadenceShortcutItems {
   foreach ($item in @($items)) {
     if ($item.type -ne "cadence_tcl") { continue }
     if (-not (Test-HwAgentProperty -Object $item -Name "shortcut")) { continue }
-    foreach ($cleanupId in (Get-HwAgentShortcutCleanupActionIds -Object $item)) {
-      $actionId = Escape-TclMenuText $cleanupId
-      $lines += ('    catch {RegisterAction "' + $actionId + '" "::IAC::shouldProcess" "" "" ""}')
-    }
-  }
 
-  foreach ($item in @($items)) {
-    if ($item.type -ne "cadence_tcl") { continue }
-    if ($item.show_in_cadence -ne $true) { continue }
-    if (-not (Test-HwAgentProperty -Object $item -Name "shortcut")) { continue }
-
-    if ($item.module) {
+    $itemId = Escape-TclMenuText ([string]$item.id)
+    $module = ""
+    if (Test-HwAgentProperty -Object $item -Name "module") {
       $module = Escape-TclPathLiteral ([string]$item.module)
-      $lines += ('    source "$::IAC_ROOT/' + $module + '"')
     }
-    $actionId = Escape-TclMenuText (Get-HwAgentShortcutActionId -Object $item)
-    $enabledCommand = "::IAC::shouldProcess"
-    if (Test-HwAgentProperty -Object $item -Name "enabled_command") {
-      $enabledCommand = [string]$item.enabled_command
-    }
+    $enabled = if ($item.show_in_cadence -eq $true) { "1" } else { "0" }
     $shortcutCommand = [string]$item.command
     if (Test-HwAgentProperty -Object $item -Name "shortcut_command") {
       $shortcutCommand = [string]$item.shortcut_command
     }
+    $shortcutCommand = Escape-TclMenuText $shortcutCommand
+    $lines += ('    ::IAC::SetShortcut "' + $itemId + '" ' + $enabled + ' "' + $shortcutCommand + '" "' + $module + '"')
+
+    if ($module) {
+      $lines += ('    source "$::IAC_ROOT/' + $module + '"')
+    }
+    $actionId = Escape-TclMenuText (Get-HwAgentShortcutActionId -Object $item)
     $shortcut = Escape-TclMenuText ([string]$item.shortcut)
     $shortcutContext = ""
     if (Test-HwAgentProperty -Object $item -Name "shortcut_context") {
       $shortcutContext = [string]$item.shortcut_context
     }
-    $enabledCommand = Escape-TclMenuText $enabledCommand
-    $shortcutCommand = Escape-TclMenuText $shortcutCommand
     $shortcutContext = Escape-TclMenuText $shortcutContext
-    $lines += ('    if {[catch {RegisterAction "' + $actionId + '" "' + $enabledCommand + '" "' + $shortcut + '" "' + $shortcutCommand + '" "' + $shortcutContext + '"} err]} {')
+    $lines += ('    if {[catch {RegisterAction "' + $actionId + '" "::IAC::ShortcutEnabled ' + $itemId + '" "' + $shortcut + '" "::IAC::RunShortcut ' + $itemId + '" "' + $shortcutContext + '"} err]} {')
     $lines += ('        ::IAC::log "IAC: shortcut registration failed: ' + $actionId + ' $err"')
     $lines += ('    } else {')
     $lines += ('        ::IAC::log "IAC: shortcut registered: ' + $actionId + ' ' + $shortcut + '"')

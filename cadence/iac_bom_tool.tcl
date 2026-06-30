@@ -5,6 +5,8 @@ set ::IAC_PY   "C:/Users/Administrator/.cache/codex-runtimes/codex-primary-runti
 set ::IAC_CNV  "$::IAC_ROOT/tools/bom/convert_cadence_bom.py"
 
 namespace eval ::IAC {
+    variable SHORTCUTS
+    array set SHORTCUTS {}
     variable PROP_NAMES {
         Color Designator Graphic ID Implementation {Implementation Path} {Implementation Type}
         {Location X-Coordinate} {Location Y-Coordinate} Name {Part Number} {Part Reference}
@@ -18,6 +20,37 @@ namespace eval ::IAC {
     proc shouldProcess { args } { return 1 }
     proc updatePro { args } { return true }
     proc log { msg } { catch { DboState_WriteToSessionLog [DboTclHelper_sMakeCString $msg] }; catch { puts $msg } }
+    proc SetShortcut { id enabled command module } {
+        variable SHORTCUTS
+        set SHORTCUTS($id,enabled) $enabled
+        set SHORTCUTS($id,command) $command
+        set SHORTCUTS($id,module) $module
+    }
+    proc ShortcutEnabled { id args } {
+        variable SHORTCUTS
+        if {![info exists SHORTCUTS($id,enabled)] || !$SHORTCUTS($id,enabled)} { return 0 }
+        set command $SHORTCUTS($id,command)
+        if {[info procs $command] eq "" && [info commands $command] eq ""} {
+            set module $SHORTCUTS($id,module)
+            if {$module ne ""} { catch {source "$::IAC_ROOT/$module"} }
+        }
+        if {[info procs $command] eq "" && [info commands $command] eq ""} { return 0 }
+        return 1
+    }
+    proc RunShortcut { id args } {
+        variable SHORTCUTS
+        if {![::IAC::ShortcutEnabled $id]} {
+            ::IAC::log "IAC: shortcut disabled or unavailable: $id"
+            return 0
+        }
+        set command $SHORTCUTS($id,command)
+        if {[catch {eval $command} err]} {
+            ::IAC::log "IAC: shortcut failed: $id $err"
+            catch {tk_messageBox -icon error -type ok -title "insta360_HW" -message $err}
+            return 0
+        }
+        return 1
+    }
     proc Probe { phase } {
         catch {
             set logDir [file normalize "$::IAC_ROOT/data/reports/runtime"]

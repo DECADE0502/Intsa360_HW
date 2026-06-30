@@ -24,6 +24,11 @@ proc ::capNCToggleSelected::toggleFromMenu {args} {
     }
 }
 
+proc ::capNCToggleSelected::isMounted {} {
+    if {[info commands ::IAC::ShortcutEnabled] eq ""} { return 1 }
+    return [::IAC::ShortcutEnabled cadence_nc_toggle]
+}
+
 proc ::capNCToggleSelected::enabled {} {
     if {[info commands GetSelectedObjects] eq ""} { return 0 }
     if {[catch {set selected [GetSelectedObjects]}]} { return 0 }
@@ -31,6 +36,14 @@ proc ::capNCToggleSelected::enabled {} {
 }
 
 proc ::capNCToggleSelected::toggle {} {
+    if {![::capNCToggleSelected::isMounted]} {
+        ::capNCToggleSelected::log "disabled by insta360_HW platform"
+        return 0
+    }
+    return [::capNCToggleSelected::toggleImpl]
+}
+
+proc ::capNCToggleSelected::toggleImpl {} {
     if {![::capNCToggleSelected::enabled]} {
         catch {tk_messageBox -icon info -type ok -title "Toggle Selected NC" -message "Select one or more parts first."}
         ::capNCToggleSelected::log "no selected objects"

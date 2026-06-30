@@ -305,6 +305,11 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
         self.assertEqual(item["shortcut"], "Ctrl+Q")
         self.assertEqual(item["shortcut_context"], "Schematic")
         self.assertEqual(item["enabled_command"], "::capNCToggleSelected::enabled")
+        self.assertEqual(item["shortcut_action"], "insta360_HW_nc_toggle")
+        self.assertEqual(item["shortcut_command"], "::capNCToggleSelected::toggleImpl")
+        self.assertIn("proc ::capNCToggleSelected::toggleImpl", module)
+        self.assertIn("proc ::capNCToggleSelected::isMounted", module)
+        self.assertIn("::IAC::ShortcutEnabled cadence_nc_toggle", module)
         self.assertNotIn("RegisterAction", module)
         self.assertNotIn("AddAccessoryMenu", module)
 
@@ -337,17 +342,54 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
             self.assertIn('AddAccessoryMenu "insta360_HW"', decoded)
             self.assertIn('"选中器件切换 NC (Ctrl+Q)"', decoded)
             self.assertIn('"::capNCToggleSelected::toggleFromMenu"', decoded)
-            self.assertIn('RegisterAction "NC Toggle Selected Parts"', decoded)
-            self.assertIn('RegisterAction "cadence_nc_toggle_shortcut" "::IAC::shouldProcess" "" "" ""', decoded)
+            self.assertIn("proc RunShortcut", decoded)
+            self.assertIn('::IAC::SetShortcut "cadence_nc_toggle" 1', decoded)
+            self.assertIn('RegisterAction "insta360_HW_nc_toggle"', decoded)
+            self.assertNotIn('RegisterAction "cadence_nc_toggle_shortcut" "::IAC::shouldProcess" "" "" ""', decoded)
+            self.assertNotIn('RegisterAction "NC Toggle Selected Parts"', decoded)
             self.assertNotIn('RegisterAction "NC Toggle Selected Parts" "::IAC::shouldProcess" "" "" ""', decoded)
-            self.assertIn('"::capNCToggleSelected::enabled" "Ctrl+Q" "::capNCToggleSelected::toggle" "Schematic"', decoded)
-            self.assertIn("shortcut registered: NC Toggle Selected Parts Ctrl+Q", decoded)
-            shortcut_index = decoded.index('RegisterAction "NC Toggle Selected Parts"')
+            self.assertIn('::IAC::SetShortcut "cadence_nc_toggle" 1 "::capNCToggleSelected::toggleImpl"', decoded)
+            self.assertIn('"::IAC::ShortcutEnabled cadence_nc_toggle" "Ctrl+Q" "::IAC::RunShortcut cadence_nc_toggle" "Schematic"', decoded)
+            self.assertIn("shortcut registered: insta360_HW_nc_toggle Ctrl+Q", decoded)
+            shortcut_index = decoded.index('RegisterAction "insta360_HW_nc_toggle"')
             dynamic_menu_index = decoded.index("proc ::IAC::addAccessoryMenu")
             self.assertLess(shortcut_index, dynamic_menu_index)
             dynamic_menu_body = decoded[dynamic_menu_index:]
             self.assertNotIn('RegisterAction "NC Toggle Selected Parts"', dynamic_menu_body)
             self.assertNotIn('RegisterAction "cadence_nc_toggle_shortcut"', dynamic_menu_body)
+
+    def test_nc_shortcut_disabled_state_keeps_dispatcher_hot_reloadable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            root = tmp_path / "tool"
+            shutil.copytree(ROOT / "config", root / "config")
+            shutil.copytree(ROOT / "cadence", root / "cadence")
+            data = json.loads((root / "config" / "capabilities.json").read_text(encoding="utf-8"))
+            for capability in data["capabilities"]:
+                if capability["id"] == "cadence_nc_toggle":
+                    capability["show_in_cadence"] = False
+            (root / "config" / "capabilities.json").write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            out = tmp_path / "iac_bom_tool.tcl"
+            command = (
+                "$ErrorActionPreference='Stop'; "
+                f". '{ROOT / 'scripts' / 'lib' / 'Cadence.ps1'}'; "
+                f"Write-CadenceLoader -ToolRoot '{root}' -PythonPath 'C:/Python/python.exe' -OutputPath '{out}' | Out-Null"
+            )
+
+            subprocess.run(
+                [POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+
+            decoded = out.read_bytes().decode("gbk")
+            self.assertIn('::IAC::SetShortcut "cadence_nc_toggle" 0', decoded)
+            self.assertIn('RegisterAction "insta360_HW_nc_toggle"', decoded)
+            self.assertNotIn('RegisterAction "NC Toggle Selected Parts"', decoded)
+            self.assertIn('"::IAC::ShortcutEnabled cadence_nc_toggle" "Ctrl+Q" "::IAC::RunShortcut cadence_nc_toggle" "Schematic"', decoded)
+            self.assertNotIn('RegisterAction "NC Toggle Selected Parts" "::IAC::shouldProcess" "" "" ""', decoded)
+            self.assertIn('source "$::IAC_ROOT/cadence/modules/nc_toggle_selected.tcl"', decoded.split("proc ::IAC::addAccessoryMenu", 1)[0])
 
     def test_part_color_module_is_split_without_registeraction(self) -> None:
         module = (ROOT / "cadence" / "modules" / "part_color_tools.tcl").read_text(encoding="utf-8")
