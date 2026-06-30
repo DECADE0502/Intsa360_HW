@@ -14,6 +14,7 @@ import {
   fetchUpdateStatus,
   runUninstall,
   startUpdate,
+  type UpdateNotice,
 } from "../api/client";
 
 const { Text, Paragraph } = Typography;
@@ -27,6 +28,8 @@ export function UpdateStatus({ version }: { version: string }) {
   const [hasUpdate, setHasUpdate] = useState(false);
   const [remoteVersion, setRemoteVersion] = useState<string>("");
   const [checkedUpdate, setCheckedUpdate] = useState(false);
+  const [updateNotice, setUpdateNotice] = useState<UpdateNotice | null>(null);
+  const [noticeOpen, setNoticeOpen] = useState(false);
 
   const [progressOpen, setProgressOpen] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatusInfo | null>(null);
@@ -44,6 +47,8 @@ export function UpdateStatus({ version }: { version: string }) {
         if (cancelled) return;
         setHasUpdate(Boolean(info.has_update));
         setRemoteVersion(info.display_remote || info.remote_version || "");
+        setUpdateNotice(info.update_notice && Object.keys(info.update_notice).length ? info.update_notice : null);
+        if (info.has_update && info.update_notice && Object.keys(info.update_notice).length) setNoticeOpen(true);
         setCheckedUpdate(true);
       })
       .catch(() => {});
@@ -114,8 +119,10 @@ export function UpdateStatus({ version }: { version: string }) {
       const info = await checkUpdate();
       setHasUpdate(Boolean(info.has_update));
       setRemoteVersion(info.display_remote || info.remote_version || "");
+      setUpdateNotice(info.update_notice && Object.keys(info.update_notice).length ? info.update_notice : null);
       setCheckedUpdate(true);
       if (info.has_update) {
+        if (info.update_notice && Object.keys(info.update_notice).length) setNoticeOpen(true);
         message.info(`发现新版本 ${info.display_remote || info.remote_version}`);
       } else {
         message.success(info.display_remote || info.remote_version ? `已是最新版本 ${info.display_remote || info.remote_version}` : "已是最新版本");
@@ -196,6 +203,11 @@ export function UpdateStatus({ version }: { version: string }) {
         <Button className="maint-btn" size="small" type={hasUpdate ? "primary" : "default"} onClick={onUpdate}>
           {hasUpdate && remoteVersion ? `更新到 ${remoteVersion}` : "立即更新"}
         </Button>
+        {hasUpdate && updateNotice ? (
+          <Button className="maint-btn" size="small" onClick={() => setNoticeOpen(true)}>
+            查看更新公告
+          </Button>
+        ) : null}
         <Button
           className="maint-btn"
           size="small"
@@ -212,6 +224,14 @@ export function UpdateStatus({ version }: { version: string }) {
           完整卸载
         </Button>
       </div>
+
+      <UpdateNoticeModal
+        open={noticeOpen}
+        notice={updateNotice}
+        remoteVersion={remoteVersion}
+        onClose={() => setNoticeOpen(false)}
+        onUpdate={onUpdate}
+      />
 
       <Modal
         open={progressOpen}
@@ -319,5 +339,57 @@ export function UpdateStatus({ version }: { version: string }) {
         <Input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} placeholder="DELETE" style={{ marginTop: 8 }} />
       </Modal>
     </div>
+  );
+}
+
+function UpdateNoticeModal({
+  open,
+  notice,
+  remoteVersion,
+  onClose,
+  onUpdate,
+}: {
+  open: boolean;
+  notice: UpdateNotice | null;
+  remoteVersion: string;
+  onClose: () => void;
+  onUpdate: () => void;
+}) {
+  if (!notice) return null;
+  const highlights = notice.highlights || [];
+  const trace = notice.trace || {};
+  return (
+    <Modal
+      open={open}
+      title={notice.title || "更新公告"}
+      width={640}
+      okText={remoteVersion ? `更新到 ${remoteVersion}` : "立即更新"}
+      cancelText="稍后再说"
+      onCancel={onClose}
+      onOk={onUpdate}
+    >
+      <div className="update-notice-meta">
+        {notice.version ? <Text>版本：{notice.version}</Text> : null}
+        {notice.target_revision ? <Text>修订：{notice.target_revision}</Text> : null}
+        {notice.date ? <Text>发布日期：{notice.date}</Text> : null}
+      </div>
+      {notice.summary ? <Paragraph>{notice.summary}</Paragraph> : null}
+      {highlights.length ? (
+        <>
+          <Text strong>本次更新要点</Text>
+          <ul className="update-notice-list">
+            {highlights.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+      {notice.compatibility ? <Paragraph type="secondary">{notice.compatibility}</Paragraph> : null}
+      {Object.keys(trace).length ? (
+        <Paragraph type="secondary" className="update-notice-trace">
+          溯源：{String(trace.repo || "-")} / {String(trace.branch || "-")}
+        </Paragraph>
+      ) : null}
+    </Modal>
   );
 }

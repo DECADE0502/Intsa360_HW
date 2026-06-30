@@ -219,6 +219,8 @@ export type UpdateCheck = {
   revision: string;
   remote_version: string;
   remote_revision: string;
+  update_notice?: UpdateNotice;
+  notice_status: string;
   display_remote: string;
   has_update: boolean;
   can_update: boolean;
@@ -226,6 +228,18 @@ export type UpdateCheck = {
   remote_status: string;
   remote_revision_status: string;
   message: string;
+};
+
+export type UpdateNotice = {
+  version?: string;
+  revision?: string;
+  target_revision?: string;
+  date?: string;
+  title?: string;
+  summary?: string;
+  highlights?: string[];
+  compatibility?: string;
+  trace?: Record<string, unknown>;
 };
 
 export async function checkUpdate(): Promise<UpdateCheck> {

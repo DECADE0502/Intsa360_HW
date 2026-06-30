@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from typing import Any
 
 
 def read_version(root: Path) -> str:
@@ -249,26 +250,28 @@ def _parse_version(text: str) -> tuple:
 
 
 def _fetch_remote_version(root: Path) -> tuple[str, str]:
-    """Fetch VERSION through the GitHub Contents API.
-
-    raw.githubusercontent.com can lag behind immediately after send-pack, while
-    the Contents API follows the branch ref consistently enough for OTA checks.
-    """
+    """Fetch remote VERSION. Prefer GitHub Contents API, fall back to raw."""
     import base64
     import json
     import urllib.request
 
     repo = _remote_repo_path(root)
-    url = f"https://api.github.com/repos/{repo}/contents/VERSION?ref=main"
+    api_url = f"https://api.github.com/repos/{repo}/contents/VERSION?ref=main"
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "HWAgent-Updater", "Accept": "application/vnd.github+json"})
+        req = urllib.request.Request(api_url, headers={"User-Agent": "HWAgent-Updater", "Accept": "application/vnd.github+json"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             payload = json.loads(resp.read().decode("utf-8", errors="replace"))
         content = str(payload.get("content") or "")
         body = base64.b64decode(content).decode("utf-8-sig", errors="replace").strip()
         return body, "ok"
-    except Exception as exc:  # noqa: BLE001 — network errors are expected
-        return "", f"无法获取远程版本：{exc}"
+    except Exception as exc:  # noqa: BLE001
+        try:
+            raw_url = f"https://raw.githubusercontent.com/{repo}/main/VERSION"
+            with urllib.request.urlopen(raw_url, timeout=10) as resp:
+                body = resp.read().decode("utf-8-sig", errors="replace").strip()
+            return body, "ok_raw" if body else "empty_remote_version"
+        except Exception as raw_exc:  # noqa: BLE001
+            return "", f"remote version fetch failed: {exc}; raw fallback failed: {raw_exc}"
 
 
 def _fetch_remote_revision(root: Path) -> tuple[str, str]:
@@ -287,15 +290,64 @@ def _fetch_remote_revision(root: Path) -> tuple[str, str]:
         return "", f"无法获取远程修订：{exc}"
 
 
+def _normalize_update_notice(raw: dict[str, Any], remote_version: str = "", remote_revision: str = "") -> dict[str, object]:
+    highlights = raw.get("highlights")
+    if not isinstance(highlights, list):
+        highlights = []
+    highlights = [str(item).strip() for item in highlights if str(item or "").strip()]
+    revision = str(raw.get("revision") or remote_revision or "").strip()
+    return {
+        "version": str(raw.get("version") or remote_version or "").strip(),
+        "revision": revision,
+        "target_revision": _short_revision(revision),
+        "date": str(raw.get("date") or "").strip(),
+        "title": str(raw.get("title") or "更新公告").strip(),
+        "summary": str(raw.get("summary") or "").strip(),
+        "highlights": highlights,
+        "compatibility": str(raw.get("compatibility") or "").strip(),
+        "trace": raw.get("trace") if isinstance(raw.get("trace"), dict) else {},
+    }
+
+
+def _fetch_remote_update_notice(root: Path) -> tuple[dict[str, object], str]:
+    import base64
+    import json
+    import urllib.request
+
+    repo = _remote_repo_path(root)
+    api_url = f"https://api.github.com/repos/{repo}/contents/UPDATE_NOTICE.json?ref=main"
+    try:
+        req = urllib.request.Request(api_url, headers={"User-Agent": "HWAgent-Updater", "Accept": "application/vnd.github+json"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            payload = json.loads(resp.read().decode("utf-8", errors="replace"))
+        content = str(payload.get("content") or "")
+        body = base64.b64decode(content).decode("utf-8-sig", errors="replace")
+        raw = json.loads(body)
+        if not isinstance(raw, dict):
+            return {}, "invalid_notice"
+        return _normalize_update_notice(raw), "ok"
+    except Exception as exc:  # noqa: BLE001
+        try:
+            raw_url = f"https://raw.githubusercontent.com/{repo}/main/UPDATE_NOTICE.json"
+            with urllib.request.urlopen(raw_url, timeout=10) as resp:
+                raw = json.loads(resp.read().decode("utf-8-sig", errors="replace"))
+            if not isinstance(raw, dict):
+                return {}, "invalid_notice"
+            return _normalize_update_notice(raw), "ok_raw"
+        except Exception as raw_exc:  # noqa: BLE001
+            return {}, f"update notice fetch failed: {exc}; raw fallback failed: {raw_exc}"
+
+
 def check_update(root: Path) -> dict[str, object]:
     config = root / "config" / "local.json"
     local_version = read_version(root)
     local_revision = read_revision(root)
     remote_version, remote_status = _fetch_remote_version(root)
     remote_revision, remote_revision_status = _fetch_remote_revision(root)
+    remote_notice, notice_status = _fetch_remote_update_notice(root)
     has_update = False
     update_reason = ""
-    if remote_status == "ok" and remote_version:
+    if remote_status in {"ok", "ok_raw"} and remote_version:
         remote_tuple = _parse_version(remote_version)
         local_tuple = _parse_version(local_version)
         if remote_tuple > local_tuple:
@@ -304,12 +356,16 @@ def check_update(root: Path) -> dict[str, object]:
         elif remote_tuple == local_tuple and remote_revision_status == "ok" and remote_revision and local_revision and remote_revision != local_revision:
             has_update = True
             update_reason = "revision"
+    if remote_notice:
+        remote_notice = _normalize_update_notice(dict(remote_notice), remote_version, remote_revision)
     return {
         "status": "ok",
         "version": local_version,
         "revision": local_revision,
         "remote_version": remote_version,
         "remote_revision": remote_revision,
+        "update_notice": remote_notice if has_update else {},
+        "notice_status": notice_status,
         "has_update": has_update,
         "update_reason": update_reason,
         "can_update": (root / "update.ps1").exists(),

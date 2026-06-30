@@ -1,0 +1,17 @@
+{
+  "version": "0.2.3",
+  "revision": "",
+  "date": "2026-06-30",
+  "title": "0.2.3 OTA 更新公告",
+  "summary": "本次更新用于验证平台内置 OTA 公告链路，并包含单网络检查工作台增强。",
+  "highlights": [
+    "检查到新版本时会弹出更新公告，可查看版本、修订号、发布日期和更新要点。",
+    "单网络检查新增专用复核工作台，支持重点复核、NC 网络、测试点/工艺、机械/安装孔、电源/地分类。",
+    "GitHub Contents API 限流时，更新检查会自动退回 raw 链接读取 VERSION 和 UPDATE_NOTICE.json。"
+  ],
+  "compatibility": "建议所有使用 OTA 的用户更新；本次更新不改变 Cadence 菜单挂载规则。",
+  "trace": {
+    "repo": "DECADE0502/Intsa360_HW",
+    "branch": "main"
+  }
+}

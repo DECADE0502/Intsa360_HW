@@ -126,10 +126,58 @@ NODE_NAME C1 1
 
             self.assertEqual(result["status"], "ok")
             headers = result["table"]["headers"]
-            self.assertEqual(headers, ["网络", "类型", "位号", "节点/Pin", "位号数", "节点数"])
+            self.assertEqual(headers[:6], ["网络", "类型", "位号", "节点/Pin", "位号数", "节点数"])
+            self.assertIn("说明", headers)
             rows = result["table"]["rows"]
             self.assertTrue(any(row[0] == "NC_1" and row[3] == "R1.1" for row in rows))
             self.assertTrue(any(row[0] == "ONE_REF_TWO_PINS" and row[3] == "U1.A1,U1.B2" for row in rows))
+
+    def test_single_network_check_builds_review_categories_and_focus_items(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = root / "allegro"
+            write_netlist(
+                folder,
+                nets="""NET_NAME
+'NC_U1'
+NODE_NAME U1 A1
+NET_NAME
+'DDR_DQ_FLOAT'
+NODE_NAME U2 B3
+NET_NAME
+'TP_ONLY'
+NODE_NAME TP1 1
+NET_NAME
+'MOUNT_HOLE'
+NODE_NAME H1 1
+NET_NAME
+'GND_ISLAND'
+NODE_NAME C1 1
+NET_NAME
+'NORMAL'
+NODE_NAME R1 1
+NODE_NAME C1 2
+""",
+            )
+
+            result = analysis_tools.run_single_network_check(ROOT, {"netlist": str(folder), "output_dir": str(root)})
+
+            self.assertEqual(result["status"], "ok")
+            review = result["single_network_review"]
+            self.assertIn("items", review)
+            self.assertIn("focus_items", review)
+            self.assertIn("status_counts", review)
+            self.assertIn("review_guide", review)
+            by_net = {item["net"]: item for item in review["items"]}
+            self.assertEqual(by_net["NC_U1"]["category"], "NC 网络")
+            self.assertEqual(by_net["DDR_DQ_FLOAT"]["category"], "重点复核")
+            self.assertEqual(by_net["TP_ONLY"]["category"], "测试点/工艺")
+            self.assertEqual(by_net["MOUNT_HOLE"]["category"], "机械/安装孔")
+            self.assertEqual(by_net["GND_ISLAND"]["category"], "电源/地")
+            self.assertTrue(any(item["net"] == "DDR_DQ_FLOAT" for item in review["focus_items"]))
+            self.assertFalse(any(item["net"] == "MOUNT_HOLE" for item in review["focus_items"]))
+            self.assertGreaterEqual(review["status_counts"]["focus"], 1)
+            self.assertGreaterEqual(result["summary"]["focus_count"], 1)
 
     def test_smt_package_check_uses_normalized_package_tokens(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

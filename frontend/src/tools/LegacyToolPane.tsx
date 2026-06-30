@@ -10,11 +10,13 @@ import { useToolWorkspace } from "../state/toolWorkspace";
 const BomComparePane = lazy(() => import("./BomComparePane").then((module) => ({ default: module.BomComparePane })));
 const NetlistComparePane = lazy(() => import("./NetlistComparePane").then((module) => ({ default: module.NetlistComparePane })));
 const SmtPackageCheckPane = lazy(() => import("./SmtPackageCheckPane").then((module) => ({ default: module.SmtPackageCheckPane })));
+const SingleNetworkCheckPane = lazy(() => import("./SingleNetworkCheckPane").then((module) => ({ default: module.SingleNetworkCheckPane })));
 
 export function LegacyToolPane({ tool }: { tool: ToolInfo }) {
   if (tool.id === "bom_compare") return <Suspense fallback={null}><BomComparePane tool={tool} /></Suspense>;
   if (tool.id === "netlist_compare") return <Suspense fallback={null}><NetlistComparePane tool={tool} /></Suspense>;
   if (tool.id === "smt_package_check") return <Suspense fallback={null}><SmtPackageCheckPane tool={tool} /></Suspense>;
+  if (tool.id === "single_network_check") return <Suspense fallback={null}><SingleNetworkCheckPane tool={tool} /></Suspense>;
 
   const inputs = toolInputs[tool.id] || [];
   const [workspace, setWorkspace, resetWorkspace] = useToolWorkspace(`legacy_${tool.id}`, {

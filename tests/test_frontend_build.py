@@ -32,6 +32,7 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn('import("./BomComparePane")', legacy)
         self.assertIn('import("./NetlistComparePane")', legacy)
         self.assertIn('import("./SmtPackageCheckPane")', legacy)
+        self.assertIn('import("./SingleNetworkCheckPane")', legacy)
 
     def test_frontend_exposes_reusable_history_assets_and_persistent_workspaces(self) -> None:
         client = (ROOT / "frontend" / "src" / "api" / "client.ts").read_text(encoding="utf-8")
@@ -62,11 +63,20 @@ class FrontendBuildTests(unittest.TestCase):
 
     def test_update_controls_split_check_and_run_actions(self) -> None:
         text = (ROOT / "frontend" / "src" / "components" / "UpdateStatus.tsx").read_text(encoding="utf-8")
+        client = (ROOT / "frontend" / "src" / "api" / "client.ts").read_text(encoding="utf-8")
 
         self.assertIn("onCheckUpdate", text)
         self.assertIn("检查更新", text)
         self.assertIn("立即更新", text)
         self.assertNotIn("一键更新", text)
+        self.assertIn("update_notice", client)
+        self.assertIn("notice_status", client)
+        self.assertIn("UpdateNotice", text)
+        self.assertIn("noticeOpen", text)
+        self.assertIn("setUpdateNotice", text)
+        self.assertIn("更新公告", text)
+        self.assertIn("查看更新公告", text)
+        self.assertIn("本次更新要点", text)
 
     def test_uninstall_progress_modal_requires_user_close_and_marks_service_exit_done(self) -> None:
         text = (ROOT / "frontend" / "src" / "components" / "UpdateStatus.tsx").read_text(encoding="utf-8")
@@ -408,6 +418,31 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn(".smt-inspector", css)
         self.assertIn(".smt-filter-grid", css)
         self.assertIn(".smt-filter-chip", css)
+
+    def test_single_network_check_uses_dedicated_review_workbench(self) -> None:
+        legacy = (ROOT / "frontend" / "src" / "tools" / "LegacyToolPane.tsx").read_text(encoding="utf-8")
+        pane_path = ROOT / "frontend" / "src" / "tools" / "SingleNetworkCheckPane.tsx"
+        self.assertTrue(pane_path.exists())
+        pane = pane_path.read_text(encoding="utf-8")
+        css = (ROOT / "frontend" / "src" / "styles.css").read_text(encoding="utf-8")
+
+        self.assertIn('tool.id === "single_network_check"', legacy)
+        self.assertIn("<SingleNetworkCheckPane", legacy)
+        self.assertIn("single-network-workbench", pane)
+        self.assertIn("single_network_review", pane)
+        self.assertIn("focus_items", pane)
+        self.assertIn("重点复核", pane)
+        self.assertIn("NC 网络", pane)
+        self.assertIn("单一位号网络", pane)
+        self.assertIn("机械/安装孔", pane)
+        self.assertIn("测试点/工艺", pane)
+        self.assertIn("电源/地", pane)
+        self.assertIn('directory="true"', pane)
+        self.assertIn('webkitdirectory="true"', pane)
+        self.assertIn("pstxnet.dat", pane)
+        self.assertIn("下载单网络检查报告", pane)
+        self.assertIn(".single-network-shell", css)
+        self.assertIn(".single-network-inspector", css)
 
 
 if __name__ == "__main__":
