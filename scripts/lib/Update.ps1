@@ -63,7 +63,10 @@ function ConvertTo-HwAgentRepoPath {
 }
 
 function Resolve-HwAgentReleaseAssetUrl {
-  param([Parameter(Mandatory=$true)][string]$Repo)
+  param(
+    [Parameter(Mandatory=$true)][string]$Repo,
+    [string]$ExpectedRevision = ""
+  )
   $repoPath = ConvertTo-HwAgentRepoPath -Repo $Repo
   $apiUrl = "https://api.github.com/repos/$repoPath/releases/latest"
   try {
@@ -73,6 +76,18 @@ function Resolve-HwAgentReleaseAssetUrl {
       "Accept" = "application/vnd.github+json"
     }
     $release = Invoke-RestMethod -Method Get -Uri $apiUrl -Headers $headers -TimeoutSec 15
+    $releaseRevision = ""
+    if ($release.target_commitish -match '^[0-9a-fA-F]{40}$') {
+      $releaseRevision = [string]$release.target_commitish
+    } elseif ($release.target_commitish) {
+      $releaseRevision = Resolve-HwAgentRemoteRevision -Repo $Repo -Branch ([string]$release.target_commitish)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedRevision) -and
+        -not [string]::IsNullOrWhiteSpace($releaseRevision) -and
+        $releaseRevision -ne $ExpectedRevision) {
+      Write-Host ("Latest release package is behind main; falling back to source ZIP. release=" + $releaseRevision + " main=" + $ExpectedRevision)
+      return $null
+    }
     foreach ($asset in @($release.assets)) {
       $name = [string]$asset.name
       if ($name -match '^Insta360_HW_.*\.zip$' -or $name -match 'HWAgent.*\.zip$') {
@@ -179,7 +194,7 @@ function Invoke-HwAgentZipUpdate {
 
   $repoPath = ConvertTo-HwAgentRepoPath -Repo $Repo
   $remoteRevision = Resolve-HwAgentRemoteRevision -Repo $Repo -Branch $Branch
-  $assetUrl = Resolve-HwAgentReleaseAssetUrl -Repo $Repo
+  $assetUrl = Resolve-HwAgentReleaseAssetUrl -Repo $Repo -ExpectedRevision $remoteRevision
   if ($assetUrl) {
     $zipUrl = $assetUrl
     Write-Host ("Using runtime release package: " + $zipUrl)

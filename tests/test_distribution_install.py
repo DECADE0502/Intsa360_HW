@@ -619,6 +619,8 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("install_manifest.json", text)
         self.assertIn("Using runtime release package", text)
         self.assertIn("falling back to source ZIP", text)
+        self.assertIn("ExpectedRevision", text)
+        self.assertIn("Latest release package is behind main", text)
 
     def test_paths_library_finds_vendor_autoload_dirs_separately_from_user_loader_dirs(self) -> None:
         text = (ROOT / "scripts" / "lib" / "Paths.ps1").read_text(encoding="utf-8")
