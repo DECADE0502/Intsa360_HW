@@ -489,6 +489,44 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertEqual(notice["title"], "单网络检查增强")
             self.assertIn("新增更新公告弹窗", notice["highlights"])
 
+    def test_update_api_uses_notice_version_when_version_endpoint_is_stale(self) -> None:
+        import sys
+        sys.path.insert(0, str(ROOT))
+        try:
+            from app.backend import update_api
+        finally:
+            sys.path.pop(0)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "install"
+            root.mkdir()
+            (root / "VERSION").write_text("0.2.3\n", encoding="utf-8")
+            (root / "REVISION").write_text("1111111111111111111111111111111111111111\n", encoding="utf-8")
+            (root / "update.ps1").write_text("echo hi\n", encoding="utf-8")
+
+            original_fetch_version = update_api._fetch_remote_version
+            original_fetch_revision = update_api._fetch_remote_revision
+            original_fetch_notice = update_api._fetch_remote_update_notice
+            try:
+                update_api._fetch_remote_version = lambda _root: ("0.2.3", "ok_raw")
+                update_api._fetch_remote_revision = lambda _root: ("", "rate limited")
+                update_api._fetch_remote_update_notice = lambda _root: ({
+                    "version": "0.2.4",
+                    "title": "OTA notice probe",
+                    "highlights": ["notice has newer version"],
+                }, "ok_raw")
+                result = update_api.check_update(root)
+            finally:
+                update_api._fetch_remote_version = original_fetch_version
+                update_api._fetch_remote_revision = original_fetch_revision
+                update_api._fetch_remote_update_notice = original_fetch_notice
+
+            self.assertTrue(result["has_update"])
+            self.assertEqual(result["remote_version"], "0.2.4")
+            self.assertEqual(result["remote_status"], "ok_notice_version")
+            self.assertEqual(result["update_reason"], "notice_version")
+            self.assertEqual(result["update_notice"]["title"], "OTA notice probe")
+
     def test_update_api_falls_back_when_github_contents_api_is_rate_limited(self) -> None:
         import sys
         import urllib.error
@@ -547,6 +585,75 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertEqual(notice_status, "ok_raw")
             self.assertEqual(notice["title"], "Fallback notice")
             self.assertTrue(any("raw.githubusercontent.com" in call for call in calls))
+
+    def test_update_api_uses_codeload_zip_when_raw_main_is_stale(self) -> None:
+        import io
+        import sys
+        import urllib.error
+        import urllib.request
+        import zipfile
+
+        sys.path.insert(0, str(ROOT))
+        try:
+            from app.backend import update_api
+        finally:
+            sys.path.pop(0)
+
+        class FakeResponse:
+            def __init__(self, body: bytes):
+                self.body = body
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self) -> bytes:
+                return self.body
+
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w") as archive:
+            archive.writestr("Intsa360_HW-main/VERSION", "0.2.4\n")
+            archive.writestr(
+                "Intsa360_HW-main/UPDATE_NOTICE.json",
+                json.dumps({"version": "0.2.4", "title": "ZIP notice"}),
+            )
+        zip_body = zip_buffer.getvalue()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "install"
+            root.mkdir()
+            (root / "update.ps1").write_text(
+                'param([string]$Repo = "https://github.com/DECADE0502/Intsa360_HW.git")',
+                encoding="utf-8",
+            )
+
+            original_urlopen = urllib.request.urlopen
+
+            def fake_urlopen(req, timeout=0):  # noqa: ANN001
+                url = req.full_url if hasattr(req, "full_url") else str(req)
+                if "api.github.com" in url:
+                    raise urllib.error.HTTPError(url, 403, "rate limit exceeded", hdrs=None, fp=None)
+                if "raw.githubusercontent.com" in url and url.endswith("/VERSION"):
+                    return FakeResponse(b"0.2.3\n")
+                if "raw.githubusercontent.com" in url and url.endswith("/UPDATE_NOTICE.json"):
+                    return FakeResponse(json.dumps({"version": "0.2.3", "title": "Raw stale"}).encode("utf-8"))
+                if "codeload.github.com" in url:
+                    return FakeResponse(zip_body)
+                raise AssertionError(url)
+
+            try:
+                urllib.request.urlopen = fake_urlopen
+                version, version_status = update_api._fetch_remote_version(root)
+                notice, notice_status = update_api._fetch_remote_update_notice(root)
+            finally:
+                urllib.request.urlopen = original_urlopen
+
+            self.assertEqual(version, "0.2.4")
+            self.assertEqual(version_status, "ok_zip")
+            self.assertEqual(notice_status, "ok_zip")
+            self.assertEqual(notice["title"], "ZIP notice")
 
     def test_update_library_can_update_plain_folder_from_git_repo(self) -> None:
         if not shutil.which("git"):

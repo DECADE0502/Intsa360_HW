@@ -269,9 +269,37 @@ def _fetch_remote_version(root: Path) -> tuple[str, str]:
             raw_url = f"https://raw.githubusercontent.com/{repo}/main/VERSION"
             with urllib.request.urlopen(raw_url, timeout=10) as resp:
                 body = resp.read().decode("utf-8-sig", errors="replace").strip()
+            zip_body, zip_status = _fetch_file_from_codeload_zip(repo, "VERSION")
+            if zip_status == "ok_zip":
+                zip_version = zip_body.decode("utf-8-sig", errors="replace").strip()
+                if zip_version and _parse_version(zip_version) > _parse_version(body):
+                    return zip_version, zip_status
             return body, "ok_raw" if body else "empty_remote_version"
         except Exception as raw_exc:  # noqa: BLE001
-            return "", f"remote version fetch failed: {exc}; raw fallback failed: {raw_exc}"
+            zip_body, zip_status = _fetch_file_from_codeload_zip(repo, "VERSION")
+            if zip_status == "ok_zip":
+                return zip_body.decode("utf-8-sig", errors="replace").strip(), zip_status
+            return "", f"remote version fetch failed: {exc}; raw fallback failed: {raw_exc}; zip fallback: {zip_status}"
+
+
+def _fetch_file_from_codeload_zip(repo: str, relative_path: str) -> tuple[bytes, str]:
+    import io
+    import urllib.request
+    import zipfile
+
+    url = f"https://codeload.github.com/{repo}/zip/refs/heads/main"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "HWAgent-Updater"})
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            body = resp.read()
+        with zipfile.ZipFile(io.BytesIO(body)) as archive:
+            suffix = "/" + relative_path.replace("\\", "/")
+            for name in archive.namelist():
+                if name.endswith(suffix):
+                    return archive.read(name), "ok_zip"
+        return b"", "missing_in_zip"
+    except Exception as exc:  # noqa: BLE001
+        return b"", f"zip fallback failed: {exc}"
 
 
 def _fetch_remote_revision(root: Path) -> tuple[str, str]:
@@ -330,12 +358,27 @@ def _fetch_remote_update_notice(root: Path) -> tuple[dict[str, object], str]:
         try:
             raw_url = f"https://raw.githubusercontent.com/{repo}/main/UPDATE_NOTICE.json"
             with urllib.request.urlopen(raw_url, timeout=10) as resp:
-                raw = json.loads(resp.read().decode("utf-8-sig", errors="replace"))
+                raw_body = resp.read()
+            raw = json.loads(raw_body.decode("utf-8-sig", errors="replace"))
+            zip_body, zip_status = _fetch_file_from_codeload_zip(repo, "UPDATE_NOTICE.json")
+            if zip_status == "ok_zip":
+                zip_raw = json.loads(zip_body.decode("utf-8-sig", errors="replace"))
+                if isinstance(zip_raw, dict):
+                    raw_version = str(raw.get("version") or "") if isinstance(raw, dict) else ""
+                    zip_version = str(zip_raw.get("version") or "")
+                    if _parse_version(zip_version) > _parse_version(raw_version):
+                        return _normalize_update_notice(zip_raw), zip_status
             if not isinstance(raw, dict):
                 return {}, "invalid_notice"
             return _normalize_update_notice(raw), "ok_raw"
         except Exception as raw_exc:  # noqa: BLE001
-            return {}, f"update notice fetch failed: {exc}; raw fallback failed: {raw_exc}"
+            zip_body, zip_status = _fetch_file_from_codeload_zip(repo, "UPDATE_NOTICE.json")
+            if zip_status == "ok_zip":
+                raw = json.loads(zip_body.decode("utf-8-sig", errors="replace"))
+                if not isinstance(raw, dict):
+                    return {}, "invalid_notice"
+                return _normalize_update_notice(raw), zip_status
+            return {}, f"update notice fetch failed: {exc}; raw fallback failed: {raw_exc}; zip fallback: {zip_status}"
 
 
 def check_update(root: Path) -> dict[str, object]:
@@ -347,15 +390,23 @@ def check_update(root: Path) -> dict[str, object]:
     remote_notice, notice_status = _fetch_remote_update_notice(root)
     has_update = False
     update_reason = ""
+    local_tuple = _parse_version(local_version)
     if remote_status in {"ok", "ok_raw"} and remote_version:
         remote_tuple = _parse_version(remote_version)
-        local_tuple = _parse_version(local_version)
         if remote_tuple > local_tuple:
             has_update = True
             update_reason = "version"
         elif remote_tuple == local_tuple and remote_revision_status == "ok" and remote_revision and local_revision and remote_revision != local_revision:
             has_update = True
             update_reason = "revision"
+    notice_version = str(remote_notice.get("version") or "").strip() if remote_notice else ""
+    if not has_update and notice_status in {"ok", "ok_raw"} and notice_version:
+        notice_tuple = _parse_version(notice_version)
+        if notice_tuple > local_tuple:
+            remote_version = notice_version
+            remote_status = "ok_notice_version"
+            has_update = True
+            update_reason = "notice_version"
     if remote_notice:
         remote_notice = _normalize_update_notice(dict(remote_notice), remote_version, remote_revision)
     return {
