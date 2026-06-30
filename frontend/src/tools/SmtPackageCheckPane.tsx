@@ -21,6 +21,8 @@ import {
   SearchOutlined,
 } from "@ant-design/icons";
 import { runTool, uploadFiles, type ToolInfo } from "../api/client";
+import { HistoryBomPicker } from "../components/HistoryBomPicker";
+import { useToolWorkspace } from "../state/toolWorkspace";
 
 type SmtReviewItem = {
   key: string;
@@ -168,13 +170,25 @@ function filterOf(item: SmtReviewItem) {
 }
 
 export function SmtPackageCheckPane({ tool }: { tool: ToolInfo }) {
+  const [workspace, setWorkspace, resetWorkspace] = useToolWorkspace("smt_package_check", {
+    historyBom: "",
+    result: null as any,
+    filter: "focus",
+    query: "",
+    selectedKey: "",
+  });
   const [netlistFiles, setNetlistFiles] = useState<File[]>([]);
   const [bomFile, setBomFile] = useState<File | undefined>();
+  const [historyBom, setHistoryBom] = useState<string>(() => String(workspace.historyBom || ""));
   const [running, setRunning] = useState(false);
-  const [result, setResult] = useState<any>(null);
-  const [filter, setFilter] = useState("focus");
-  const [query, setQuery] = useState("");
-  const [selectedKey, setSelectedKey] = useState("");
+  const [result, setResult] = useState<any>(workspace.result || null);
+  const [filter, setFilter] = useState(String(workspace.filter || "focus"));
+  const [query, setQuery] = useState(String(workspace.query || ""));
+  const [selectedKey, setSelectedKey] = useState(String(workspace.selectedKey || ""));
+
+  useEffect(() => {
+    setWorkspace({ historyBom, result, filter, query, selectedKey });
+  }, [historyBom, result, filter, query, selectedKey]);
 
   const review = result?.smt_package_review;
   const items: SmtReviewItem[] = review?.items || [];
@@ -210,16 +224,19 @@ export function SmtPackageCheckPane({ tool }: { tool: ToolInfo }) {
       setResult({ status: "error", error: "请选择包含 pstxprt.dat 的 Allegro 目录。" });
       return;
     }
-    if (!bomFile) {
+    if (!historyBom && !bomFile) {
       setResult({ status: "error", error: "请选择 BOM 处理后生成的 PLM 或 OA 成品 BOM，不要选择 Capture 原始 BOM。" });
       return;
     }
     setRunning(true);
     try {
-      const [netlistUpload, bomUpload] = await Promise.all([uploadFiles(netlistFiles), uploadFiles([bomFile])]);
+      const [netlistUpload, bomUpload] = await Promise.all([
+        uploadFiles(netlistFiles),
+        historyBom || !bomFile ? Promise.resolve(null) : uploadFiles([bomFile]),
+      ]);
       const next = await runTool("smt_package_check", {
         netlist: netlistUpload.files.map((file) => file.path),
-        bom: bomUpload.files[0]?.path,
+        bom: historyBom || bomUpload?.files[0]?.path,
       });
       setResult(next);
       setFilter("focus");
@@ -251,7 +268,13 @@ export function SmtPackageCheckPane({ tool }: { tool: ToolInfo }) {
 
       <div className="smt-upload-grid">
         <SmtUploadSlot title="Allegro 网表目录" files={netlistFiles} onFiles={setNetlistFiles} />
-        <BomUploadSlot file={bomFile} onFile={setBomFile} />
+        <Card className="smt-upload-card" size="small">
+          <Typography.Text className="smt-upload-title">已处理 PLM/OA 成品 BOM</Typography.Text>
+          <Space direction="vertical" style={{ width: "100%" }}>
+            <HistoryBomPicker value={historyBom} onChange={setHistoryBom} />
+            <BomUploadSlot file={bomFile} onFile={setBomFile} />
+          </Space>
+        </Card>
         <Card size="small" className="smt-run-card">
           <Space wrap>
             <Button type="primary" loading={running} onClick={handleRun} icon={<PlayCircleOutlined />}>
@@ -261,7 +284,9 @@ export function SmtPackageCheckPane({ tool }: { tool: ToolInfo }) {
               onClick={() => {
                 setNetlistFiles([]);
                 setBomFile(undefined);
+                setHistoryBom("");
                 setResult(null);
+                resetWorkspace();
               }}
               icon={<DeleteOutlined />}
             >

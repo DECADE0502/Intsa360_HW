@@ -56,6 +56,25 @@ export type HistoryRun = {
   summary?: Record<string, unknown> | unknown;
 };
 
+export type AssetItem = {
+  id: string;
+  kind: "processed_bom" | string;
+  name: string;
+  path: string;
+  format?: string;
+  run_id?: string;
+  source_tool?: string;
+  source_tool_name?: string;
+  time?: string;
+  summary?: Record<string, unknown> | unknown;
+};
+
+export type AssetsPayload = {
+  status: string;
+  groups: { processed_bom: AssetItem[]; [key: string]: AssetItem[] };
+  summary: Record<string, number>;
+};
+
 export type LifecycleCheck = {
   id: string;
   name: string;
@@ -95,6 +114,13 @@ export async function fetchHistory(): Promise<HistoryRun[]> {
   const payload = await res.json();
   if (!res.ok) throw new Error(payload.error || "历史记录加载失败");
   return payload.runs || [];
+}
+
+export async function fetchAssets(): Promise<AssetsPayload> {
+  const res = await fetch("/api/assets");
+  const payload = await res.json();
+  if (!res.ok || payload.status !== "ok") throw new Error(payload.error || "历史资产加载失败");
+  return payload;
 }
 
 export async function fetchHistoryRun(id: string): Promise<Record<string, unknown>> {

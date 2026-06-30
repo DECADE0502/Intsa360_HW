@@ -39,6 +39,10 @@ foreach ($dir in @("app", "cadence", "config", "plugins", "scripts", "tools", "f
   $dst = Join-Path $Release $dir
   if (Test-Path -LiteralPath $dst) { Remove-Item -LiteralPath $dst -Recurse -Force }
 }
+foreach ($file in @(".gitignore")) {
+  $dst = Join-Path $Release $file
+  if (Test-Path -LiteralPath $dst) { Remove-Item -LiteralPath $dst -Force }
+}
 Get-ChildItem -LiteralPath $Release -Directory -Filter "BOM*" -ErrorAction SilentlyContinue |
   ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force }
 
@@ -46,7 +50,7 @@ foreach ($dir in @("app", "cadence", "config", "plugins", "scripts", "tools")) {
   $src = Join-Path $Root $dir
   $dst = Join-Path $Release $dir
   if (-not (Test-Path -LiteralPath $src)) { continue }
-  robocopy $src $dst /E /XD "__pycache__" ".pytest_cache" "node_modules" ".vite" "src" "dist" "tests" "docs" /XF "*.pyc" | Out-Null
+  robocopy $src $dst /E /XD "__pycache__" ".pytest_cache" "node_modules" ".vite" "src" "dist" "tests" "docs" "archive" /XF "*.pyc" "local.json" | Out-Null
   if ($LASTEXITCODE -ge 8) { throw "robocopy failed for $dir (exit $LASTEXITCODE)" }
 }
 
@@ -69,8 +73,7 @@ $keepFiles = @(
   "oneclick_uninstall.ps1",
   "oneclick_update.ps1",
   "VERSION",
-  "REVISION",
-  ".gitignore"
+  "REVISION"
 )
 foreach ($name in $keepFiles) {
   $src = Join-Path $Root $name

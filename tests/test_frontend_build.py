@@ -20,6 +20,43 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn("@tanstack/react-table", dependencies)
         self.assertIn("lucide-react", dependencies)
 
+    def test_frontend_lazy_loads_large_workbench_views(self) -> None:
+        app = (ROOT / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
+        legacy = (ROOT / "frontend" / "src" / "tools" / "LegacyToolPane.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("lazy(", app)
+        self.assertIn('import("./tools/BomProcessWizard")', app)
+        self.assertIn('import("./tools/LegacyToolPane")', app)
+        self.assertIn("Suspense", app)
+        self.assertIn("lazy(", legacy)
+        self.assertIn('import("./BomComparePane")', legacy)
+        self.assertIn('import("./NetlistComparePane")', legacy)
+        self.assertIn('import("./SmtPackageCheckPane")', legacy)
+
+    def test_frontend_exposes_reusable_history_assets_and_persistent_workspaces(self) -> None:
+        client = (ROOT / "frontend" / "src" / "api" / "client.ts").read_text(encoding="utf-8")
+        asset_picker = ROOT / "frontend" / "src" / "components" / "HistoryBomPicker.tsx"
+        workspace_store = ROOT / "frontend" / "src" / "state" / "toolWorkspace.ts"
+        bom_compare = (ROOT / "frontend" / "src" / "tools" / "BomComparePane.tsx").read_text(encoding="utf-8")
+        smt = (ROOT / "frontend" / "src" / "tools" / "SmtPackageCheckPane.tsx").read_text(encoding="utf-8")
+        legacy = (ROOT / "frontend" / "src" / "tools" / "LegacyToolPane.tsx").read_text(encoding="utf-8")
+        wizard = (ROOT / "frontend" / "src" / "tools" / "BomProcessWizard.tsx").read_text(encoding="utf-8")
+
+        self.assertTrue(asset_picker.exists())
+        self.assertTrue(workspace_store.exists())
+        self.assertIn("/api/assets", client)
+        self.assertIn("fetchAssets", client)
+        self.assertIn("HistoryBomPicker", asset_picker.read_text(encoding="utf-8"))
+        self.assertIn("useToolWorkspace", workspace_store.read_text(encoding="utf-8"))
+        self.assertIn("localStorage", workspace_store.read_text(encoding="utf-8"))
+        self.assertIn("HistoryBomPicker", bom_compare)
+        self.assertIn("historyBom1", bom_compare)
+        self.assertIn("historyBom2", bom_compare)
+        self.assertIn("HistoryBomPicker", smt)
+        self.assertIn("historyBom", smt)
+        self.assertIn("useToolWorkspace", legacy)
+        self.assertIn("useToolWorkspace", wizard)
+
     def test_update_controls_split_check_and_run_actions(self) -> None:
         text = (ROOT / "frontend" / "src" / "components" / "UpdateStatus.tsx").read_text(encoding="utf-8")
 

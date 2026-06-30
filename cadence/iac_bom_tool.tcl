@@ -31,10 +31,18 @@ namespace eval ::IAC {
 
     # ---- 启动工具 ----
     proc launch { {source ""} {name ""} } {
-        set cmd [list wscript.exe "$::IAC_ROOT/launch_tool_suite_hidden.vbs" "$::IAC_ROOT/launch_tool_suite.ps1"]
-        if {$source ne ""} { lappend cmd -Source $source }
-        if {$name   ne ""} { lappend cmd -Name $name }
-        if {[catch {exec {*}$cmd &} err]} { ::IAC::log "IAC: launch FAILED: $err" }
+        set vbs "$::IAC_ROOT/launch_tool_suite_hidden.vbs"
+        set ps1 "$::IAC_ROOT/launch_tool_suite.ps1"
+        if {$source ne "" && $name ne ""} {
+            set rc [catch {exec wscript.exe $vbs $ps1 -Source $source -Name $name &} err]
+        } elseif {$source ne ""} {
+            set rc [catch {exec wscript.exe $vbs $ps1 -Source $source &} err]
+        } elseif {$name ne ""} {
+            set rc [catch {exec wscript.exe $vbs $ps1 -Name $name &} err]
+        } else {
+            set rc [catch {exec wscript.exe $vbs $ps1 &} err]
+        }
+        if {$rc} { ::IAC::log "IAC: launch FAILED: $err" }
     }
     proc OpenTool { args } { ::IAC::launch }
 
@@ -78,7 +86,7 @@ namespace eval ::IAC {
             catch { set isPrimitive [$lInstOcc IsPrimitive $lStatus] }
             if {$isPrimitive == 1} {
                 set row [::IAC::ReadProps $pDesign $lInstOcc]
-                if {[dict exists $row Reference] && [dict get $row Reference] ne ""} { lappend parts $row }
+                if {[::IAC::RowExists $row Reference] && [::IAC::RowGet $row Reference] ne ""} { lappend parts $row }
             }
             ::IAC::IterParts $pDesign $lInstOcc parts
             set lChild [$lIter NextOccurrence $lStatus]
@@ -138,8 +146,41 @@ namespace eval ::IAC {
         return $ret
     }
 
+    proc RowSet { rowVar key value } {
+        upvar $rowVar row
+        set next [list]
+        set found 0
+        foreach {k v} $row {
+            if {$k eq $key} {
+                lappend next $k $value
+                set found 1
+            } else {
+                lappend next $k $v
+            }
+        }
+        if {!$found} { lappend next $key $value }
+        set row $next
+    }
+    proc RowGet { row key } {
+        foreach {k v} $row {
+            if {$k eq $key} { return $v }
+        }
+        return ""
+    }
+    proc RowExists { row key } {
+        foreach {k v} $row {
+            if {$k eq $key} { return 1 }
+        }
+        return 0
+    }
+    proc RowKeys { row } {
+        set keys [list]
+        foreach {k v} $row { lappend keys $k }
+        return $keys
+    }
+
     proc ReadProps { pDesign lInstOcc } {
-        set row [dict create]
+        set row [list]
         catch {
             set lStatus [DboState]
             set lIter [$lInstOcc NewEffectivePropsIter $lStatus]
@@ -151,7 +192,7 @@ namespace eval ::IAC {
             while {[$lStatus OK] == 1} {
                 set key [DboTclHelper_sGetConstCharPtr $lName]
                 set val [DboTclHelper_sGetConstCharPtr $lValue]
-                if {$key ne ""} { dict set row $key $val }
+                if {$key ne ""} { ::IAC::RowSet row $key $val }
                 set lStatus [$lIter NextEffectiveProp $lName $lValue $lType $lEdit]
             }
             delete_DboEffectivePropsIter $lIter
@@ -159,12 +200,12 @@ namespace eval ::IAC {
         }
 
         set ref [::IAC::GetReference $lInstOcc]
-        if {$ref ne ""} { dict set row Reference $ref }
+        if {$ref ne ""} { ::IAC::RowSet row Reference $ref }
 
         foreach prop $::IAC::PROP_NAMES {
             if {$prop eq "Reference"} { continue }
             set val [::IAC::GetPropValue $pDesign $lInstOcc $prop]
-            if {$val ne ""} { dict set row $prop $val }
+            if {$val ne ""} { ::IAC::RowSet row $prop $val }
         }
         return $row
     }
@@ -225,9 +266,9 @@ namespace eval ::IAC {
         foreach row $parts {
             if {!$first} { lappend lines "," } else { set first 0 }
             set kv [list]
-            foreach key [dict keys $row] {
-                if {[dict exists $row $key]} {
-                    lappend kv "\"[::IAC::JsonEscape $key]\":\"[::IAC::JsonEscape [dict get $row $key]]\""
+            foreach key [::IAC::RowKeys $row] {
+                if {[::IAC::RowExists $row $key]} {
+                    lappend kv "\"[::IAC::JsonEscape $key]\":\"[::IAC::JsonEscape [::IAC::RowGet $row $key]]\""
                 }
             }
             lappend lines "\{[join $kv ,]\}"
@@ -296,6 +337,7 @@ if {[catch {
     RegisterAction "iacOpen"   "::IAC::shouldProcess" "" "::IAC::OpenTool" ""
     RegisterAction "iacExport" "::IAC::shouldProcess" "" "::IAC::ExportAndProcess" ""
     RegisterAction "iacUpd"    "::IAC::shouldProcess" "" "::IAC::updatePro"    ""
+    # {{CADENCE_SCRIPT_SHORTCUT_ITEMS}}
     InsertXMLMenu [list [list "IACBOM"] "" "" [list "popup" "insta360_HW" "" "" "" "" ""] ""]
     InsertXMLMenu [list [list "IACBOM" "Open"]   "" "" [list "action" "Open Platform" "0" "iacOpen"   "iacUpd" "" "Open Insta360 hardware platform"] ""]
     InsertXMLMenu [list [list "IACBOM" "Export"] "" "" [list "action" "Export and Process BOM" "0" "iacExport" "iacUpd" "" "Export Capture BOM and open processing wizard"] ""]

@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from app.backend import assets
 from app.backend import history
 from app.backend import lifecycle
 from app.backend import update_api
@@ -26,8 +27,6 @@ from app.backend.tool_registry import ToolRegistry, build_registry
 
 
 FRONTEND_DIR = ROOT / "app" / "frontend"
-OUTPUTS_DIR = ROOT / "data" / "outputs"
-UPLOADS_DIR = ROOT / "data" / "uploads"
 USER_INPUT_ERROR_PATTERNS = ("缺少", "输入", "表头识别失败")
 
 
@@ -100,6 +99,12 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
     def _send_json(self, payload: dict[str, object], status: int = 200) -> None:
         body, headers = json_response(payload, status)
         self._send(status, body, headers)
+
+    def _outputs_dir(self) -> Path:
+        return self.root / "data" / "outputs"
+
+    def _uploads_dir(self) -> Path:
+        return self.root / "data" / "uploads"
 
     @staticmethod
     def _is_user_input_error(exc: Exception) -> bool:
@@ -174,6 +179,9 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/history":
             self._send_json({"runs": history.list_runs(self.root)})
             return
+        if parsed.path == "/api/assets":
+            self._send_json(assets.list_assets(self.root))
+            return
         if parsed.path.startswith("/api/history/"):
             run_id = unquote(parsed.path.removeprefix("/api/history/"))
             run = history.get_run(self.root, run_id)
@@ -184,7 +192,7 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
             return
         if parsed.path.startswith("/outputs/"):
             requested = unquote(parsed.path.removeprefix("/outputs/"))
-            target = _safe_child(OUTPUTS_DIR, requested)
+            target = _safe_child(self._outputs_dir(), requested)
             if target is None or not target.is_file():
                 self._send_json({"error": "output not found"}, 404)
                 return
@@ -336,7 +344,7 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "multipart/form-data required"}, 400)
             return
         session = uuid.uuid4().hex[:12]
-        target_dir = UPLOADS_DIR / session
+        target_dir = self._uploads_dir() / session
         target_dir.mkdir(parents=True, exist_ok=True)
         files = []
         length = int(self.headers.get("Content-Length", "0") or "0")
@@ -361,7 +369,7 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
             marker = "/data/outputs/"
             idx = normalized.find(marker)
             rel = normalized[idx + len(marker):] if idx >= 0 else normalized.replace("data/outputs/", "")
-            target = _safe_child(OUTPUTS_DIR, rel)
+            target = _safe_child(self._outputs_dir(), rel)
             if target and target.is_file() and str(target) not in seen:
                 seen.add(str(target))
                 members.append(target)

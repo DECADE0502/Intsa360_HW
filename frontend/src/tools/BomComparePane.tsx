@@ -21,6 +21,8 @@ import {
   SearchOutlined,
 } from "@ant-design/icons";
 import { runTool, uploadFiles, type ToolInfo } from "../api/client";
+import { HistoryBomPicker } from "../components/HistoryBomPicker";
+import { useToolWorkspace } from "../state/toolWorkspace";
 
 type CompareItem = {
   key: string;
@@ -188,13 +190,27 @@ function OriginRows({ origin, side }: { origin: any; side: "left" | "right" }) {
 }
 
 export function BomComparePane({ tool }: { tool: ToolInfo }) {
+  const [workspace, setWorkspace, resetWorkspace] = useToolWorkspace("bom_compare", {
+    historyBom1: "",
+    historyBom2: "",
+    result: null as any,
+    filter: "diff",
+    query: "",
+    selectedKey: "",
+  });
   const [bom1, setBom1] = useState<File | undefined>();
   const [bom2, setBom2] = useState<File | undefined>();
+  const [historyBom1, setHistoryBom1] = useState<string>(() => String(workspace.historyBom1 || ""));
+  const [historyBom2, setHistoryBom2] = useState<string>(() => String(workspace.historyBom2 || ""));
   const [running, setRunning] = useState(false);
-  const [result, setResult] = useState<any>(null);
-  const [filter, setFilter] = useState<string>("diff");
-  const [query, setQuery] = useState("");
-  const [selectedKey, setSelectedKey] = useState("");
+  const [result, setResult] = useState<any>(workspace.result || null);
+  const [filter, setFilter] = useState<string>(String(workspace.filter || "diff"));
+  const [query, setQuery] = useState(String(workspace.query || ""));
+  const [selectedKey, setSelectedKey] = useState(String(workspace.selectedKey || ""));
+
+  useEffect(() => {
+    setWorkspace({ historyBom1, historyBom2, result, filter, query, selectedKey });
+  }, [historyBom1, historyBom2, result, filter, query, selectedKey]);
 
   const items: CompareItem[] = result?.compare?.items || [];
   const counts = result?.summary?.status_counts || countByGroup(items);
@@ -217,16 +233,19 @@ export function BomComparePane({ tool }: { tool: ToolInfo }) {
   }, [result]);
 
   async function handleRun() {
-    if (!bom1 || !bom2) {
+    if ((!historyBom1 && !bom1) || (!historyBom2 && !bom2)) {
       setResult({ status: "error", error: "请先选择两份 BOM 文件" });
       return;
     }
     setRunning(true);
     try {
-      const [leftUpload, rightUpload] = await Promise.all([uploadFiles([bom1]), uploadFiles([bom2])]);
+      const [leftUpload, rightUpload] = await Promise.all([
+        historyBom1 || !bom1 ? Promise.resolve(null) : uploadFiles([bom1]),
+        historyBom2 || !bom2 ? Promise.resolve(null) : uploadFiles([bom2]),
+      ]);
       const next = await runTool("bom_compare", {
-        bom1: leftUpload.files[0]?.path,
-        bom2: rightUpload.files[0]?.path,
+        bom1: historyBom1 || leftUpload?.files[0]?.path,
+        bom2: historyBom2 || rightUpload?.files[0]?.path,
       });
       setResult(next);
       setFilter("diff");
@@ -275,8 +294,20 @@ export function BomComparePane({ tool }: { tool: ToolInfo }) {
       </div>
 
       <div className="compare-upload-grid">
-        <UploadSlot title="旧版 / 基准 BOM" file={bom1} onFile={setBom1} />
-        <UploadSlot title="新版 / 待确认 BOM" file={bom2} onFile={setBom2} />
+        <Card className="compare-upload-card" size="small">
+          <Typography.Text className="compare-upload-title">旧版 / 基准 BOM</Typography.Text>
+          <Space direction="vertical" style={{ width: "100%" }}>
+            <HistoryBomPicker value={historyBom1} onChange={setHistoryBom1} />
+            <UploadSlot title="上传本地文件" file={bom1} onFile={setBom1} />
+          </Space>
+        </Card>
+        <Card className="compare-upload-card" size="small">
+          <Typography.Text className="compare-upload-title">新版 / 待确认 BOM</Typography.Text>
+          <Space direction="vertical" style={{ width: "100%" }}>
+            <HistoryBomPicker value={historyBom2} onChange={setHistoryBom2} />
+            <UploadSlot title="上传本地文件" file={bom2} onFile={setBom2} />
+          </Space>
+        </Card>
         <Card size="small" className="compare-run-card">
           <Space wrap>
             <Button type="primary" loading={running} onClick={handleRun} icon={<PlayCircleOutlined />}>
@@ -286,7 +317,10 @@ export function BomComparePane({ tool }: { tool: ToolInfo }) {
               onClick={() => {
                 setBom1(undefined);
                 setBom2(undefined);
+                setHistoryBom1("");
+                setHistoryBom2("");
                 setResult(null);
+                resetWorkspace();
               }}
               icon={<DeleteOutlined />}
             >

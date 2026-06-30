@@ -139,10 +139,15 @@ class CadenceIntegrationTests(unittest.TestCase):
             self.assertEqual(row[headers.index("物料名称")], "电容")
             self.assertEqual(row[headers.index("等级")], "优选")
 
-    def test_tcl_template_serializes_all_dict_properties(self) -> None:
+    def test_tcl_template_serializes_all_row_properties_without_tcl85_dict(self) -> None:
         text = TCL_TEMPLATE.read_text(encoding="utf-8")
 
-        self.assertIn("foreach key [dict keys $row]", text)
+        self.assertIn("proc RowSet", text)
+        self.assertIn("proc RowKeys", text)
+        self.assertIn("foreach key [::IAC::RowKeys $row]", text)
+        self.assertIn("[::IAC::RowGet $row $key]", text)
+        self.assertNotIn("dict keys", text)
+        self.assertNotIn("dict set", text)
         self.assertNotIn("foreach key {Reference {Part Number} Value {PCB Footprint} {Part Type}}", text)
 
     def test_tcl_template_gets_design_name_from_effective_props(self) -> None:

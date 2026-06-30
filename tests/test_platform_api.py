@@ -234,6 +234,89 @@ class PlatformApiTests(unittest.TestCase):
         finally:
             shutil.rmtree(root, ignore_errors=True)
 
+    def test_assets_endpoint_exposes_reusable_processed_boms_from_history(self) -> None:
+        root = _make_temp_root()
+        try:
+            output_dir = root / "data" / "outputs" / "bom"
+            output_dir.mkdir(parents=True)
+            plm = output_dir / "BOARD_A_20260630_PLM_BOM.xlsx"
+            oa = output_dir / "BOARD_A_20260630_OA_BOM.xlsx"
+            nc = output_dir / "BOARD_A_20260630_NC未贴汇总.xlsx"
+            plm.write_bytes(b"plm")
+            oa.write_bytes(b"oa")
+            nc.write_bytes(b"nc")
+            run_id = history.record(
+                root,
+                "bom_process",
+                "BOM 处理",
+                {"source_bom": str(root / "source.xlsx")},
+                {
+                    "status": "ok",
+                    "summary": {"name": "BOARD_A"},
+                    "outputs": [str(plm), str(oa), str(nc)],
+                    "process_file": str(plm),
+                },
+            )
+            self.assertIsNotNone(run_id)
+
+            server = create_server(root, port=0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                host, port = server.server_address
+                with urlopen(f"http://{host}:{port}/api/assets", timeout=5) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+            finally:
+                server.shutdown()
+                server.server_close()
+
+            self.assertEqual(payload["status"], "ok")
+            processed = payload["groups"]["processed_bom"]
+            self.assertEqual([item["name"] for item in processed], [plm.name, oa.name])
+            self.assertEqual(processed[0]["path"], str(plm))
+            self.assertEqual(processed[0]["run_id"], run_id)
+            self.assertEqual(processed[0]["source_tool"], "bom_process")
+            self.assertEqual(processed[0]["format"], "PLM")
+            self.assertEqual(payload["summary"]["processed_bom"], 2)
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+    def test_outputs_and_package_endpoints_use_server_root(self) -> None:
+        root = _make_temp_root()
+        try:
+            output_dir = root / "data" / "outputs"
+            output_dir.mkdir(parents=True)
+            output_file = output_dir / "demo.txt"
+            output_file.write_text("server-root-output", encoding="utf-8")
+
+            server = create_server(root, port=0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                host, port = server.server_address
+                with urlopen(f"http://{host}:{port}/outputs/demo.txt", timeout=5) as response:
+                    downloaded = response.read().decode("utf-8")
+
+                body = json.dumps({"name": "demo", "files": [str(output_file)]}).encode("utf-8")
+                request = Request(
+                    f"http://{host}:{port}/api/package",
+                    data=body,
+                    method="POST",
+                    headers={"Content-Type": "application/json"},
+                )
+                with urlopen(request, timeout=5) as response:
+                    package_type = response.headers.get("Content-Type")
+                    package_body = response.read()
+            finally:
+                server.shutdown()
+                server.server_close()
+
+            self.assertEqual(downloaded, "server-root-output")
+            self.assertEqual(package_type, "application/zip")
+            self.assertGreater(len(package_body), 20)
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
     def test_cadence_script_menu_endpoint_updates_registry_without_redeploy_for_dry_run(self) -> None:
         root = _make_temp_root()
         try:

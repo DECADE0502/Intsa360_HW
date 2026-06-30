@@ -28,6 +28,7 @@ import {
   WarningOutlined,
 } from "@ant-design/icons";
 import { runTool, uploadFiles } from "../api/client";
+import { useToolWorkspace } from "../state/toolWorkspace";
 
 const { Dragger } = Upload;
 const CONFIG =
@@ -68,20 +69,38 @@ export function BomProcessWizard() {
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const presetSource = params.get("source") || "";
   const presetName = params.get("name") || "";
+  const [workspace, setWorkspace, resetWorkspace] = useToolWorkspace("bom_process", {
+    stage: presetSource ? "review" : "source",
+    sp: presetSource,
+    name: presetName,
+    pcode: "203010100819",
+    pdesc: "",
+    fmts: ["plm", "oa"],
+    extras: [] as Extra[],
+    pres: null as any,
+    rres: null as any,
+    conflictChoices: {} as Record<string, number>,
+    confirmShields: false,
+  });
+  const freshPreset = Boolean(presetSource && presetSource !== workspace.sp);
 
-  const [stage, setStage] = useState<Stage>(presetSource ? "review" : "source");
-  const [sp, setSp] = useState(presetSource);
-  const [name, setName] = useState(presetName);
-  const [pcode, setPcode] = useState("203010100819");
-  const [pdesc, setPdesc] = useState("");
-  const [fmts, setFmts] = useState(["plm", "oa"]);
-  const [extras, setExtras] = useState<Extra[]>([]);
-  const [pres, setPres] = useState<any>(null);
-  const [rres, setRres] = useState<any>(null);
+  const [stage, setStage] = useState<Stage>(presetSource ? "review" : (String(workspace.stage || "source") as Stage));
+  const [sp, setSp] = useState(String(presetSource || workspace.sp || ""));
+  const [name, setName] = useState(String(presetName || workspace.name || ""));
+  const [pcode, setPcode] = useState(String(workspace.pcode || "203010100819"));
+  const [pdesc, setPdesc] = useState(String(workspace.pdesc || ""));
+  const [fmts, setFmts] = useState<string[]>(Array.isArray(workspace.fmts) ? (workspace.fmts as string[]) : ["plm", "oa"]);
+  const [extras, setExtras] = useState<Extra[]>(freshPreset || !Array.isArray(workspace.extras) ? [] : (workspace.extras as Extra[]));
+  const [pres, setPres] = useState<any>(freshPreset ? null : workspace.pres || null);
+  const [rres, setRres] = useState<any>(freshPreset ? null : workspace.rres || null);
   const [rrun, setRrun] = useState(false);
   const [running, setRunning] = useState(false);
-  const [conflictChoices, setConflictChoices] = useState<Record<string, number>>({});
-  const [confirmShields, setConfirmShields] = useState(false);
+  const [conflictChoices, setConflictChoices] = useState<Record<string, number>>(freshPreset ? {} : (workspace.conflictChoices as Record<string, number>) || {});
+  const [confirmShields, setConfirmShields] = useState(freshPreset ? false : Boolean(workspace.confirmShields));
+
+  useEffect(() => {
+    setWorkspace({ stage, sp, name, pcode, pdesc, fmts, extras, pres, rres, conflictChoices, confirmShields });
+  }, [stage, sp, name, pcode, pdesc, fmts, extras, pres, rres, conflictChoices, confirmShields]);
 
   const steps = ["来源", "识别", "处理", "审查", "交付"];
   const si = { source: 0, review: 1, process: 2, risk: 3, deliver: 4 }[stage];
@@ -276,6 +295,7 @@ export function BomProcessWizard() {
             setPres(null);
             setRres(null);
             setConflictChoices({});
+            resetWorkspace();
             setStage("review");
           }}
         />

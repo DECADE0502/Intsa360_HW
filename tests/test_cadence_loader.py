@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -13,6 +14,55 @@ POWERSHELL = "powershell"
 
 
 class CadenceLoaderGenerationTests(unittest.TestCase):
+    def test_cadence_loader_and_modules_avoid_tcl85_only_constructs_for_capture_166(self) -> None:
+        forbidden_literals = {
+            "dict ": "Tcl dict requires Tcl 8.5 and is unsafe for older Capture 16.6 runtimes",
+            "{*}": "argument expansion requires Tcl 8.5 and is unsafe for older Capture 16.6 runtimes",
+        }
+        forbidden_commands = {
+            "try": "try requires newer Tcl and is unsafe for older Capture 16.6 runtimes",
+            "throw": "throw requires newer Tcl and is unsafe for older Capture 16.6 runtimes",
+            "lmap": "lmap requires newer Tcl and is unsafe for older Capture 16.6 runtimes",
+            "apply": "apply requires newer Tcl and is unsafe for older Capture 16.6 runtimes",
+            "chan": "chan requires newer Tcl and is unsafe for older Capture 16.6 runtimes",
+        }
+        paths = [ROOT / "cadence" / "iac_bom_tool.tcl", *sorted((ROOT / "cadence" / "modules").glob("*.tcl"))]
+
+        for path in paths:
+            text = path.read_text(encoding="utf-8")
+            padded = f" {text} "
+            for token, reason in forbidden_literals.items():
+                self.assertNotIn(token, padded, f"{path.relative_to(ROOT)} uses {token!r}: {reason}")
+            for command, reason in forbidden_commands.items():
+                self.assertIsNone(
+                    re.search(rf"(?m)^\s*{re.escape(command)}\b", text),
+                    f"{path.relative_to(ROOT)} uses Tcl command {command!r}: {reason}",
+                )
+
+    def test_every_cadence_capability_points_to_existing_module_proc(self) -> None:
+        data = json.loads((ROOT / "config" / "capabilities.json").read_text(encoding="utf-8"))
+        for item in data["capabilities"]:
+            if item.get("type") != "cadence_tcl":
+                continue
+            module = item.get("module")
+            command = item.get("command", "")
+            self.assertTrue(module, item["id"])
+            module_path = ROOT / module
+            self.assertTrue(module_path.exists(), f"{item['id']} missing module {module}")
+            text = module_path.read_text(encoding="utf-8")
+            self.assertIn(f"proc {command}", text, f"{item['id']} command {command} is not defined by {module}")
+
+    def test_cadence_modules_do_not_pass_literal_plib_to_implementation(self) -> None:
+        for path in sorted((ROOT / "cadence" / "modules").glob("*.tcl")):
+            text = path.read_text(encoding="utf-8")
+            for line_number, line in enumerate(text.splitlines(), start=1):
+                if line.lstrip().startswith("proc "):
+                    continue
+                self.assertIsNone(
+                    re.search(r"::[A-Za-z0-9_:]+\s+\{pLib\}", line),
+                    f"{path.relative_to(ROOT)}:{line_number} passes literal pLib instead of the Capture argument",
+                )
+
     def test_cadence_loader_template_uses_ascii_top_menu_and_english_default_items(self) -> None:
         text = (ROOT / "scripts" / "lib" / "Cadence.ps1").read_text(encoding="utf-8")
         template = (ROOT / "cadence" / "iac_bom_tool.tcl").read_text(encoding="utf-8")
@@ -285,9 +335,19 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
             decoded = out.read_bytes().decode("gbk")
             self.assertIn('source "$::IAC_ROOT/cadence/modules/nc_toggle_selected.tcl"', decoded)
             self.assertIn('AddAccessoryMenu "insta360_HW"', decoded)
+            self.assertIn('"选中器件切换 NC (Ctrl+Q)"', decoded)
             self.assertIn('"::capNCToggleSelected::toggleFromMenu"', decoded)
-            self.assertIn('RegisterAction "cadence_nc_toggle_shortcut"', decoded)
+            self.assertIn('RegisterAction "NC Toggle Selected Parts"', decoded)
+            self.assertIn('RegisterAction "cadence_nc_toggle_shortcut" "::IAC::shouldProcess" "" "" ""', decoded)
+            self.assertNotIn('RegisterAction "NC Toggle Selected Parts" "::IAC::shouldProcess" "" "" ""', decoded)
             self.assertIn('"::capNCToggleSelected::enabled" "Ctrl+Q" "::capNCToggleSelected::toggle" "Schematic"', decoded)
+            self.assertIn("shortcut registered: NC Toggle Selected Parts Ctrl+Q", decoded)
+            shortcut_index = decoded.index('RegisterAction "NC Toggle Selected Parts"')
+            dynamic_menu_index = decoded.index("proc ::IAC::addAccessoryMenu")
+            self.assertLess(shortcut_index, dynamic_menu_index)
+            dynamic_menu_body = decoded[dynamic_menu_index:]
+            self.assertNotIn('RegisterAction "NC Toggle Selected Parts"', dynamic_menu_body)
+            self.assertNotIn('RegisterAction "cadence_nc_toggle_shortcut"', dynamic_menu_body)
 
     def test_part_color_module_is_split_without_registeraction(self) -> None:
         module = (ROOT / "cadence" / "modules" / "part_color_tools.tcl").read_text(encoding="utf-8")

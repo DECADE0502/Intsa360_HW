@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { ConfigProvider, Layout, Menu, Spin, Typography } from "antd";
 import zhCN from "antd/locale/zh_CN";
 import {
@@ -18,12 +18,12 @@ import { PlatformHome } from "./platform/PlatformHome";
 import { ScriptManager } from "./platform/ScriptManager";
 import { SystemStatus } from "./platform/SystemStatus";
 import { UpdateStatus } from "./components/UpdateStatus";
-import { BomProcessWizard } from "./tools/BomProcessWizard";
-import { LegacyToolPane } from "./tools/LegacyToolPane";
 import "./styles.css";
 
 const { Sider, Content } = Layout;
 type PluginGroups = { system: PluginInfo[]; platform: PluginInfo[]; user: PluginInfo[] };
+const BomProcessWizard = lazy(() => import("./tools/BomProcessWizard").then((module) => ({ default: module.BomProcessWizard })));
+const LegacyToolPane = lazy(() => import("./tools/LegacyToolPane").then((module) => ({ default: module.LegacyToolPane })));
 
 export default function App() {
   const [tools, setTools] = useState<ToolInfo[]>([]);
@@ -147,8 +147,18 @@ export default function App() {
           {active === "__scripts" ? <ScriptManager plugins={plugins} onPluginChange={updatePlugin} onRefresh={refreshPlugins} /> : null}
           {active === "__history" ? <HistoryView runs={historyRuns} onChange={setHistoryRuns} /> : null}
           {active === "__status" ? <SystemStatus status={status} /> : null}
-          {active === "bom_process" ? <BomProcessWizard /> : null}
-          {tools.map((t) => (active === t.id && t.id !== "bom_process" ? <LegacyToolPane key={t.id} tool={t} /> : null))}
+          <Suspense fallback={<Spin />}>
+            <div style={{ display: active === "bom_process" ? "block" : "none" }}>
+              <BomProcessWizard />
+            </div>
+            {tools
+              .filter((t) => t.id !== "bom_process")
+              .map((t) => (
+                <div key={t.id} style={{ display: active === t.id ? "block" : "none" }}>
+                  <LegacyToolPane tool={t} />
+                </div>
+              ))}
+          </Suspense>
         </Content>
       </Layout>
     </ConfigProvider>

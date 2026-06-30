@@ -43,7 +43,7 @@ proc ::capMenuUtil::confirmGrayedPartToNC { pLib } {
     if {$confirm ne "yes"} {
         return
     }
-	::capMenuUtil::GrayedPartToNC {pLib}
+	::capMenuUtil::GrayedPartToNC $pLib
 }
 
 proc ::capMenuUtil::confirmHideUPinNames { pLib } {
@@ -52,7 +52,7 @@ proc ::capMenuUtil::confirmHideUPinNames { pLib } {
     if {$confirm ne "yes"} {
         return
     }
-	::capMenuUtil::HideUPinNames {pLib}
+	::capMenuUtil::HideUPinNames $pLib
 	
 }
 
@@ -62,7 +62,7 @@ proc ::capMenuUtil::confirmRandomizeNetNames { pLib } {
     if {$confirm ne "yes"} {
         return
     }
-	::capMenuUtil::RandomizeNetNames {pLib}
+	::capMenuUtil::RandomizeNetNames $pLib
 	# 显示完成结果
     tk_messageBox -message "网络名随机化完成！" -icon info
 }
@@ -72,7 +72,7 @@ proc ::capMenuUtil::confirmDeleteAllGraphic { pLib } {
     if {$confirm ne "yes"} {
         return
     }
-	::capMenuUtil::DeleteAllGraphic {pLib}
+	::capMenuUtil::DeleteAllGraphic $pLib
 	
 }
 proc ::capMenuUtil::confirmHideUcomponent { pLib } {
@@ -81,7 +81,7 @@ proc ::capMenuUtil::confirmHideUcomponent { pLib } {
     if {$confirm ne "yes"} {
         return
     }
-	::capMenuUtil::HideUcomponent {pLib}
+	::capMenuUtil::HideUcomponent $pLib
 	
 }
 proc ::capMenuUtil::confirmHideALLcomponent { pLib } {
@@ -90,7 +90,7 @@ proc ::capMenuUtil::confirmHideALLcomponent { pLib } {
     if {$confirm ne "yes"} {
         return
     }
-	::capMenuUtil::HideALLcomponent {pLib}
+	::capMenuUtil::HideALLcomponent $pLib
 	
 }
 proc ::capMenuUtil::confirmDeleteTextTitleblocks { pLib } {
@@ -99,7 +99,7 @@ proc ::capMenuUtil::confirmDeleteTextTitleblocks { pLib } {
     if {$confirm ne "yes"} {
         return
     }
-	::capMenuUtil::DeleteTextTitleblocks {pLib}
+	::capMenuUtil::DeleteTextTitleblocks $pLib
 	
 }
 proc ::capMenuUtil::confirmSchematicObfuscation { pLib } {
@@ -109,12 +109,12 @@ proc ::capMenuUtil::confirmSchematicObfuscation { pLib } {
         return
     }
 	
-	::capMenuUtil::DeleteAllGraphic {pLib}
-	::capMenuUtil::HideALLcomponent {pLib}
-	::capMenuUtil::HideSensitiveComponentProperties {pLib}
-	::capMenuUtil::DeleteTextTitleblocks {pLib}
-	::capMenuUtil::HideUPinNames {pLib}
-	::capMenuUtil::RandomizeNetNames {pLib}
+	::capMenuUtil::DeleteAllGraphic $pLib
+	::capMenuUtil::HideALLcomponent $pLib
+	::capMenuUtil::HideSensitiveComponentProperties $pLib
+	::capMenuUtil::DeleteTextTitleblocks $pLib
+	::capMenuUtil::HideUPinNames $pLib
+	::capMenuUtil::RandomizeNetNames $pLib
 	# 显示完成结果
     tk_messageBox -message "原理图混淆完成！" -icon info
 }
@@ -128,7 +128,7 @@ proc ::capMenuUtil::confirmShowUPinNames { pLib } {
     if {$confirm ne "yes"} {
         return
     }
-    ::capMenuUtil::ShowUPinNames {pLib}
+    ::capMenuUtil::ShowUPinNames $pLib
 }
 
 proc ::capMenuUtil::confirmShowUcomponent { pLib } {
@@ -136,7 +136,7 @@ proc ::capMenuUtil::confirmShowUcomponent { pLib } {
     if {$confirm ne "yes"} {
         return
     }
-    ::capMenuUtil::ShowUcomponent {pLib}
+    ::capMenuUtil::ShowUcomponent $pLib
 }
 
 proc ::capMenuUtil::confirmShowALLcomponent { pLib } {
@@ -144,7 +144,7 @@ proc ::capMenuUtil::confirmShowALLcomponent { pLib } {
     if {$confirm ne "yes"} {
         return
     }
-    ::capMenuUtil::ShowALLcomponent {pLib}
+    ::capMenuUtil::ShowALLcomponent $pLib
 }
 proc ::capMenuUtil::HideUPinNames { pLib } {
     # 初始化基础对象
