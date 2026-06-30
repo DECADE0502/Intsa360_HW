@@ -59,6 +59,57 @@ def _uninstall_log_path(root: Path) -> Path:
     return root / "data" / "reports" / "runtime" / "uninstall_latest.log"
 
 
+def _temp_uninstall_log_path() -> Path:
+    return _get_temp_path() / "hwagent_uninstall_latest.log"
+
+
+def _find_cadence_autoload_dirs() -> list[Path]:
+    import os
+
+    candidates = [
+        Path(r"D:\CADENCE\Cadence\SPB_Data\cdssetup\OrCAD_Capture\tclscripts\capAutoLoad"),
+        Path(r"D:\CADENCE\Cadence\SPB_17.4\tools\capture\tclscripts\capAutoLoad"),
+    ]
+    for base in (os.environ.get("USERPROFILE"), os.environ.get("HOME")):
+        if base:
+            candidates.append(Path(base) / "cdssetup" / "OrCAD_Capture" / "tclscripts" / "capAutoLoad")
+    seen: set[str] = set()
+    result: list[Path] = []
+    for candidate in candidates:
+        key = str(candidate).lower()
+        if key not in seen:
+            seen.add(key)
+            result.append(candidate)
+    return result
+
+
+def _remove_cadence_loader_artifacts(auto_load_dirs: list[Path]) -> list[str]:
+    removed: list[str] = []
+    for directory in auto_load_dirs:
+        if not directory.exists():
+            continue
+        for target in [directory / "iac_bom_tool.tcl", directory / "iac_bom_tool_backup"]:
+            if not target.exists():
+                continue
+            try:
+                if target.is_dir():
+                    import shutil
+                    shutil.rmtree(target)
+                else:
+                    target.unlink()
+                removed.append(str(target))
+            except OSError:
+                pass
+        for backup_dir in directory.glob("_disabled_hwagent_loader_*"):
+            try:
+                import shutil
+                shutil.rmtree(backup_dir)
+                removed.append(str(backup_dir))
+            except OSError:
+                pass
+    return removed
+
+
 def _is_update_running(root: Path) -> bool:
     """True if an update.ps1 process is currently running. Used to distinguish
     'update finished' from 'update crashed' — if the process is gone but the
@@ -166,6 +217,10 @@ def update_status(root: Path) -> dict[str, object]:
 
 def uninstall_status(root: Path) -> dict[str, object]:
     log_path = _uninstall_log_path(root)
+    if not log_path.exists():
+        temp_log = _temp_uninstall_log_path()
+        if temp_log.exists():
+            log_path = temp_log
     log_text = ""
     log_tail: list[str] = []
     if log_path.exists():
@@ -487,9 +542,8 @@ def run_uninstall(root: Path, mode: str = "detach") -> dict[str, object]:
     if not script.exists():
         return {"status": "error", "error": "未找到卸载脚本"}
 
-    log_dir = root / "data" / "reports" / "runtime"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = _uninstall_log_path(root)
+    log_file = _temp_uninstall_log_path() if mode == "full" else _uninstall_log_path(root)
+    log_file.parent.mkdir(parents=True, exist_ok=True)
     try:
         log_file.write_text("__HWAGENT_UNINSTALL_PROGRESS__ 0 Preparing uninstall\n", encoding="utf-8")
     except OSError:
@@ -522,6 +576,7 @@ def run_uninstall(root: Path, mode: str = "detach") -> dict[str, object]:
 
     # Full: the running service holds the install directory open, so we cannot
     # delete it from this process. Spawn a detached helper from a neutral CWD.
+    _remove_cadence_loader_artifacts(_find_cadence_autoload_dirs())
     temp_dir = _get_temp_path()
     ps_helper = temp_dir / "hwagent_full_uninstall.ps1"
     ps_helper.write_text(
@@ -551,7 +606,7 @@ def _full_uninstall_helper(root: Path, uninstall_cmd: list[str], log_path: Path 
     """
     import json
     cmd_json = json.dumps(uninstall_cmd)
-    log_json = json.dumps(str(log_path or _uninstall_log_path(root)))
+    log_json = json.dumps(str(log_path or _temp_uninstall_log_path()))
     return (
         "$ErrorActionPreference='Continue'\n"
         "Set-Location $env:TEMP\n"

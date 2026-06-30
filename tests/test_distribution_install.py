@@ -1116,6 +1116,37 @@ class DistributionInstallTests(unittest.TestCase):
             for line in done["log_tail"]:
                 self.assertFalse(line.startswith("__HWAGENT"))
 
+    def test_full_uninstall_status_reads_temp_log_after_install_root_is_removed(self) -> None:
+        import sys
+
+        sys.path.insert(0, str(ROOT))
+        try:
+            from app.backend import update_api
+        finally:
+            sys.path.pop(0)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "removed-install"
+            temp_log = Path(tempfile.gettempdir()) / "hwagent_uninstall_latest.log"
+            original = temp_log.read_text(encoding="utf-8", errors="replace") if temp_log.exists() else None
+            try:
+                temp_log.write_text(
+                    "__HWAGENT_UNINSTALL_PROGRESS__ 100 Platform files removed\n"
+                    "__HWAGENT_UNINSTALL_DONE__\n",
+                    encoding="utf-8",
+                )
+
+                status = update_api.uninstall_status(root)
+
+                self.assertTrue(status["done"])
+                self.assertEqual(status["progress"], 100)
+                self.assertIn("Platform files removed", status["step"])
+            finally:
+                if original is None:
+                    temp_log.unlink(missing_ok=True)
+                else:
+                    temp_log.write_text(original, encoding="utf-8")
+
     def test_update_api_full_uninstall_helper_runs_from_temp_and_waits(self) -> None:
         import sys
 
@@ -1132,6 +1163,7 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertIn("Set-Location $env:TEMP", helper)
             self.assertIn("uninstall.ps1", helper)
             self.assertIn("__HWAGENT_UNINSTALL_PROGRESS__", helper)
+            self.assertIn("hwagent_uninstall_latest.log", helper)
             self.assertIn("Stopping platform service and deleting files", helper)
             self.assertIn("Tee-Object -FilePath $log -Append", helper)
             self.assertIn("__HWAGENT_UNINSTALL_DONE__", helper)
@@ -1140,6 +1172,58 @@ class DistributionInstallTests(unittest.TestCase):
             check = update_api.check_uninstall(root)
             self.assertFalse(check["can_uninstall"])
             self.assertEqual(check["modes"], [])
+
+    def test_full_uninstall_precleans_cadence_loaders_before_service_shutdown(self) -> None:
+        import sys
+
+        sys.path.insert(0, str(ROOT))
+        try:
+            from app.backend import update_api
+        finally:
+            sys.path.pop(0)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "install"
+            autoload = Path(tmp) / "autoload"
+            root.mkdir()
+            autoload.mkdir()
+            (root / "uninstall.ps1").write_text("echo uninstall", encoding="utf-8")
+            loader = autoload / "iac_bom_tool.tcl"
+            loader.write_text("loader", encoding="utf-8")
+
+            original_find = update_api._find_cadence_autoload_dirs
+            original_popen = subprocess.Popen
+
+            class FakePopen:
+                def __init__(self, *_args, **_kwargs):
+                    pass
+
+            try:
+                update_api._find_cadence_autoload_dirs = lambda: [autoload]
+                subprocess.Popen = FakePopen
+                result = update_api.run_uninstall(root, "full")
+            finally:
+                update_api._find_cadence_autoload_dirs = original_find
+                subprocess.Popen = original_popen
+
+            self.assertEqual(result["status"], "ok")
+            self.assertFalse(loader.exists())
+
+    def test_full_uninstall_preclean_includes_legacy_vendor_loader_dir(self) -> None:
+        import sys
+
+        sys.path.insert(0, str(ROOT))
+        try:
+            from app.backend import update_api
+        finally:
+            sys.path.pop(0)
+
+        cleanup_dirs = [str(path) for path in update_api._find_cadence_autoload_dirs()]
+
+        self.assertTrue(
+            any(r"SPB_17.4\tools\capture\tclscripts\capAutoLoad" in path for path in cleanup_dirs),
+            cleanup_dirs,
+        )
 
     def test_inno_setup_points_shortcuts_at_exe(self) -> None:
         iss = ROOT / "HWAgent_Setup.iss"
