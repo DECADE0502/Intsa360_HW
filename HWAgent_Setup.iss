@@ -1,5 +1,5 @@
 #define MyAppName "Insta360_HW"
-#define MyAppVersion "0.2.10"
+#define MyAppVersion "0.2.11"
 #define MyAppPublisher "Insta360"
 #define ReleaseDir "..\HWAgent_release"
 #define IconFile "..\HWAgent_release\app\frontend\assets\insta360_icon.ico"
@@ -43,17 +43,17 @@ Source: "{#ReleaseDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubd
 
 [Icons]
 Name: "{group}\Insta360_HW"; Filename: "{app}\Insta360_HW.exe"; WorkingDir: "{app}"
-Name: "{group}\卸载 Insta360_HW"; Filename: "{uninstallexe}"
+Name: "{group}\Uninstall Insta360_HW"; Filename: "{uninstallexe}"
 Name: "{commondesktop}\Insta360_HW"; Filename: "{app}\Insta360_HW.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Tasks]
-Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加选项:"
+Name: "desktopicon"; Description: "Create desktop shortcut"; GroupDescription: "Additional options:"
 
 [Run]
 Filename: "powershell.exe"; \
     Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\oneclick_install.ps1"" -Silent -NoStart"; \
     WorkingDir: "{app}"; \
-    StatusMsg: "正在初始化平台配置与 Cadence 集成..."; \
+    StatusMsg: "Initializing platform configuration and Cadence integration..."; \
     Flags: runhidden
 
 [UninstallRun]
@@ -146,12 +146,12 @@ begin
   if AlreadyInstalled then begin
     // The 5th arg (Exclusive) is True -> radio buttons, exactly one selectable.
     ActionPage := CreateInputOptionPage(wpWelcome,
-      '检测到已安装版本',
-      '请选择要执行的操作:',
-      '以下选项决定本次安装程序的行为', True, False);
-    ActionPage.Add('重新安装（覆盖现有版本）');
-    ActionPage.Add('卸载现有版本');
-    ActionPage.Add('取消');
+      'Existing installation detected',
+      'Choose what you want to do:',
+      'These options control this setup run.', True, False);
+    ActionPage.Add('Reinstall and keep local data');
+    ActionPage.Add('Uninstall existing version');
+    ActionPage.Add('Cancel');
     ActionPage.Values[OPT_REINSTALL] := True;
   end;
 
@@ -159,7 +159,7 @@ begin
   // know how long removal takes, so an animated bar + status text is the right
   // signal — far better than a frozen window. Created unconditionally; only
   // shown when the user picks Uninstall.
-  UninstallProgressPage := CreateOutputProgressPage('正在卸载现有版本', '');
+  UninstallProgressPage := CreateOutputProgressPage('Uninstalling existing version', '');
 end;
 
 // Suppress the "Exit Setup?" confirmation when we close the wizard
@@ -230,7 +230,7 @@ begin
       end;
 
       // Show the progress page with an animated bar + status text.
-      UninstallProgressPage.SetText('正在卸载现有版本，请稍候...', '');
+      UninstallProgressPage.SetText('Uninstalling existing version. Please wait...', '');
       UninstallProgressPage.SetProgress(0, 100);
       UninstallProgressPage.Show();
 
@@ -248,14 +248,14 @@ begin
         Waited := 0;
         while (GetUninstallString() <> '') and (Waited < 150) do begin
           UninstallProgressPage.SetText(
-            '正在卸载现有版本，请稍候...' + #13#10 + '（删除程序文件与集成）', '');
+            'Uninstalling existing version. Please wait...' + #13#10 + '(Removing program files and Cadence integration)', '');
           Sleep(100);
           Waited := Waited + 1;
         end;
 
         // Give file handles a moment to release, then signal completion.
         Sleep(500);
-        UninstallProgressPage.SetText('卸载完成。', '');
+        UninstallProgressPage.SetText('Uninstall complete.', '');
         Sleep(800);
       finally
         UninstallProgressPage.Hide();

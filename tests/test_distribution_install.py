@@ -870,9 +870,9 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("保留平台文件", text)
         self.assertIn("删除整个平台目录", text)
 
-    def test_uninstall_is_driven_by_platform_api_not_a_batch(self) -> None:
-        # Uninstall moved from a standalone .bat into the platform UI / API.
-        # The legacy 一键卸载.bat must NOT exist; the API endpoint must.
+    def test_full_uninstall_is_not_driven_by_platform_page(self) -> None:
+        # Full removal is owned by the installer / Windows Apps. The platform
+        # may still expose a safe detach API for Cadence integration.
         self.assertFalse((ROOT / "一键卸载.bat").exists())
         backend = (ROOT / "app" / "backend" / "suite_app.py").read_text(encoding="utf-8")
         self.assertIn("/api/uninstall/check", backend)
@@ -1042,7 +1042,7 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("scripts\\build_frontend.ps1", text)
         self.assertIn("Insta360_HW.exe", text)
 
-    # ── In-platform uninstall API ──────────────────────────────────────────
+    # ── In-platform Cadence detach API ─────────────────────────────────────
 
     def test_suite_app_exposes_uninstall_endpoints(self) -> None:
         text = (ROOT / "app" / "backend" / "suite_app.py").read_text(encoding="utf-8")
@@ -1059,19 +1059,19 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("/api/update/status", text)
         self.assertIn("update_api.update_status", text)
 
-    def test_update_api_supports_detach_and_full_uninstall(self) -> None:
+    def test_update_api_supports_detach_but_rejects_full_uninstall(self) -> None:
         text = (ROOT / "app" / "backend" / "update_api.py").read_text(encoding="utf-8")
 
         self.assertIn("def check_uninstall", text)
         self.assertIn("def run_uninstall", text)
         self.assertIn("def uninstall_status", text)
-        # Detach must be safe to run while the service is up; Full must defer
-        # deletion to a detached helper that waits for the backend to exit.
+        # Detach must be safe to run while the service is up. Full removal is
+        # intentionally handled by Windows Apps / Insta360_HW_Setup.exe.
         self.assertIn('"detach"', text)
-        self.assertIn('"full"', text)
-        self.assertIn("DETACHED_PROCESS", text)
+        self.assertIn("Windows Apps", text)
+        self.assertIn("Insta360_HW_Setup.exe", text)
         self.assertIn("__HWAGENT_UNINSTALL_PROGRESS__", text)
-        self.assertIn("Stopping platform service and deleting files", text)
+        self.assertNotIn("完整卸载已启动", text)
 
     def test_uninstall_script_emits_progress_and_done_markers(self) -> None:
         text = (ROOT / "uninstall.ps1").read_text(encoding="utf-8")
@@ -1148,7 +1148,14 @@ class DistributionInstallTests(unittest.TestCase):
                 else:
                     temp_log.write_text(original, encoding="utf-8")
 
-    def test_update_api_full_uninstall_helper_runs_from_temp_and_waits(self) -> None:
+    def test_update_api_does_not_expose_full_uninstall_helper_to_platform(self) -> None:
+        text = (ROOT / "app" / "backend" / "update_api.py").read_text(encoding="utf-8")
+
+        self.assertIn("def _full_uninstall_helper", text)
+        self.assertIn("Full uninstall from the web UI is intentionally disabled", text)
+        self.assertNotIn("run_uninstall(root, \"full\")", text)
+
+    def test_platform_api_rejects_full_uninstall_mode(self) -> None:
         import sys
 
         sys.path.insert(0, str(ROOT))
@@ -1160,21 +1167,16 @@ class DistributionInstallTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "install"
             root.mkdir()
-            helper = update_api._full_uninstall_helper(root, ["powershell", "-File", "uninstall.ps1", "-Mode", "Full"])
-            self.assertIn("Set-Location $env:TEMP", helper)
-            self.assertIn("uninstall.ps1", helper)
-            self.assertIn("__HWAGENT_UNINSTALL_PROGRESS__", helper)
-            self.assertIn("hwagent_uninstall_latest.log", helper)
-            self.assertIn("Stopping platform service and deleting files", helper)
-            self.assertIn("Tee-Object -FilePath $log -Append", helper)
-            self.assertIn("__HWAGENT_UNINSTALL_DONE__", helper)
-            self.assertNotIn("*> $null", helper)
+            (root / "uninstall.ps1").write_text("echo uninstall", encoding="utf-8")
 
             check = update_api.check_uninstall(root)
-            self.assertFalse(check["can_uninstall"])
-            self.assertEqual(check["modes"], [])
+            result = update_api.run_uninstall(root, "full")
 
-    def test_full_uninstall_precleans_cadence_loaders_before_service_shutdown(self) -> None:
+            self.assertEqual(check["modes"], ["detach"])
+            self.assertEqual(result["status"], "error")
+            self.assertIn("Windows", result["error"])
+
+    def test_detach_uninstall_starts_detach_mode_without_deleting_install_root(self) -> None:
         import sys
 
         sys.path.insert(0, str(ROOT))
@@ -1192,23 +1194,26 @@ class DistributionInstallTests(unittest.TestCase):
             loader = autoload / "iac_bom_tool.tcl"
             loader.write_text("loader", encoding="utf-8")
 
-            original_find = update_api._find_cadence_autoload_dirs
             original_popen = subprocess.Popen
+            captured: dict[str, object] = {}
 
             class FakePopen:
-                def __init__(self, *_args, **_kwargs):
-                    pass
+                def __init__(self, args, **kwargs):
+                    captured["args"] = args
+                    captured["kwargs"] = kwargs
 
             try:
-                update_api._find_cadence_autoload_dirs = lambda: [autoload]
                 subprocess.Popen = FakePopen
-                result = update_api.run_uninstall(root, "full")
+                result = update_api.run_uninstall(root, "detach")
             finally:
-                update_api._find_cadence_autoload_dirs = original_find
                 subprocess.Popen = original_popen
 
             self.assertEqual(result["status"], "ok")
-            self.assertFalse(loader.exists())
+            self.assertTrue(root.exists())
+            self.assertTrue(loader.exists())
+            self.assertIn("-Mode", captured["args"])
+            self.assertIn("Detach", captured["args"])
+            self.assertEqual(captured["kwargs"]["cwd"], str(root))
 
     def test_full_uninstall_preclean_includes_legacy_vendor_loader_dir(self) -> None:
         import sys
@@ -1244,6 +1249,19 @@ class DistributionInstallTests(unittest.TestCase):
         version = (ROOT / "VERSION").read_text(encoding="utf-8-sig").strip()
 
         self.assertIn(f'#define MyAppVersion "{version}"', text)
+
+    def test_inno_existing_install_uninstall_prompt_uses_ascii_text(self) -> None:
+        text = (ROOT / "HWAgent_Setup.iss").read_text(encoding="utf-8")
+
+        self.assertIn("Existing installation detected", text)
+        self.assertIn("Reinstall and keep local data", text)
+        self.assertIn("Uninstall existing version", text)
+        self.assertIn("Uninstall complete.", text)
+        self.assertNotIn("检测到已安装版本", text)
+        self.assertNotIn("卸载现有版本", text)
+        self.assertNotIn("鍗", text)
+        self.assertNotIn("姝", text)
+        self.assertNotIn("妫", text)
 
     def test_installer_build_script_finds_inno_and_outputs_named_setup(self) -> None:
         text = (ROOT / "scripts" / "build_installer.ps1").read_text(encoding="utf-8")

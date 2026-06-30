@@ -78,16 +78,18 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn("查看更新公告", text)
         self.assertIn("本次更新要点", text)
 
-    def test_uninstall_progress_modal_requires_user_close_and_marks_service_exit_done(self) -> None:
+    def test_platform_page_removes_full_uninstall_flow(self) -> None:
         text = (ROOT / "frontend" / "src" / "components" / "UpdateStatus.tsx").read_text(encoding="utf-8")
 
         self.assertNotIn("window.close()", text)
-        self.assertIn("setUninstallOpen(false)", text)
-        self.assertIn("progress: 100", text)
-        self.assertIn("done: true", text)
-        self.assertIn("onCloseUninstallProgress", text)
-        self.assertIn("\u5173\u95ed", text)
-        self.assertIn("\u5378\u8f7d\u5b8c\u6210", text)
+        self.assertNotIn("完整卸载", text)
+        self.assertNotIn("DELETE", text)
+        self.assertNotIn("setUninstallOpen", text)
+        self.assertNotIn("fetchUninstallStatus", text)
+        self.assertNotIn('runUninstall("full")', text)
+        self.assertNotIn("正在卸载平台", text)
+        self.assertNotIn("卸载完成", text)
+        self.assertIn("请通过 Windows 设置或 Insta360_HW_Setup.exe 卸载平台", text)
 
     def test_build_script_installs_builds_and_copies_dist_to_app_frontend(self) -> None:
         text = (ROOT / "scripts" / "build_frontend.ps1").read_text(encoding="utf-8")

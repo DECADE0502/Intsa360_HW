@@ -1,16 +1,16 @@
 {
-  "version": "0.2.10",
+  "version": "0.2.11",
   "revision": "",
   "date": "2026-06-30",
-  "title": "0.2.10 Cadence NC \u5feb\u6377\u952e\u70ed\u66f4\u65b0\u4fee\u590d",
-  "summary": "\u672c\u6b21\u66f4\u65b0\u4fee\u590d\u5feb\u901f NC \u5207\u6362\u811a\u672c\u6302\u8f7d\u540e\u5fc5\u987b\u91cd\u542f Capture \u624d\u80fd\u751f\u6548\u7684\u95ee\u9898\uff0c\u5e73\u53f0\u91cd\u65b0\u90e8\u7f72 Cadence loader \u540e\u53ef\u76f4\u63a5 source \u70ed\u66f4\u65b0\u3002",
+  "title": "0.2.11 卸载链路收敛",
+  "summary": "本次更新移除平台网页内的完整卸载入口，完整卸载统一交给 Windows 设置或 Insta360_HW_Setup.exe，避免网页服务自删导致进度卡死、目录残留或注册表状态不一致。",
   "highlights": [
-    "\u5feb\u901f NC \u5207\u6362\u6539\u4e3a insta360_HW \u81ea\u5df1\u7684\u7a33\u5b9a\u5feb\u6377\u952e action\uff0c\u907f\u514d Capture \u8fd0\u884c\u65f6\u4e0d\u8986\u76d6\u65e7 RegisterAction \u5bfc\u81f4 Ctrl+Q \u5931\u6548\u3002",
-    "\u5f15\u5165\u5feb\u6377\u952e dispatcher\uff1a\u6302\u8f7d/\u53d6\u6d88\u6302\u8f7d\u65f6\u53ea\u66f4\u65b0\u5e73\u53f0\u72b6\u6001\uff0c\u4e0d\u518d\u6ce8\u518c\u7a7a action\u3002",
-    "\u70ed\u66f4\u65b0\u6e05\u7406\u65f6\u4e0d\u518d\u5220\u9664 NC \u811a\u672c namespace\uff0c\u907f\u514d\u5df2\u7ed1\u5b9a\u7684\u5feb\u6377\u952e\u547d\u4ee4\u88ab\u6e05\u6389\u3002",
-    "\u65e7\u7684 NC \u76f4\u8fde\u547d\u4ee4\u4e5f\u4f1a\u68c0\u67e5\u5e73\u53f0\u6302\u8f7d\u72b6\u6001\uff0c\u9632\u6b62\u53d6\u6d88\u6302\u8f7d\u540e\u6b8b\u7559\u547d\u4ee4\u7ee7\u7eed\u6267\u884c\u3002"
+    "平台左侧底部不再提供“完整卸载”按钮，只保留检查更新、立即更新、查看更新公告和移除 Cadence 集成。",
+    "后端 API 仅允许 detach 模式移除 Cadence 集成；full 模式会明确提示通过 Windows 设置或 Insta360_HW_Setup.exe 卸载。",
+    "Setup 安装器继续负责完整卸载，并会清理缺失 unins000.exe 的损坏安装注册状态。",
+    "安装器既有版本操作页改为英文提示，避开 Inno 脚本中文编码造成的乱码。"
   ],
-  "compatibility": "\u9002\u7528\u4e8e Capture 16.6/17.4\u3002\u66f4\u65b0\u540e\u5728 Capture Command Window \u6267\u884c source [file join $env(HOME) \"cdssetup/OrCAD_Capture/tclscripts/capAutoLoad/iac_bom_tool.tcl\"] \u5373\u53ef\u70ed\u66f4\u65b0\uff1b\u5982 Capture \u4ecd\u4fdd\u7559\u8f83\u65e7\u5feb\u6377\u952e\u7f13\u5b58\uff0c\u91cd\u542f Capture \u540e\u4e00\u5b9a\u751f\u6548\u3002",
+  "compatibility": "适用于 Capture 16.6/17.4。完整删除平台请使用 Windows 设置里的应用卸载，或重新运行 Insta360_HW_Setup.exe 后选择 Uninstall existing version。平台内的“移除 Cadence 集成”只会移除 Capture 菜单加载脚本，不删除平台目录和历史数据。",
   "trace": {
     "repo": "DECADE0502/Intsa360_HW",
     "branch": "main"

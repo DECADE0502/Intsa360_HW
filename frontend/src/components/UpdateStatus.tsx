@@ -1,16 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { Badge, Button, Input, Modal, Progress, Typography, message } from "antd";
+import { Badge, Button, Modal, Progress, Typography, message } from "antd";
 import {
   CheckCircleOutlined,
-  DeleteOutlined,
   DisconnectOutlined,
   SyncOutlined,
 } from "@ant-design/icons";
-import type { UninstallStatusInfo, UpdateStatusInfo } from "../api/client";
+import type { UpdateStatusInfo } from "../api/client";
 import {
   checkUninstall,
   checkUpdate,
-  fetchUninstallStatus,
   fetchUpdateStatus,
   runUninstall,
   startUpdate,
@@ -21,9 +19,6 @@ const { Text, Paragraph } = Typography;
 
 export function UpdateStatus({ version }: { version: string }) {
   const [detaching, setDetaching] = useState(false);
-  const [fullOpen, setFullOpen] = useState(false);
-  const [confirmText, setConfirmText] = useState("");
-  const [fulling, setFulling] = useState(false);
   const [checking, setChecking] = useState(false);
   const [hasUpdate, setHasUpdate] = useState(false);
   const [remoteVersion, setRemoteVersion] = useState<string>("");
@@ -33,12 +28,7 @@ export function UpdateStatus({ version }: { version: string }) {
 
   const [progressOpen, setProgressOpen] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatusInfo | null>(null);
-  const [uninstallOpen, setUninstallOpen] = useState(false);
-  const [uninstallStatus, setUninstallStatus] = useState<UninstallStatusInfo | null>(null);
-  const [uninstallClosing, setUninstallClosing] = useState(false);
   const updatePollRef = useRef<number | null>(null);
-  const uninstallPollRef = useRef<number | null>(null);
-  const uninstallFailuresRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -72,46 +62,7 @@ export function UpdateStatus({ version }: { version: string }) {
     };
   }, [progressOpen]);
 
-  useEffect(() => {
-    if (!uninstallOpen) {
-      if (uninstallPollRef.current) window.clearInterval(uninstallPollRef.current);
-      return;
-    }
-    const poll = () => {
-      fetchUninstallStatus()
-        .then((status) => {
-          uninstallFailuresRef.current = 0;
-          setUninstallStatus(status);
-          if (status.done || status.failed) {
-            if (uninstallPollRef.current) window.clearInterval(uninstallPollRef.current);
-          }
-        })
-        .catch(() => {
-          uninstallFailuresRef.current += 1;
-          if (uninstallFailuresRef.current >= 2) {
-            setUninstallClosing(true);
-            setUninstallStatus((current) => ({
-              running: false,
-              done: true,
-              failed: false,
-              progress: 100,
-              step: "平台服务已关闭，本地卸载已完成",
-              message: "卸载完成",
-              log_tail: current?.log_tail ?? [],
-            }));
-            if (uninstallPollRef.current) window.clearInterval(uninstallPollRef.current);
-          }
-        });
-    };
-    poll();
-    uninstallPollRef.current = window.setInterval(poll, 800);
-    return () => {
-      if (uninstallPollRef.current) window.clearInterval(uninstallPollRef.current);
-    };
-  }, [uninstallOpen]);
-
   const updateFinished = updateStatus?.done || updateStatus?.failed;
-  const uninstallFinished = uninstallStatus?.done || uninstallStatus?.failed || uninstallClosing;
 
   async function onCheckUpdate() {
     setChecking(true);
@@ -162,28 +113,6 @@ export function UpdateStatus({ version }: { version: string }) {
     }
   }
 
-  async function onFull() {
-    setFulling(true);
-    setUninstallOpen(true);
-    setUninstallStatus(null);
-    setUninstallClosing(false);
-    uninstallFailuresRef.current = 0;
-    try {
-      await runUninstall("full");
-      setFullOpen(false);
-      setConfirmText("");
-    } catch (e) {
-      message.error((e as Error).message || "卸载启动失败");
-      setUninstallOpen(false);
-    } finally {
-      setFulling(false);
-    }
-  }
-
-  function onCloseUninstallProgress() {
-    setUninstallOpen(false);
-  }
-
   return (
     <div className="maint-card">
       <div className="maint-version">
@@ -220,9 +149,7 @@ export function UpdateStatus({ version }: { version: string }) {
       </div>
 
       <div className="maint-danger">
-        <Button className="maint-btn-danger" size="small" block danger icon={<DeleteOutlined />} onClick={() => setFullOpen(true)}>
-          完整卸载
-        </Button>
+        <Text type="secondary">请通过 Windows 设置或 Insta360_HW_Setup.exe 卸载平台。</Text>
       </div>
 
       <UpdateNoticeModal
@@ -279,65 +206,6 @@ export function UpdateStatus({ version }: { version: string }) {
         </div>
       </Modal>
 
-      <Modal
-        open={uninstallOpen}
-        title="正在卸载平台"
-        footer={null}
-        width={620}
-        closable={false}
-      >
-        <div style={{ marginBottom: 12 }}>
-          <Progress
-            percent={uninstallStatus?.progress ?? 0}
-            status={uninstallStatus?.failed ? "exception" : uninstallStatus?.done ? "success" : "active"}
-          />
-        </div>
-        <Paragraph style={{ marginBottom: 8, minHeight: 22 }}>
-          {uninstallStatus?.failed ? (
-            <Text type="danger">{uninstallStatus.message}</Text>
-          ) : uninstallStatus?.done ? (
-            <Text type="success">{uninstallStatus.message}</Text>
-          ) : (
-            <Text type="secondary">{uninstallStatus?.step || uninstallStatus?.message || "准备卸载..."}</Text>
-          )}
-        </Paragraph>
-        <pre className="update-log">{(uninstallStatus?.log_tail || []).join("\n") || "等待卸载日志输出..."}</pre>
-        <div style={{ textAlign: "right", marginTop: 12 }}>
-          {uninstallFinished ? (
-            <Button type="primary" danger={Boolean(uninstallStatus?.failed)} onClick={onCloseUninstallProgress}>
-              {uninstallStatus?.failed ? "关闭" : "卸载完成，关闭"}
-            </Button>
-          ) : (
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              卸载过程中会关闭本地服务，请勿重复操作
-            </Text>
-          )}
-        </div>
-      </Modal>
-
-      <Modal
-        open={fullOpen}
-        title="完整卸载平台"
-        okText="确认卸载"
-        okButtonProps={{ danger: true, disabled: confirmText !== "DELETE", loading: fulling }}
-        cancelText="取消"
-        onCancel={() => {
-          setFullOpen(false);
-          setConfirmText("");
-        }}
-        onOk={onFull}
-      >
-        <Paragraph type="danger" strong>
-          这会删除整个平台目录及其全部文件，包括 data、config 和 plugins/user。该操作不可恢复。
-        </Paragraph>
-        <Paragraph>
-          如果只需要从 Capture 移除菜单并保留平台，请使用“移除 Cadence 集成”。
-        </Paragraph>
-        <Text>请输入 </Text>
-        <Text code>DELETE</Text>
-        <Text> 以确认：</Text>
-        <Input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} placeholder="DELETE" style={{ marginTop: 8 }} />
-      </Modal>
     </div>
   );
 }

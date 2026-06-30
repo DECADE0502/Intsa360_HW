@@ -138,7 +138,7 @@ def _is_uninstall_running(root: Path) -> bool:
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         text = out.stdout or ""
-        return "uninstall.ps1" in text or "hwagent_full_uninstall.ps1" in text
+        return "uninstall.ps1" in text
     except Exception:  # noqa: BLE001
         return False
 
@@ -519,80 +519,68 @@ def run_update(root: Path) -> dict[str, object]:
 
 
 def check_uninstall(root: Path) -> dict[str, object]:
-    """Report which uninstall modes are available from the platform UI."""
+    """Report platform-side removal actions.
+
+    The web platform only supports detaching Cadence integration. Full product
+    removal must be owned by Windows Apps / Insta360_HW_Setup.exe so Inno keeps
+    registry and install-directory cleanup consistent.
+    """
     script = root / "uninstall.ps1"
     return {
         "status": "ok",
         "can_uninstall": script.exists(),
-        "modes": ["detach", "full"] if script.exists() else [],
+        "modes": ["detach"] if script.exists() else [],
         "install_dir": str(root),
         "message": "卸载检查完成",
     }
 
 
 def run_uninstall(root: Path, mode: str = "detach") -> dict[str, object]:
-    """Trigger uninstallation. Detach only removes Cadence integration; Full
-    deletes the whole platform directory. Because the running backend lives in
-    that directory, Full uses a detached helper process from TEMP.
+    """Run the safe platform-side detach action.
+
+    Full uninstall from the web UI is intentionally disabled. The supported
+    full removal path is Windows Apps or running Insta360_HW_Setup.exe, which
+    uses the installer/uninstaller lifecycle instead of deleting the running
+    service from inside its own web page.
     """
-    if mode not in {"detach", "full"}:
-        return {"status": "error", "error": "无效的卸载模式"}
+    if mode != "detach":
+        return {"status": "error", "error": "请通过 Windows 设置或 Insta360_HW_Setup.exe 卸载平台"}
 
     script = root / "uninstall.ps1"
     if not script.exists():
         return {"status": "error", "error": "未找到卸载脚本"}
 
-    log_file = _temp_uninstall_log_path() if mode == "full" else _uninstall_log_path(root)
+    log_file = _uninstall_log_path(root)
     log_file.parent.mkdir(parents=True, exist_ok=True)
     try:
         log_file.write_text("__HWAGENT_UNINSTALL_PROGRESS__ 0 Preparing uninstall\n", encoding="utf-8")
     except OSError:
         pass
 
-    pwsh_mode = "Detach" if mode == "detach" else "Full"
     cmd = [
         "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
         "-File", str(script),
-        "-Mode", pwsh_mode,
+        "-Mode", "Detach",
         "-InstallDir", str(root),
         "-Force",
     ]
 
-    if mode == "detach":
-        # Detach is safe to run while the service is up; it only touches the
-        # Cadence autoload dirs, not the install root.
-        try:
-            log_out = open(log_file, "a", encoding="utf-8")
-        except OSError:
-            log_out = None
-        subprocess.Popen(
-            cmd,
-            cwd=str(root),
-            stdout=log_out if log_out else subprocess.DEVNULL,
-            stderr=subprocess.STDOUT if log_out else subprocess.DEVNULL,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-        return {"status": "ok", "message": "已开始移除 Cadence 集成", "mode": "detach"}
-
-    # Full: the running service holds the install directory open, so we cannot
-    # delete it from this process. Spawn a detached helper from a neutral CWD.
-    _remove_cadence_loader_artifacts(_find_cadence_autoload_dirs())
-    temp_dir = _get_temp_path()
-    ps_helper = temp_dir / "hwagent_full_uninstall.ps1"
-    ps_helper.write_text(
-        _full_uninstall_helper(root, cmd, log_file),
-        encoding="utf-8",
-    )
+    # Detach is safe to run while the service is up; it only touches the
+    # Cadence autoload dirs, not the install root.
+    try:
+        log_out = open(log_file, "a", encoding="utf-8")
+    except OSError:
+        log_out = None
     subprocess.Popen(
-        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(ps_helper)],
-        cwd=temp_dir,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        | getattr(subprocess, "DETACHED_PROCESS", 0)
-        | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
+        cmd,
+        cwd=str(root),
+        stdout=log_out if log_out else subprocess.DEVNULL,
+        stderr=subprocess.STDOUT if log_out else subprocess.DEVNULL,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
-    return {"status": "ok", "message": "完整卸载已启动，平台窗口将在稍后关闭", "mode": "full"}
+    if log_out:
+        log_out.close()
+    return {"status": "ok", "message": "已开始移除 Cadence 集成", "mode": "detach"}
 
 
 def _get_temp_path() -> Path:
