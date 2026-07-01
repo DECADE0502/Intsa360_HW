@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from pathlib import Path
 
@@ -22,6 +23,16 @@ def _read_manifest(root: Path) -> dict[str, object] | None:
         return json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError):
         return None
+
+
+def _cadence_autoload_candidates() -> list[Path]:
+    bases: list[Path] = []
+    for value in [os.environ.get("HOME"), os.environ.get("USERPROFILE"), str(Path.home())]:
+        if value:
+            path = Path(value)
+            if path not in bases:
+                bases.append(path)
+    return [base / "cdssetup" / "OrCAD_Capture" / "tclscripts" / "capAutoLoad" for base in bases]
 
 
 def run_self_check(root: Path) -> dict[str, object]:
@@ -47,7 +58,22 @@ def run_self_check(root: Path) -> dict[str, object]:
     config = root / "config" / "local.json"
     checks.append(_check("local_config", "本机配置", config.exists(), str(config), "warn"))
 
-    cadence_loader = Path.home() / "cdssetup" / "OrCAD_Capture" / "tclscripts" / "capAutoLoad" / "iac_bom_tool.tcl"
+    cadence_dirs = _cadence_autoload_candidates()
+    existing_cadence_dirs = [item for item in cadence_dirs if item.exists()]
+    checks.append(
+        _check(
+            "cadence_present",
+            "Cadence 环境",
+            bool(existing_cadence_dirs),
+            str(existing_cadence_dirs[0]) if existing_cadence_dirs else "未检测到 OrCAD Capture 自动加载目录，Cadence 集成不可用",
+            "warn",
+        )
+    )
+
+    cadence_loader = next(
+        (item / "iac_bom_tool.tcl" for item in existing_cadence_dirs if (item / "iac_bom_tool.tcl").exists()),
+        (cadence_dirs[0] / "iac_bom_tool.tcl") if cadence_dirs else Path("iac_bom_tool.tcl"),
+    )
     checks.append(_check("cadence_loader", "Cadence 集成", cadence_loader.exists(), str(cadence_loader), "warn"))
 
     failed = len([item for item in checks if item["status"] == "fail"])

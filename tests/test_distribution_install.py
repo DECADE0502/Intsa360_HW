@@ -1686,6 +1686,17 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("EnsureCadenceLoaderReady", text)
         self.assertIn("RunPowerShellHidden(root, redeployScript", text)
 
+    def test_status_surfaces_cadence_presence_and_launcher_avoids_duplicate_tabs(self) -> None:
+        lifecycle = (ROOT / "app" / "backend" / "lifecycle.py").read_text(encoding="utf-8")
+        system_status = (ROOT / "frontend" / "src" / "platform" / "SystemStatus.tsx").read_text(encoding="utf-8")
+        launcher = (ROOT / "launcher" / "Insta360_HW.cs").read_text(encoding="utf-8")
+
+        self.assertIn("cadence_present", lifecycle)
+        self.assertIn("cadence_present", system_status)
+        self.assertIn("Cadence", system_status)
+        self.assertIn("no duplicate browser tab opened", launcher)
+        self.assertIn("platform is not ready, opening platform URL", launcher)
+
     def test_launcher_build_script_embeds_icon_and_targets_winexe(self) -> None:
         text = (ROOT / "launcher" / "build.ps1").read_text(encoding="utf-8")
 

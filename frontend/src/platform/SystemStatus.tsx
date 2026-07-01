@@ -28,6 +28,7 @@ export function SystemStatus({ status }: { status: any }) {
 
   const summary = lifecycle?.summary;
   const manifestVersion = lifecycle?.manifest?.version ? String(lifecycle.manifest.version) : "-";
+  const cadencePresent = lifecycle?.checks?.find((item) => item.id === "cadence_present");
 
   return (
     <Space direction="vertical" size={14} style={{ width: "100%" }}>
@@ -56,6 +57,15 @@ export function SystemStatus({ status }: { status: any }) {
         }
       >
         {error ? <Alert type="error" showIcon message={error} style={{ marginBottom: 12 }} /> : null}
+        {cadencePresent && cadencePresent.status !== "ok" ? (
+          <Alert
+            type="warning"
+            showIcon
+            message="未检测到 Cadence 集成环境"
+            description={cadencePresent.message}
+            style={{ marginBottom: 12 }}
+          />
+        ) : null}
         <Descriptions column={1} size="small" style={{ marginBottom: 12 }}>
           <Descriptions.Item label="发布清单版本">{manifestVersion}</Descriptions.Item>
         </Descriptions>
