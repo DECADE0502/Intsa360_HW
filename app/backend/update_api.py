@@ -486,7 +486,7 @@ def _normalize_update_notice(raw: dict[str, Any], remote_version: str = "", remo
     if not isinstance(highlights, list):
         highlights = []
     highlights = [str(item).strip() for item in highlights if str(item or "").strip()]
-    revision = str(raw.get("revision") or remote_revision or "").strip()
+    revision = str(remote_revision or raw.get("revision") or "").strip()
     assets = []
     for item in raw.get("assets") if isinstance(raw.get("assets"), list) else []:
         if not isinstance(item, dict):

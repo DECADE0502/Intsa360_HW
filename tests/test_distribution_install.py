@@ -953,6 +953,46 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertEqual(notice["title"], "单网络检查增强")
             self.assertIn("新增更新公告弹窗", notice["highlights"])
 
+    def test_update_api_prefers_remote_revision_over_stale_notice_revision(self) -> None:
+        import sys
+        sys.path.insert(0, str(ROOT))
+        try:
+            from app.backend import update_api
+        finally:
+            sys.path.pop(0)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "install"
+            root.mkdir()
+            (root / "VERSION").write_text("0.2.16\n", encoding="utf-8")
+            (root / "REVISION").write_text("1111111111111111111111111111111111111111\n", encoding="utf-8")
+            (root / "update.ps1").write_text("echo hi\n", encoding="utf-8")
+
+            original_fetch_version = update_api._fetch_remote_version
+            original_fetch_revision = update_api._fetch_remote_revision
+            original_fetch_notice = update_api._fetch_remote_update_notice
+            original_is_ancestor = update_api._is_revision_ancestor
+            try:
+                update_api._fetch_remote_version = lambda _root: ("0.2.16", "ok")
+                update_api._fetch_remote_revision = lambda _root: ("3333333333333333333333333333333333333333", "ok")
+                update_api._fetch_remote_update_notice = lambda _root: ({
+                    "version": "0.2.16",
+                    "revision": "2222222222222222222222222222222222222222",
+                    "title": "stale notice revision",
+                }, "ok")
+                update_api._is_revision_ancestor = lambda _root, ancestor, descendant: True
+                result = update_api.check_update(root)
+            finally:
+                update_api._fetch_remote_version = original_fetch_version
+                update_api._fetch_remote_revision = original_fetch_revision
+                update_api._fetch_remote_update_notice = original_fetch_notice
+                update_api._is_revision_ancestor = original_is_ancestor
+
+            self.assertTrue(result["has_update"])
+            self.assertEqual(result["remote_revision"], "3333333333333333333333333333333333333333")
+            self.assertEqual(result["update_notice"]["revision"], "3333333333333333333333333333333333333333")
+            self.assertEqual(result["update_notice"]["target_revision"], "3333333")
+
     def test_update_api_normalizes_update_notice_assets(self) -> None:
         import sys
         sys.path.insert(0, str(ROOT))
