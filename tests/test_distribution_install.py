@@ -2232,6 +2232,89 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("mbConfirmation", iss, "confirmation prompt missing")
         self.assertIn("MB_YESNO", iss, "yes/no choice missing")
 
+    def test_iss_keep_data_stash_is_timestamped_and_surfaces_failures(self):
+        """Keep-data stash must be collision-proof AND surface PowerShell failures.
+
+        Two silent-data-loss risks the previous implementation missed:
+
+        1. Repeat uninstall collision: if %LOCALAPPDATA%\\Insta360_HW\\keep_data\\
+           already exists from a prior uninstall, Move-Item -Force on the
+           existing (non-empty) destination directory FAILS on Windows
+           PowerShell 5.1 and $ErrorActionPreference='Continue' swallows the
+           error. User sees "kept" but new data is lost. Fix: timestamp the
+           destination subdir (yyyyMMdd_HHmmss) so each uninstall gets a fresh
+           empty tree.
+        2. Swallowed ResultCode: Exec()'s return code was captured but never
+           checked. If PowerShell fails to launch or the stash script exits
+           non-zero, user sees no error and Inno wipes {app}. Fix: check
+           ResultCode, show a MsgBox on failure, and clear UninstallKeepData.
+
+        This test locks both invariants into the .iss so a future refactor can't
+        silently undo either fix.
+        """
+        iss = (ROOT / "HWAgent_Setup.iss").read_text(encoding="utf-8-sig")
+
+        # Timestamped destination: Get-Date -Format 'yyyyMMdd_HHmmss' feeds a
+        # Join-Path so each uninstall lands in its own subdir.
+        self.assertIn(
+            "Get-Date -Format",
+            iss,
+            "keep_data destination is not timestamped — repeat uninstall will "
+            "silently lose data on Move-Item -Force collision.",
+        )
+        self.assertIn(
+            "yyyyMMdd_HHmmss",
+            iss,
+            "expected yyyyMMdd_HHmmss timestamp format for keep_data subdir",
+        )
+
+        # ResultCode from the stash Exec must be inspected — otherwise a failed
+        # PowerShell launch or non-zero exit slips past silently.
+        self.assertIn(
+            "if ResultCode <> 0 then",
+            iss,
+            "Pascal must check ResultCode from stash Exec; otherwise PowerShell "
+            "failures are swallowed and Inno wipes {app} silently.",
+        )
+
+        # Failure MsgBox must render the numeric ResultCode so the user has a
+        # diagnostic handle, and must be an error-severity dialog.
+        self.assertIn(
+            "IntToStr(ResultCode)",
+            iss,
+            "failure MsgBox must include ResultCode via IntToStr for diagnostics",
+        )
+        self.assertIn(
+            "数据保留失败",
+            iss,
+            "failure MsgBox message missing — user won't know stash failed",
+        )
+        self.assertIn(
+            "mbError",
+            iss,
+            "stash failure should use mbError severity",
+        )
+
+        # On stash failure, UninstallKeepData must be cleared so downstream
+        # consumers know preservation did not succeed.
+        self.assertIn(
+            "UninstallKeepData := False",
+            iss,
+            "on stash failure UninstallKeepData must be cleared",
+        )
+
+        # Happy-path success MsgBox: user needs to know where their data went.
+        self.assertIn(
+            "用户数据已备份至",
+            iss,
+            "success MsgBox missing — user won't know stash location",
+        )
+        self.assertIn(
+            "mbInformation",
+            iss,
+            "success MsgBox should use mbInformation severity",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

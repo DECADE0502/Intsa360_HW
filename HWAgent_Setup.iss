@@ -346,23 +346,35 @@ end;
 
 
 // Move user-editable state (data\, config\local.json, plugins\user) out of the
-// install tree and into %LOCALAPPDATA%\Insta360_HW\keep_data\ BEFORE Inno
-// starts deleting {app}. Inno runs [UninstallDelete] after its own file removal
-// and that list is additive (adds more deletions), so an "exclude" isn't
-// possible — we have to physically relocate the data. Called from
-// InitializeUninstall, which fires before [UninstallRun] and before file
+// install tree and into %LOCALAPPDATA%\Insta360_HW\keep_data\<timestamp>\
+// BEFORE Inno starts deleting {app}. Inno runs [UninstallDelete] after its own
+// file removal and that list is additive (adds more deletions), so an
+// "exclude" isn't possible — we have to physically relocate the data. Called
+// from InitializeUninstall, which fires before [UninstallRun] and before file
 // deletion, giving us a clean window to stash. Defined before its caller
 // because Inno's Pascal doesn't do forward declarations gracefully.
-procedure StashUserDataForKeepMode();
+//
+// The destination is timestamped (yyyyMMdd_HHmmss subdir) so that a repeat
+// uninstall never collides with an earlier keep_data\ tree — Move-Item -Force
+// on a non-empty destination directory FAILS on Windows PowerShell 5.1 and
+// $ErrorActionPreference='Continue' would swallow the error, silently losing
+// the user's new data. The timestamp guarantees a fresh, empty destination
+// each run.
+//
+// ResultCode is checked by the caller: on non-zero (PowerShell failed to
+// launch, or the stash script itself hit an unrecoverable error) the caller
+// clears UninstallKeepData and surfaces a MsgBox so the user knows their data
+// may not have been preserved before Inno wipes {app}.
+procedure StashUserDataForKeepMode(var ResultCode: Integer);
 var
-  ResultCode: Integer;
   StashCmd: String;
 begin
   StashCmd :=
     '-NoProfile -ExecutionPolicy Bypass -Command "'
     + '$ErrorActionPreference = ''Continue''; '
+    + '$stamp = Get-Date -Format ''yyyyMMdd_HHmmss''; '
     + '$src = ''' + ExpandConstant('{app}') + '''; '
-    + '$dst = Join-Path $env:LOCALAPPDATA ''Insta360_HW\keep_data''; '
+    + '$dst = Join-Path $env:LOCALAPPDATA (Join-Path ''Insta360_HW\keep_data'' $stamp); '
     + 'New-Item -ItemType Directory -Force -Path $dst | Out-Null; '
     + 'foreach ($p in @(''data'', ''config\local.json'', ''plugins\user'')) { '
     + '  $s = Join-Path $src $p; '
@@ -377,22 +389,41 @@ end;
 
 // Ask the user whether to preserve local data before uninstalling. Answering
 // Yes stashes data\, config\local.json and plugins\user to
-// %LOCALAPPDATA%\Insta360_HW\keep_data\ RIGHT NOW — before [UninstallRun] or
-// any Inno-side file deletion runs — so a subsequent reinstall / another user
-// can copy the files back manually. Answering No leaves the tree untouched
-// and Inno wipes {app} completely.
+// %LOCALAPPDATA%\Insta360_HW\keep_data\<timestamp>\ RIGHT NOW — before
+// [UninstallRun] or any Inno-side file deletion runs — so a subsequent
+// reinstall / another user can copy the files back manually. Answering No
+// leaves the tree untouched and Inno wipes {app} completely.
+//
+// On stash failure we surface a MsgBox and clear UninstallKeepData so any
+// downstream consumer (and the user) knows preservation did not succeed —
+// otherwise Inno silently wipes {app} and the user has no idea their data is
+// gone. On success we show an informational MsgBox pointing at the stash
+// location so recovery is discoverable.
 function InitializeUninstall(): Boolean;
+var
+  ResultCode: Integer;
 begin
   Result := True;
   UninstallKeepData := (MsgBox(
     '是否保留用户数据?' + #13#10 + #13#10 +
     '  是 (Yes) = 保留 data\、config\local.json、plugins\user' + #13#10 +
-    '            (备份到 %LOCALAPPDATA%\Insta360_HW\keep_data\)' + #13#10 +
+    '            (备份到 %LOCALAPPDATA%\Insta360_HW\keep_data\<时间戳>\)' + #13#10 +
     '  否 (No)  = 完全清除',
     mbConfirmation, MB_YESNO) = IDYES);
 
   if UninstallKeepData then begin
-    StashUserDataForKeepMode();
+    ResultCode := 0;
+    StashUserDataForKeepMode(ResultCode);
+    if ResultCode <> 0 then begin
+      MsgBox('数据保留失败 (PowerShell 返回码 ' + IntToStr(ResultCode) + ')' + #13#10 +
+             '卸载将继续但用户数据可能已丢失。查看 %LOCALAPPDATA%\Insta360_HW\keep_data\ 确认。',
+             mbError, MB_OK);
+      UninstallKeepData := False;
+    end else begin
+      MsgBox('用户数据已备份至 %LOCALAPPDATA%\Insta360_HW\keep_data\<时间戳>\' + #13#10 +
+             '如需恢复请手动复制回安装目录。',
+             mbInformation, MB_OK);
+    end;
   end;
 end;
 
