@@ -52,16 +52,23 @@ export function UpdateStatus({ version }: { version: string }) {
   }, []);
 
   useEffect(() => {
-    if (!progressOpen) {
-      if (updatePollRef.current) window.clearInterval(updatePollRef.current);
-      return;
-    }
-    const poll = () => {
-      fetchUpdateStatus().then(setUpdateStatus).catch(() => {});
+    if (!progressOpen) return;
+    const ctrl = new AbortController();
+    const tick = async () => {
+      try {
+        const s = await fetchUpdateStatus({ signal: ctrl.signal });
+        if (!ctrl.signal.aborted) setUpdateStatus(s);
+      } catch (e: any) {
+        // Silently ignore abort; log other errors
+        if (e?.name !== "AbortError" && !ctrl.signal.aborted) {
+          console.warn("update status poll failed", e);
+        }
+      }
     };
-    poll();
-    updatePollRef.current = window.setInterval(poll, 1000);
+    tick();
+    updatePollRef.current = window.setInterval(tick, 1000);
     return () => {
+      ctrl.abort();
       if (updatePollRef.current) window.clearInterval(updatePollRef.current);
     };
   }, [progressOpen]);

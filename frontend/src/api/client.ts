@@ -1,3 +1,50 @@
+import { ApiError } from "./errors";
+
+export type ApiOpts = { signal?: AbortSignal; timeoutMs?: number };
+const DEFAULT_TIMEOUT = 60_000;
+
+export async function apiCall<T = unknown>(
+  path: string,
+  init: RequestInit = {},
+  opts: ApiOpts = {},
+): Promise<T> {
+  const internalCtrl = new AbortController();
+  const timer =
+    opts.timeoutMs !== undefined
+      ? setTimeout(() => internalCtrl.abort(), opts.timeoutMs)
+      : opts.signal
+      ? null
+      : setTimeout(() => internalCtrl.abort(), DEFAULT_TIMEOUT);
+  // Combine external signal with internal timeout signal
+  const combined = opts.signal
+    ? mergeSignals(opts.signal, internalCtrl.signal)
+    : internalCtrl.signal;
+  try {
+    const res = await fetch(path, { ...init, signal: combined });
+    const payload: any = await res.json().catch(() => ({}));
+    if (!res.ok || (payload && payload.status === "error")) {
+      throw new ApiError(
+        payload?.error_kind ?? "HttpError",
+        payload?.user_message ?? payload?.error ?? res.statusText ?? "Request failed",
+        res.status,
+        payload,
+      );
+    }
+    return payload as T;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+function mergeSignals(a: AbortSignal, b: AbortSignal): AbortSignal {
+  if (a.aborted) return a;
+  if (b.aborted) return b;
+  const ctrl = new AbortController();
+  a.addEventListener("abort", () => ctrl.abort(), { once: true });
+  b.addEventListener("abort", () => ctrl.abort(), { once: true });
+  return ctrl.signal;
+}
+
 export type ToolInfo = {
   id: string;
   name: string;
@@ -199,14 +246,17 @@ export async function uploadFiles(files: File[]): Promise<{ files: Array<{ path:
   return payload;
 }
 
-export async function runTool(tool: string, params: Record<string, unknown>) {
-  const payload = await requestJson<any>(`/api/tools/${tool}/run`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(params),
-  });
-  if (payload.status === "error") throw new Error(payload.error || "运行失败");
-  return payload;
+export async function runTool(tool: string, params: Record<string, unknown>, opts?: ApiOpts) {
+  // 5 minutes for long tool runs; caller can override
+  return apiCall<any>(
+    `/api/tools/${tool}/run`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    },
+    { timeoutMs: 300_000, ...opts },
+  );
 }
 
 export async function fetchVersion(): Promise<string> {
@@ -251,10 +301,8 @@ export type UpdateNotice = {
   trace?: Record<string, unknown>;
 };
 
-export async function checkUpdate(): Promise<UpdateCheck> {
-  const payload = await requestJson<any>("/api/update/check");
-  if (payload.status !== "ok") throw new Error(payload.error || "更新检查失败");
-  return payload;
+export async function checkUpdate(opts?: ApiOpts): Promise<UpdateCheck> {
+  return apiCall<UpdateCheck>("/api/update/check", undefined, opts);
 }
 
 export type UpdateStatusInfo = {
@@ -267,10 +315,8 @@ export type UpdateStatusInfo = {
   log_tail: string[];
 };
 
-export async function fetchUpdateStatus(): Promise<UpdateStatusInfo> {
-  const payload = await requestJson<any>("/api/update/status");
-  if (payload.status !== "ok") throw new Error(payload.error || "更新状态获取失败");
-  return payload;
+export async function fetchUpdateStatus(opts?: ApiOpts): Promise<UpdateStatusInfo> {
+  return apiCall<UpdateStatusInfo>("/api/update/status", undefined, opts);
 }
 
 export type UninstallCheck = {
