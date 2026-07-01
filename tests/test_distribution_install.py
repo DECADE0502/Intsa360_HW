@@ -10,6 +10,9 @@ import unittest
 import base64
 from pathlib import Path
 
+# sys.path is prepared by tests/conftest.py so backend imports work.
+from app.backend import update_api
+
 
 ROOT = Path(__file__).resolve().parents[1]
 FS_ROOT = ROOT if ROOT.exists() else Path.cwd()
@@ -59,6 +62,7 @@ class DistributionInstallTests(unittest.TestCase):
             with self.subTest(relative=relative):
                 self.assertTrue((ROOT / relative).exists(), f"{relative} should exist")
 
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_powershell_scripts_are_parseable(self) -> None:
         scripts = [
             "install.ps1",
@@ -197,6 +201,7 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("_disabled_custom_scripts", text)
         self.assertIn("Move-Item", text)
 
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_tcl_script_library_moves_enhanced_tool_backups_but_keeps_vendor_scripts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             autoload = Path(tmp) / "capAutoLoad"
@@ -231,6 +236,7 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertTrue((disabled_dirs[0] / active.name).exists())
             self.assertTrue((disabled_dirs[0] / backup.name).exists())
 
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_tcl_script_library_moves_disabled_backup_dirs_outside_autoload(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             autoload = Path(tmp) / "capAutoLoad"
@@ -301,6 +307,7 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("function Invoke-HwAgentUpdate", text)
         self.assertIn('[string]$Method = "zip"', update_text)
 
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_update_sync_preserves_windows_uninstaller_and_removes_source_only_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "payload"
@@ -345,6 +352,7 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertFalse((target / "launcher").exists())
             self.assertTrue((target / "app" / "frontend" / "index.html").exists())
 
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_update_sync_preserves_user_dropped_docs_and_frontend_when_source_omits_them(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "payload"
@@ -519,6 +527,7 @@ class DistributionInstallTests(unittest.TestCase):
             # Other files properly restored
             self.assertEqual((root / "app" / "code.py").read_text(), "old code")
 
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_update_library_rejects_sha256_mismatch_and_removes_bad_zip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             update_lib = Path(tmp) / "Update.ps1"
@@ -553,6 +562,7 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("Download-HwAgentFile -Url $zipUrl -Target $zipPath -ExpectedSha256 $expectedSha256", text)
         self.assertNotIn("Download-HwAgentFile -Url $zipUrl -Target $zipPath\n", text)
 
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_update_library_extracts_sha256_from_latest_release_asset(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             update_lib = Path(tmp) / "Update.ps1"
@@ -586,6 +596,7 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn(f"https://example.test/release.zip|{sha}|12345", result.stdout)
 
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_update_rollback_restores_install_tree_after_apply_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             update_lib = Path(tmp) / "Update.ps1"
@@ -633,13 +644,6 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("Get-CimInstance Win32_Process", text)
 
     def test_update_running_probe_ignores_its_own_query_process(self) -> None:
-        import sys
-        sys.path.insert(0, str(ROOT))
-        try:
-            from app.backend import update_api
-        finally:
-            sys.path.pop(0)
-
         original_run = update_api.subprocess.run
         try:
             class Completed:
@@ -663,13 +667,6 @@ class DistributionInstallTests(unittest.TestCase):
             update_api.subprocess.run = original_run
 
     def test_update_status_done_marker_is_not_running(self) -> None:
-        import sys
-        sys.path.insert(0, str(ROOT))
-        try:
-            from app.backend import update_api
-        finally:
-            sys.path.pop(0)
-
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "install"
             log_dir = root / "data" / "reports" / "runtime"
@@ -690,13 +687,6 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertFalse(status["running"])
 
     def test_run_update_writes_pid_file_for_status_tracking(self) -> None:
-        import sys
-        sys.path.insert(0, str(ROOT))
-        try:
-            from app.backend import update_api
-        finally:
-            sys.path.pop(0)
-
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "install"
             root.mkdir()
@@ -721,13 +711,6 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertEqual((log_dir / "update_latest.pid").read_text(encoding="utf-8").strip(), "24680")
 
     def test_update_api_compares_remote_version(self) -> None:
-        import sys
-        sys.path.insert(0, str(ROOT))
-        try:
-            from app.backend import update_api
-        finally:
-            sys.path.pop(0)
-
         # Semantic parsing strips non-numeric suffixes for comparison.
         self.assertEqual(update_api._parse_version("0.2.0-dev"), (0, 2, 0))
         self.assertEqual(update_api._parse_version("1.0"), (1, 0, 0))
@@ -751,13 +734,6 @@ class DistributionInstallTests(unittest.TestCase):
                 self.assertIsInstance(remote_version, str)
 
     def test_update_status_parses_progress_markers_from_log(self) -> None:
-        import sys
-        sys.path.insert(0, str(ROOT))
-        try:
-            from app.backend import update_api
-        finally:
-            sys.path.pop(0)
-
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "install"
             log_dir = root / "data" / "reports" / "runtime"
@@ -788,13 +764,6 @@ class DistributionInstallTests(unittest.TestCase):
                 self.assertFalse(line.startswith("__HWAGENT"))
 
     def test_update_status_reports_explicit_failed_marker(self) -> None:
-        import sys
-        sys.path.insert(0, str(ROOT))
-        try:
-            from app.backend import update_api
-        finally:
-            sys.path.pop(0)
-
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "install"
             log_dir = root / "data" / "reports" / "runtime"
@@ -847,13 +816,6 @@ class DistributionInstallTests(unittest.TestCase):
                 self.assertIn('"/W:1"', line)
 
     def test_update_api_refuses_to_start_duplicate_update(self) -> None:
-        import sys
-        sys.path.insert(0, str(ROOT))
-        try:
-            from app.backend import update_api
-        finally:
-            sys.path.pop(0)
-
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "install"
             root.mkdir()
@@ -887,6 +849,7 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("Compare-HwAgentVersion", lib_text)
         self.assertIn("Refuse to install", lib_text)
 
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_update_library_refuses_downgrade_without_flag(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             update_lib = Path(tmp) / "Update.ps1"
@@ -908,6 +871,7 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("Refuse to install", result.stderr + result.stdout)
 
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_update_library_accepts_downgrade_with_flag(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             update_lib = Path(tmp) / "Update.ps1"
@@ -1042,13 +1006,6 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn('Join-Path $Root "tests"', update_text)
 
     def test_update_api_reports_git_availability_and_runs_zip_without_git(self) -> None:
-        import sys
-        sys.path.insert(0, str(ROOT))
-        try:
-            from app.backend import update_api
-        finally:
-            sys.path.pop(0)
-
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "install"
             root.mkdir()
@@ -1068,13 +1025,6 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertTrue((root / "update.ps1").exists())
 
     def test_update_api_detects_same_version_remote_revision_changes(self) -> None:
-        import sys
-        sys.path.insert(0, str(ROOT))
-        try:
-            from app.backend import update_api
-        finally:
-            sys.path.pop(0)
-
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "install"
             root.mkdir()
@@ -1105,13 +1055,6 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertEqual(result["update_reason"], "revision")
 
     def test_update_api_does_not_treat_same_version_older_remote_revision_as_update(self) -> None:
-        import sys
-        sys.path.insert(0, str(ROOT))
-        try:
-            from app.backend import update_api
-        finally:
-            sys.path.pop(0)
-
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "install"
             root.mkdir()
@@ -1140,13 +1083,6 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertEqual(result["remote_revision"], "76f3406ed0a163f3ea3740fb7a642e4328ad06af")
 
     def test_update_api_returns_remote_update_notice_for_new_versions(self) -> None:
-        import sys
-        sys.path.insert(0, str(ROOT))
-        try:
-            from app.backend import update_api
-        finally:
-            sys.path.pop(0)
-
         self.assertTrue((ROOT / "UPDATE_NOTICE.json").exists())
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -1185,13 +1121,6 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertIn("新增更新公告弹窗", notice["highlights"])
 
     def test_update_api_prefers_remote_revision_over_stale_notice_revision(self) -> None:
-        import sys
-        sys.path.insert(0, str(ROOT))
-        try:
-            from app.backend import update_api
-        finally:
-            sys.path.pop(0)
-
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "install"
             root.mkdir()
@@ -1225,13 +1154,6 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertEqual(result["update_notice"]["target_revision"], "3333333")
 
     def test_update_api_normalizes_update_notice_assets(self) -> None:
-        import sys
-        sys.path.insert(0, str(ROOT))
-        try:
-            from app.backend import update_api
-        finally:
-            sys.path.pop(0)
-
         sha = "b" * 64
         notice = update_api._normalize_update_notice({
             "version": "0.2.16",
@@ -1263,6 +1185,7 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("size_bytes", notice_lib)
         self.assertIn("sha256", notice_lib)
 
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_publish_release_local_only_produces_valid_sha256_notice_assets(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -1309,13 +1232,6 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("/releases/download/v0.0.1/", asset["url"])
 
     def test_update_api_uses_notice_version_when_version_endpoint_is_stale(self) -> None:
-        import sys
-        sys.path.insert(0, str(ROOT))
-        try:
-            from app.backend import update_api
-        finally:
-            sys.path.pop(0)
-
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "install"
             root.mkdir()
@@ -1347,13 +1263,6 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertEqual(result["update_notice"]["title"], "OTA notice probe")
 
     def test_update_api_accepts_codeload_zip_version_status(self) -> None:
-        import sys
-        sys.path.insert(0, str(ROOT))
-        try:
-            from app.backend import update_api
-        finally:
-            sys.path.pop(0)
-
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "install"
             root.mkdir()
@@ -1382,13 +1291,6 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertEqual(result["update_notice"]["title"], "ZIP version probe")
 
     def test_update_api_reports_latest_when_codeload_zip_version_matches_local(self) -> None:
-        import sys
-        sys.path.insert(0, str(ROOT))
-        try:
-            from app.backend import update_api
-        finally:
-            sys.path.pop(0)
-
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "install"
             root.mkdir()
@@ -1419,12 +1321,6 @@ class DistributionInstallTests(unittest.TestCase):
         import sys
         import urllib.error
         import urllib.request
-
-        sys.path.insert(0, str(ROOT))
-        try:
-            from app.backend import update_api
-        finally:
-            sys.path.pop(0)
 
         class FakeResponse:
             def __init__(self, body: bytes):
@@ -1480,12 +1376,6 @@ class DistributionInstallTests(unittest.TestCase):
         import urllib.error
         import urllib.request
         import zipfile
-
-        sys.path.insert(0, str(ROOT))
-        try:
-            from app.backend import update_api
-        finally:
-            sys.path.pop(0)
 
         class FakeResponse:
             def __init__(self, body: bytes):
@@ -1543,6 +1433,7 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertEqual(notice_status, "ok_zip")
             self.assertEqual(notice["title"], "ZIP notice")
 
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_update_library_can_update_plain_folder_from_git_repo(self) -> None:
         if not shutil.which("git"):
             self.skipTest("git is not available")
@@ -1603,6 +1494,7 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertEqual((install / "config" / "local.json").read_text(encoding="utf-8"), '{"install_dir":"local"}')
             self.assertFalse((install / ".git").exists())
 
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_uninstall_script_removes_install_root_and_cadence_loader(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -1638,6 +1530,7 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertFalse(install.exists())
             self.assertFalse((autoload / "iac_bom_tool.tcl").exists())
 
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_uninstall_detach_mode_keeps_install_root_and_user_scripts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -1678,6 +1571,7 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertEqual(user_script.read_text(encoding="utf-8"), "keep-me")
             self.assertFalse((autoload / "iac_bom_tool.tcl").exists())
 
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_uninstall_preupgrade_emits_sentinel_and_keeps_data(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -1782,6 +1676,7 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn('"C:\\Cadence"', text)
         self.assertIn('"D:\\CADENCE\\Cadence"', text)
 
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_redeploy_cadence_loader_script_runs_with_windows_powershell_encoding(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "autoload"
@@ -2070,14 +1965,6 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertNotIn('.CommandLine.Contains("suite_app.py")', text)
 
     def test_uninstall_status_parses_progress_markers_from_log(self) -> None:
-        import sys
-
-        sys.path.insert(0, str(ROOT))
-        try:
-            from app.backend import update_api
-        finally:
-            sys.path.pop(0)
-
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "install"
             log_dir = root / "data" / "reports" / "runtime"
@@ -2106,14 +1993,6 @@ class DistributionInstallTests(unittest.TestCase):
                 self.assertFalse(line.startswith("__HWAGENT"))
 
     def test_full_uninstall_status_reads_temp_log_after_install_root_is_removed(self) -> None:
-        import sys
-
-        sys.path.insert(0, str(ROOT))
-        try:
-            from app.backend import update_api
-        finally:
-            sys.path.pop(0)
-
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "removed-install"
             temp_log = Path(tempfile.gettempdir()) / "hwagent_uninstall_latest.log"
@@ -2144,14 +2023,6 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertNotIn("run_uninstall(root, \"full\")", text)
 
     def test_platform_api_rejects_full_uninstall_mode(self) -> None:
-        import sys
-
-        sys.path.insert(0, str(ROOT))
-        try:
-            from app.backend import update_api
-        finally:
-            sys.path.pop(0)
-
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "install"
             root.mkdir()
@@ -2165,14 +2036,6 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertIn("Windows", result["error"])
 
     def test_detach_uninstall_starts_detach_mode_without_deleting_install_root(self) -> None:
-        import sys
-
-        sys.path.insert(0, str(ROOT))
-        try:
-            from app.backend import update_api
-        finally:
-            sys.path.pop(0)
-
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "install"
             autoload = Path(tmp) / "autoload"
@@ -2204,14 +2067,6 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertEqual(captured["kwargs"]["cwd"], str(root))
 
     def test_full_uninstall_preclean_includes_legacy_vendor_loader_dir(self) -> None:
-        import sys
-
-        sys.path.insert(0, str(ROOT))
-        try:
-            from app.backend import update_api
-        finally:
-            sys.path.pop(0)
-
         cleanup_dirs = [str(path) for path in update_api._find_cadence_autoload_dirs()]
 
         self.assertTrue(
@@ -2254,6 +2109,7 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertEqual(str(notice["revision"]).strip(), revision, "UPDATE_NOTICE.revision diverges")
         self.assertIn(f'#define MyAppVersion "{version}"', iss, "iss version diverges")
 
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_bump_version_script_updates_version_iss_revision_and_notice(self) -> None:
         script = ROOT / "scripts" / "bump_version.ps1"
         self.assertTrue(script.exists(), "scripts/bump_version.ps1 should exist")
@@ -2541,13 +2397,6 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertIn("1", result.stdout)
 
     def test_run_uninstall_cadence_only_invokes_standalone_script_not_uninstall_ps1(self) -> None:
-        import sys
-        sys.path.insert(0, str(ROOT))
-        try:
-            from app.backend import update_api
-        finally:
-            sys.path.pop(0)
-
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "install"
             (root / "scripts").mkdir(parents=True)

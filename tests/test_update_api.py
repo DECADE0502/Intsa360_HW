@@ -5,6 +5,9 @@ import json
 import tempfile
 from pathlib import Path
 
+# sys.path is set up by tests/conftest.py so ``from app.backend...`` imports work.
+from app.backend import update_api
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -26,13 +29,6 @@ class UpdateApiTests(unittest.TestCase):
         self.assertIn("更新", text)
 
     def test_compare_versions_handles_prerelease_and_build_metadata(self) -> None:
-        import sys
-        sys.path.insert(0, str(ROOT))
-        try:
-            from app.backend import update_api
-        finally:
-            sys.path.pop(0)
-
         cases = [
             ("0.2.15", "0.2.16", -1),
             ("0.2.15", "0.2.15", 0),
@@ -51,13 +47,6 @@ class UpdateApiTests(unittest.TestCase):
             update_api._compare_versions("not-a-version", "0.2.15")
 
     def test_remote_repo_path_prefers_update_notice_trace(self) -> None:
-        import sys
-        sys.path.insert(0, str(ROOT))
-        try:
-            from app.backend import update_api
-        finally:
-            sys.path.pop(0)
-
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "UPDATE_NOTICE.json").write_text(
@@ -72,13 +61,6 @@ class UpdateApiTests(unittest.TestCase):
             self.assertEqual(update_api._remote_repo_path(root), "OWNER_FROM_NOTICE/RepoFromNotice")
 
     def test_remote_repo_path_prefers_local_config_override(self) -> None:
-        import sys
-        sys.path.insert(0, str(ROOT))
-        try:
-            from app.backend import update_api
-        finally:
-            sys.path.pop(0)
-
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "config").mkdir()

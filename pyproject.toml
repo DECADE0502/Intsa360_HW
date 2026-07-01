@@ -1,0 +1,11 @@
+[tool.pytest.ini_options]
+markers = [
+    "slow: slow tests (>5s), skipped by default; run with '-m slow'",
+    "integration: integration tests spawning subprocess",
+    "network: tests requiring real network access",
+    "win32: Windows-only tests",
+]
+# By default filter out slow and network tests so `pytest` stays fast.
+# Users can opt in explicitly with `pytest -m slow` or `-m network`.
+addopts = "-m 'not slow and not network'"
+testpaths = ["tests"]

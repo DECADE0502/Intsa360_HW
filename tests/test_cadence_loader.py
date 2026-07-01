@@ -4,6 +4,7 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -63,6 +64,7 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
             "the insta360_HW menu.",
         )
 
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_generated_cadence_loader_menu_items_are_ascii_safe(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -199,6 +201,7 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
         self.assertIn("unrendered template", header)
         self.assertIn("return", header)
 
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_write_cadence_loader_rejects_leftover_placeholders(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -232,6 +235,7 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("Unrendered placeholder", result.stderr + result.stdout)
 
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_generated_loader_is_gbk_encodable_and_uses_hidden_launcher(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "iac_bom_tool.tcl"
@@ -271,6 +275,7 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
             self.assertIn("convert_cadence_bom.py", decoded)
             decoded.encode("gbk")
 
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_generated_loader_keeps_capture_property_unicode_escapes_unmodified(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "iac_bom_tool.tcl"
@@ -321,6 +326,7 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
         self.assertIn("shortcut", text)
         self.assertNotIn("rename RegisterAction", text)
 
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_generated_loader_injects_only_opt_in_cadence_script_menu_items(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -374,6 +380,7 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
             self.assertNotIn("禁用脚本", decoded)
             self.assertNotIn("rename RegisterAction", decoded)
 
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_generated_loader_injects_enabled_user_plugin_scripts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -493,6 +500,7 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
         self.assertNotIn("RegisterAction", module)
         self.assertNotIn("AddAccessoryMenu", module)
 
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_nc_toggle_shortcut_is_declared_in_registry_and_generated_by_loader(self) -> None:
         data = json.loads((ROOT / "config" / "capabilities.json").read_text(encoding="utf-8"))
         item = next(item for item in data["capabilities"] if item["id"] == "cadence_nc_toggle")
@@ -554,6 +562,7 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
             self.assertNotIn('RegisterAction "NC Toggle Selected Parts"', dynamic_menu_body)
             self.assertNotIn('RegisterAction "cadence_nc_toggle_shortcut"', dynamic_menu_body)
 
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_nc_shortcut_disabled_state_keeps_dispatcher_hot_reloadable(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -622,6 +631,7 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
         self.assertNotIn("RegisterAction", module)
         self.assertNotIn("AddAccessoryMenu", module)
 
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_generated_loader_sources_gnd_module_when_gnd_scripts_are_enabled(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
