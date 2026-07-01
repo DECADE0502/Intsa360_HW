@@ -10,6 +10,7 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Root = Split-Path -Parent $ScriptDir
 $RepoRoot = Split-Path -Parent $Root
 $Release = Join-Path $RepoRoot "HWAgent_release"
+. (Join-Path $Root "scripts\lib\EmbeddedPython.ps1")
 $Version = (Get-Content -LiteralPath (Join-Path $Root "VERSION") -Raw -Encoding UTF8).Trim()
 $Revision = ""
 try {
@@ -89,6 +90,13 @@ if (-not [string]::IsNullOrWhiteSpace($Revision)) {
 foreach ($d in @("runtime", "data", "data\uploads", "data\outputs", "data\history", "data\reports\runtime", "plugins\user\scripts")) {
   New-Item -ItemType Directory -Force -Path (Join-Path $Release $d) | Out-Null
 }
+
+$runtimePyDir = Join-Path $Release "runtime\python"
+Write-Host "Preparing embedded Python runtime..." -ForegroundColor Cyan
+Download-EmbeddedPython -OutDir $runtimePyDir
+Install-OpenpyxlWheel -PythonDir $runtimePyDir
+& (Join-Path $runtimePyDir "python.exe") -c "import openpyxl; print('openpyxl', openpyxl.__version__)"
+if ($LASTEXITCODE -ne 0) { throw "Embedded Python openpyxl verification failed" }
 
 # 6. Write a factual manifest for install/update/uninstall/self-check.
 $manifest = [ordered]@{

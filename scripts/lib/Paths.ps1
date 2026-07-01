@@ -23,8 +23,9 @@ function Get-HwAgentRoot {
 function Find-Python {
   param([string]$Root = (Get-HwAgentRoot))
   $candidates = @(
-    (Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"),
-    (Join-Path $Root ".venv\Scripts\python.exe")
+    (Join-Path $Root "runtime\python\python.exe"),
+    (Join-Path $Root ".venv\Scripts\python.exe"),
+    (Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe")
   )
   foreach ($candidate in $candidates) {
     if ($candidate -and (Test-Path -LiteralPath $candidate)) { return $candidate }

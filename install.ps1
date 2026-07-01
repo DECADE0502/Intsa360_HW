@@ -40,8 +40,11 @@ $InstallRoot = Get-HwAgentRoot -StartPath $InstallRoot
 $Python = $null
 try {
   $Python = Find-Python -Root $InstallRoot
+  & $Python -c "import openpyxl; print('openpyxl', openpyxl.__version__)"
+  if ($LASTEXITCODE -ne 0) { throw "openpyxl import verification failed after install" }
 } catch {
   Write-Host ("Python lookup failed: " + $_.Exception.Message)
+  throw
 }
 
 $ConfigDir = Join-Path $InstallRoot "config"
