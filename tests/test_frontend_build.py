@@ -5,6 +5,8 @@ import re
 import unittest
 from pathlib import Path
 
+from _constants import BRAND_NAME_LEGACY
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -175,7 +177,7 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn("Insta360硬件提效平台", waiting)
         self.assertIn("正在启动", waiting)
         self.assertIn("本地服务", waiting)
-        self.assertNotIn("硬件效率工具集", waiting)
+        self.assertNotIn(BRAND_NAME_LEGACY, waiting)
         self.assertNotIn("姝", waiting)
         self.assertNotIn("鈿", waiting)
 
@@ -187,7 +189,7 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn("Insta360硬件提效平台", index)
         self.assertIn('appTitle: "Insta360硬件提效平台"', zh)
         self.assertIn('"app_name": "Insta360硬件提效平台"', config)
-        self.assertNotIn("硬件效率工具集", zh)
+        self.assertNotIn(BRAND_NAME_LEGACY, zh)
 
     def test_platform_workbench_loads_capabilities_and_script_manager(self) -> None:
         app = (ROOT / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
