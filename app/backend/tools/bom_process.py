@@ -5,6 +5,8 @@ from collections import Counter, OrderedDict
 from pathlib import Path
 
 from app.backend.capture_fields import BOM_OPTIONAL_FIELDS, FIELD_DEFAULTS, PLM_TEMPLATE_HEADERS
+from app.backend.parsers._workbook import open_bom_workbook
+from app.backend.parsers.refs import natural_key
 
 # BOM 处理工具：把 Capture 导出的原始 BOM 处理成可导入的 PLM / OA 成品。
 # - 自动定位表头行（Capture 导出前面常有标题块），表头带不带 {} 花括号都能识别
@@ -59,11 +61,6 @@ def split_refs(value: object) -> list[str]:
 def normalize_ref(ref: str) -> str:
     match = re.fullmatch(r"(U\d+)[A-Z]", ref)
     return match.group(1) if match else ref
-
-
-def natural_key(ref: str) -> tuple[str, int, str]:
-    match = re.match(r"([A-Za-z_]+)(\d+)(.*)", ref)
-    return (match.group(1), int(match.group(2)), match.group(3)) if match else (ref, -1, "")
 
 
 def _norm_header(value: object) -> str:
@@ -140,32 +137,30 @@ def exclusion_reason(row: dict[str, str], refs: list[str], include_shields: bool
 
 
 def load_source(path: Path, include_shields: bool = False) -> tuple[list[dict[str, str]], list[list[object]]]:
-    from openpyxl import load_workbook
-
-    wb = load_workbook(path, data_only=True)
-    ws = wb.active
-    header_row, mapping = detect_header(ws)
-    rows: list[dict[str, str]] = []
-    excluded: list[list[object]] = []
-    for row_num in range(header_row + 1, ws.max_row + 1):
-        row = {key: _cell(ws, row_num, mapping, key) for key in SRC_ALIASES}
-        if not row.get("name"):
-            row["name"] = row.get("part_type") or ""
-        if not row.get("model"):
-            row["model"] = row.get("value") or row.get("pcb_package") or row.get("pcb_footprint") or ""
-        if not row.get("desc"):
-            row["desc"] = row.get("value") or ""
-        if not any(row.values()):
-            continue
-        refs = [normalize_ref(r) for r in split_refs(row.get("reference"))]
-        _normalize_shield_row(row, refs)
-        reason = exclusion_reason(row, refs, include_shields=include_shields)
-        if reason:
-            excluded.append([row_num, ",".join(refs), row.get("part_number"), row.get("name"),
-                             row.get("model"), row.get("desc"), row.get("value"), reason])
-            continue
-        rows.append(row)
-    return rows, excluded
+    with open_bom_workbook(path, data_only=True) as wb:
+        ws = wb.active
+        header_row, mapping = detect_header(ws)
+        rows: list[dict[str, str]] = []
+        excluded: list[list[object]] = []
+        for row_num in range(header_row + 1, ws.max_row + 1):
+            row = {key: _cell(ws, row_num, mapping, key) for key in SRC_ALIASES}
+            if not row.get("name"):
+                row["name"] = row.get("part_type") or ""
+            if not row.get("model"):
+                row["model"] = row.get("value") or row.get("pcb_package") or row.get("pcb_footprint") or ""
+            if not row.get("desc"):
+                row["desc"] = row.get("value") or ""
+            if not any(row.values()):
+                continue
+            refs = [normalize_ref(r) for r in split_refs(row.get("reference"))]
+            _normalize_shield_row(row, refs)
+            reason = exclusion_reason(row, refs, include_shields=include_shields)
+            if reason:
+                excluded.append([row_num, ",".join(refs), row.get("part_number"), row.get("name"),
+                                 row.get("model"), row.get("desc"), row.get("value"), reason])
+                continue
+            rows.append(row)
+        return rows, excluded
 
 
 def detect_shield_candidates(source_rows: list[dict[str, str]]) -> list[dict[str, object]]:
@@ -403,34 +398,34 @@ def write_plm(
 ) -> None:
     """优先复制 PLM 模板（保留合并表头、配色、边框、默认值），把数据套用数据行样式填入。"""
     from copy import copy
-    from openpyxl import Workbook, load_workbook
+    from openpyxl import Workbook
     from openpyxl.styles import Font
 
     rows_data = [_plm_row(rec, parent_code, parent_desc) for rec in records]
 
     if template and Path(template).exists():
-        wb = load_workbook(template)
-        ws = wb.worksheets[0]
-        # 捕获模板首个数据行（第3行）每列样式，用于新数据行
-        styles: dict[int, tuple] = {}
-        if ws.max_row >= 3:
-            for col in range(1, ws.max_column + 1):
-                cell = ws.cell(3, col)
-                styles[col] = (copy(cell.font), copy(cell.fill), copy(cell.border), copy(cell.alignment), cell.number_format)
-            ws.delete_rows(3, ws.max_row - 2)  # 删除模板自带示例数据 + 脚注，保留 1-2 行表头
-        for i, values in enumerate(rows_data):
-            for col, val in enumerate(values, start=1):
-                cell = ws.cell(3 + i, col, val)
-                style = styles.get(col)
-                if style:
-                    cell.font, cell.fill, cell.border, cell.alignment, cell.number_format = (
-                        copy(style[0]), copy(style[1]), copy(style[2]), copy(style[3]), style[4],
-                    )
-        try:
-            ws.title = _sheet_title(name, "")
-        except Exception:
-            pass
-        wb.save(path)
+        with open_bom_workbook(template) as wb:
+            ws = wb.worksheets[0]
+            # 捕获模板首个数据行（第3行）每列样式，用于新数据行
+            styles: dict[int, tuple] = {}
+            if ws.max_row >= 3:
+                for col in range(1, ws.max_column + 1):
+                    cell = ws.cell(3, col)
+                    styles[col] = (copy(cell.font), copy(cell.fill), copy(cell.border), copy(cell.alignment), cell.number_format)
+                ws.delete_rows(3, ws.max_row - 2)  # 删除模板自带示例数据 + 脚注，保留 1-2 行表头
+            for i, values in enumerate(rows_data):
+                for col, val in enumerate(values, start=1):
+                    cell = ws.cell(3 + i, col, val)
+                    style = styles.get(col)
+                    if style:
+                        cell.font, cell.fill, cell.border, cell.alignment, cell.number_format = (
+                            copy(style[0]), copy(style[1]), copy(style[2]), copy(style[3]), style[4],
+                        )
+            try:
+                ws.title = _sheet_title(name, "")
+            except Exception:
+                pass
+            wb.save(path)
         return
 
     # 无模板时从零生成（降级）

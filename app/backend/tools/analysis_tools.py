@@ -1,11 +1,16 @@
 ﻿from __future__ import annotations
 
 import re
+import zipfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
+from openpyxl.utils.exceptions import InvalidFileException
+
+from app.backend.parsers._workbook import open_bom_workbook
+from app.backend.parsers.refs import natural_key
 from app.backend.tool_registry import Tool
 
 # openpyxl 仅在实际运行工具时才需要，延迟到使用处导入，
@@ -122,13 +127,6 @@ def _split_refs(value: object) -> list[str]:
     return [part for part in REF_SPLIT_RE.split(str(value or "").strip()) if part]
 
 
-_NAT_RE = re.compile(r"(\d+)")
-
-
-def _natural_key(ref: str) -> list[object]:
-    return [int(token) if token.isdigit() else token.lower() for token in _NAT_RE.split(ref)]
-
-
 def _to_qty(value: object) -> int:
     try:
         return int(float(str(value).strip()))
@@ -137,35 +135,33 @@ def _to_qty(value: object) -> int:
 
 
 def _read_bom_rows(path: Path, require_refs: bool = True) -> list[dict[str, object]]:
-    from openpyxl import load_workbook
-
-    wb = load_workbook(path, data_only=True)
-    ws = wb.active
-    header_row, mapping = _find_header(ws, ["reference", "part_number", "description", "quantity"])
-    mapping = _refine_bom_mapping(ws, header_row, mapping)
-    rows: list[dict[str, object]] = []
-    for row in range(header_row + 1, ws.max_row + 1):
-        refs = _split_refs(ws.cell(row, mapping["reference"]).value)
-        part_number = str(ws.cell(row, mapping["part_number"]).value or "").strip()
-        if require_refs and not refs:
-            continue
-        if not refs and not part_number:
-            continue
-        item = {
-            "source_row": row,
-            "reference": ",".join(refs),
-            "refs": refs,
-            "part_number": part_number,
-            "model": str(ws.cell(row, mapping["model"]).value or "").strip() if "model" in mapping else "",
-            "grade": str(ws.cell(row, mapping["grade"]).value or "").strip() if "grade" in mapping else "",
-            "description": str(ws.cell(row, mapping["description"]).value or "").strip(),
-            "quantity": ws.cell(row, mapping["quantity"]).value,
-            "name": str(ws.cell(row, mapping.get("name", mapping["description"])).value or "").strip(),
-            "package": str(ws.cell(row, mapping.get("package", mapping["description"])).value or "").strip(),
-            "value": str(ws.cell(row, mapping.get("value", mapping["description"])).value or "").strip(),
-        }
-        rows.append(item)
-    return rows
+    with open_bom_workbook(path, data_only=True) as wb:
+        ws = wb.active
+        header_row, mapping = _find_header(ws, ["reference", "part_number", "description", "quantity"])
+        mapping = _refine_bom_mapping(ws, header_row, mapping)
+        rows: list[dict[str, object]] = []
+        for row in range(header_row + 1, ws.max_row + 1):
+            refs = _split_refs(ws.cell(row, mapping["reference"]).value)
+            part_number = str(ws.cell(row, mapping["part_number"]).value or "").strip()
+            if require_refs and not refs:
+                continue
+            if not refs and not part_number:
+                continue
+            item = {
+                "source_row": row,
+                "reference": ",".join(refs),
+                "refs": refs,
+                "part_number": part_number,
+                "model": str(ws.cell(row, mapping["model"]).value or "").strip() if "model" in mapping else "",
+                "grade": str(ws.cell(row, mapping["grade"]).value or "").strip() if "grade" in mapping else "",
+                "description": str(ws.cell(row, mapping["description"]).value or "").strip(),
+                "quantity": ws.cell(row, mapping["quantity"]).value,
+                "name": str(ws.cell(row, mapping.get("name", mapping["description"])).value or "").strip(),
+                "package": str(ws.cell(row, mapping.get("package", mapping["description"])).value or "").strip(),
+                "value": str(ws.cell(row, mapping.get("value", mapping["description"])).value or "").strip(),
+            }
+            rows.append(item)
+        return rows
 
 
 def _write_table(path: Path, title: str, headers: list[str], rows: list[list[object]]) -> None:
@@ -556,7 +552,7 @@ def _risk_check(rows: list[dict[str, object]]) -> list[dict[str, str]]:
     return findings
 
 
-def run_bom_compare(root: Path, params: dict[str, object]) -> dict[str, object]:
+def _run_bom_compare_impl(root: Path, params: dict[str, object]) -> dict[str, object]:
     bom1, error = _required_file(params, "bom1", "BOM1 文件")
     if error:
         return _error("bom_compare", error)
@@ -570,7 +566,7 @@ def run_bom_compare(root: Path, params: dict[str, object]) -> dict[str, object]:
     # —— 主轴：按位号对比，自动识别 换料 / 新增 / 删除 / 一致 ——
     ref1 = _index_by_ref(rows1)
     ref2 = _index_by_ref(rows2)
-    all_refs = sorted(set(ref1) | set(ref2), key=_natural_key)
+    all_refs = sorted(set(ref1) | set(ref2), key=natural_key)
 
     pos_rows: list[list[object]] = []
     pos_items: list[dict[str, object]] = []
@@ -629,7 +625,7 @@ def run_bom_compare(root: Path, params: dict[str, object]) -> dict[str, object]:
     usage1 = _part_usage(rows1)
     usage2 = _part_usage(rows2)
     summary_rows: list[list[object]] = []
-    for part_number in sorted(set(usage1) | set(usage2), key=_natural_key):
+    for part_number in sorted(set(usage1) | set(usage2), key=natural_key):
         s1 = usage1[part_number]["refs"] if part_number in usage1 else set()
         s2 = usage2[part_number]["refs"] if part_number in usage2 else set()
         count1 = _usage_count(usage1[part_number]) if part_number in usage1 else 0
@@ -682,7 +678,7 @@ def run_bom_compare(root: Path, params: dict[str, object]) -> dict[str, object]:
     focus_priority = {"换料": 0, "删除/未贴": 1, "新增贴装": 2, "参数差异": 3}
     focus_items = sorted(
         [item for item in pos_items if item["kind"] != "same"],
-        key=lambda item: (focus_priority.get(str(item.get("status")), 9), _natural_key(str(item.get("key", "")))),
+        key=lambda item: (focus_priority.get(str(item.get("status")), 9), natural_key(str(item.get("key", "")))),
     )[:200]
     review_guide = {
         "换料": "重点确认同一位号的物料编码是否按设计变更替换，并回查型号、描述和替代关系。",
@@ -717,7 +713,7 @@ def run_bom_compare(root: Path, params: dict[str, object]) -> dict[str, object]:
     return result
 
 
-def run_bom_risk_check(root: Path, params: dict[str, object]) -> dict[str, object]:
+def _run_bom_risk_check_impl(root: Path, params: dict[str, object]) -> dict[str, object]:
     bom, error = _required_file(params, "bom", "BOM 文件")
     if error:
         return _error("bom_risk_check", error)
@@ -844,7 +840,7 @@ def _clean_pst_string(value: str) -> str:
 
 
 def _natural_join(values: Iterable[str]) -> str:
-    return ",".join(sorted(set(values), key=_natural_key))
+    return ",".join(sorted(set(values), key=natural_key))
 
 
 def _parse_node_tokens(line: str) -> tuple[str, str] | None:
@@ -911,9 +907,9 @@ def _parse_net_file(folder: Path) -> dict[str, dict[str, list[str]]]:
                 entry["nodes"].add(ref)
     return {
         name: {
-            "refs": sorted(data["refs"], key=_natural_key),
-            "pins": sorted(data["pins"], key=_natural_key),
-            "nodes": sorted(data["nodes"], key=_natural_key),
+            "refs": sorted(data["refs"], key=natural_key),
+            "pins": sorted(data["pins"], key=natural_key),
+            "nodes": sorted(data["nodes"], key=natural_key),
         }
         for name, data in nets.items()
     }
@@ -992,7 +988,7 @@ def _package_matches(net_package: str, bom_text: str) -> tuple[bool, str]:
         return False, "缺少可比对封装信息"
     common = net_tokens & bom_tokens
     if common:
-        return True, "匹配到封装关键词: " + ",".join(sorted(common, key=_natural_key)[:5])
+        return True, "匹配到封装关键词: " + ",".join(sorted(common, key=natural_key)[:5])
     long_net = {t for t in net_tokens if len(t) >= 5}
     long_bom = {t for t in bom_tokens if len(t) >= 5}
     for a in long_net:
@@ -1001,7 +997,7 @@ def _package_matches(net_package: str, bom_text: str) -> tuple[bool, str]:
                 return True, f"封装字段近似匹配: {a}/{b}"
     common_sizes = _package_size_codes(net_package) & _package_size_codes(bom_text)
     if common_sizes:
-        return True, "匹配到封装尺寸码: " + ",".join(sorted(common_sizes, key=_natural_key)[:5])
+        return True, "匹配到封装尺寸码: " + ",".join(sorted(common_sizes, key=natural_key)[:5])
     return False, "网表封装未出现在 BOM 描述/名称/封装字段"
 
 
@@ -1087,7 +1083,7 @@ def _build_smt_package_review(parts: dict[str, str], bom_rows: list[dict[str, ob
         "non_smt_skipped": 0,
     }
 
-    for ref, package in sorted(parts.items(), key=lambda item: _natural_key(item[0])):
+    for ref, package in sorted(parts.items(), key=lambda item: natural_key(item[0])):
         bom_row = by_ref.get(ref)
         if not bom_row:
             if _is_nc_package(package):
@@ -1124,7 +1120,7 @@ def _build_smt_package_review(parts: dict[str, str], bom_rows: list[dict[str, ob
         status_counts[_smt_status_key(status)] += 1
         items.append(item)
 
-    for ref in sorted(set(by_ref) - set(parts), key=_natural_key):
+    for ref in sorted(set(by_ref) - set(parts), key=natural_key):
         bom_row = by_ref[ref]
         note = "BOM 中存在该位号，但 pstxprt.dat 没有找到。确认是否机构/辅料、手工添加、或网表导出不完整。"
         item = _smt_item(ref, "BOM 多余位号", "", bom_row, note, "medium")
@@ -1142,16 +1138,16 @@ def _build_smt_package_review(parts: dict[str, str], bom_rows: list[dict[str, ob
         packages_by_part.setdefault(part_number, set()).add(package)
         refs_by_part.setdefault(part_number, []).append(ref)
         rows_by_part.setdefault(part_number, row)
-    for part_number, packages in sorted(packages_by_part.items(), key=lambda item: _natural_key(item[0])):
+    for part_number, packages in sorted(packages_by_part.items(), key=lambda item: natural_key(item[0])):
         normalized = {re.sub(r"[^A-Z0-9]", "", package.upper()) for package in packages if package}
         if len(normalized) <= 1:
             continue
-        refs = sorted(refs_by_part.get(part_number, []), key=_natural_key)
-        note = "同一个物料编码对应多个网表封装：" + " / ".join(sorted(packages, key=_natural_key))
+        refs = sorted(refs_by_part.get(part_number, []), key=natural_key)
+        note = "同一个物料编码对应多个网表封装：" + " / ".join(sorted(packages, key=natural_key))
         item = _smt_item(
             ",".join(refs),
             "同料多封装",
-            " / ".join(sorted(packages, key=_natural_key)),
+            " / ".join(sorted(packages, key=natural_key)),
             rows_by_part.get(part_number),
             note,
             "high",
@@ -1185,7 +1181,7 @@ def _build_smt_package_review(parts: dict[str, str], bom_rows: list[dict[str, ob
     priority = {"high": 0, "medium": 1, "low": 2}
     focus_items = sorted(
         [item for item in items if item["status"] not in {"通过", "近似通过", "高风险封装", "NC 未贴跳过", "非贴片对象跳过"}],
-        key=lambda item: (priority.get(str(item.get("severity")), 9), _natural_key(str(item.get("ref", ""))), str(item.get("status", ""))),
+        key=lambda item: (priority.get(str(item.get("severity")), 9), natural_key(str(item.get("ref", ""))), str(item.get("status", ""))),
     )[:500]
     return {
         "items": items,
@@ -1214,7 +1210,7 @@ _MECHANICAL_NET_RE = re.compile(r"(HOLE|MOUNT|MTG|SCREW|SHIELD|CHASSIS|GASKET)",
 
 
 def _net_signature(net: dict[str, list[str]]) -> tuple[str, ...]:
-    return tuple(sorted(net.get("nodes", []), key=_natural_key))
+    return tuple(sorted(net.get("nodes", []), key=natural_key))
 
 
 def _is_critical_net(name: str) -> bool:
@@ -1309,7 +1305,7 @@ def _build_single_network_review(nets: dict[str, dict[str, list[str]]]) -> dict[
         "mechanical": 0,
         "other": 0,
     }
-    for name, data in sorted(nets.items(), key=lambda item: _natural_key(item[0])):
+    for name, data in sorted(nets.items(), key=lambda item: natural_key(item[0])):
         item = _single_network_item(name, data)
         if item["is_nc"] or item["is_single_ref"]:
             items.append(item)
@@ -1323,7 +1319,7 @@ def _build_single_network_review(nets: dict[str, dict[str, list[str]]]) -> dict[
             for item in items
             if item["kind"] in {"focus", "single_ref", "nc", "power"}
         ],
-        key=lambda item: (priority.get(str(item.get("severity")), 9), _natural_key(str(item.get("net", "")))),
+        key=lambda item: (priority.get(str(item.get("severity")), 9), natural_key(str(item.get("net", "")))),
     )[:500]
     return {
         "items": items,
@@ -1405,7 +1401,7 @@ def _build_netlist_review(nets1: dict[str, dict[str, list[str]]], nets2: dict[st
         if left_name in covered_left or left_name in nets2:
             continue
         nodes = set(left_data.get("nodes", []))
-        targets = sorted({right_node_to_net[node] for node in nodes if node in right_node_to_net}, key=_natural_key)
+        targets = sorted({right_node_to_net[node] for node in nodes if node in right_node_to_net}, key=natural_key)
         if len(targets) >= 2 and nodes and all(node in right_node_to_net for node in nodes):
             covered_left.add(left_name)
             covered_right.update(targets)
@@ -1425,7 +1421,7 @@ def _build_netlist_review(nets1: dict[str, dict[str, list[str]]], nets2: dict[st
         if right_name in covered_right or right_name in nets1:
             continue
         nodes = set(right_data.get("nodes", []))
-        sources = sorted({left_node_to_net[node] for node in nodes if node in left_node_to_net}, key=_natural_key)
+        sources = sorted({left_node_to_net[node] for node in nodes if node in left_node_to_net}, key=natural_key)
         if len(sources) >= 2 and nodes and all(node in left_node_to_net for node in nodes):
             covered_right.add(right_name)
             covered_left.update(sources)
@@ -1441,7 +1437,7 @@ def _build_netlist_review(nets1: dict[str, dict[str, list[str]]], nets2: dict[st
                 "high",
             ))
 
-    for name in sorted(set(nets1) | set(nets2), key=_natural_key):
+    for name in sorted(set(nets1) | set(nets2), key=natural_key):
         if name in covered_left or name in covered_right:
             continue
         in1, in2 = name in nets1, name in nets2
@@ -1485,7 +1481,7 @@ def _build_netlist_review(nets1: dict[str, dict[str, list[str]]], nets2: dict[st
         ))
 
     priority = {"high": 0, "medium": 1, "low": 2}
-    focus_items = sorted([item for item in items if item["status"] != "一致"], key=lambda item: (priority.get(str(item.get("severity")), 9), _natural_key(str(item.get("key", "")))))[:300]
+    focus_items = sorted([item for item in items if item["status"] != "一致"], key=lambda item: (priority.get(str(item.get("severity")), 9), natural_key(str(item.get("key", "")))))[:300]
     return {
         "items": items,
         "focus_items": focus_items,
@@ -1501,7 +1497,7 @@ def _build_netlist_review(nets1: dict[str, dict[str, list[str]]], nets2: dict[st
     }
 
 
-def run_netlist_compare(root: Path, params: dict[str, object]) -> dict[str, object]:
+def _run_netlist_compare_impl(root: Path, params: dict[str, object]) -> dict[str, object]:
     net1, error = _required_folder(params, "netlist1", "网表1文件夹")
     if error:
         return _error("netlist_compare", error)
@@ -1598,7 +1594,7 @@ def run_netlist_compare(root: Path, params: dict[str, object]) -> dict[str, obje
     return result
 
 
-def run_smt_package_check(root: Path, params: dict[str, object]) -> dict[str, object]:
+def _run_smt_package_check_impl(root: Path, params: dict[str, object]) -> dict[str, object]:
     netlist, error = _required_folder(params, "netlist", "网表文件夹")
     if error:
         return _error("smt_package_check", error)
@@ -1635,7 +1631,7 @@ def run_smt_package_check(root: Path, params: dict[str, object]) -> dict[str, ob
     return result
 
 
-def run_single_network_check(root: Path, params: dict[str, object]) -> dict[str, object]:
+def _run_single_network_check_impl(root: Path, params: dict[str, object]) -> dict[str, object]:
     netlist, error = _required_folder(params, "netlist", "网表文件夹")
     if error:
         return _error("single_network_check", error)
@@ -1677,7 +1673,7 @@ def run_single_network_check(root: Path, params: dict[str, object]) -> dict[str,
     return result
 
 
-def run_bom_process(root: Path, params: dict[str, object]) -> dict[str, object]:
+def _run_bom_process_impl(root: Path, params: dict[str, object]) -> dict[str, object]:
     from app.backend.tools import bom_process
 
     source, error = _required_file(params, "source_bom", "原始 BOM 文件")
@@ -1745,6 +1741,63 @@ def run_bom_process(root: Path, params: dict[str, object]) -> dict[str, object]:
         "process_file": str(result["outputs"][0]) if result["outputs"] else "",
         "next_step": "成品 BOM 已生成，请核对后走 OA YF25 备料 / PLM 导入。",
     }
+
+
+USER_INPUT_EXCEPTIONS = (
+    ValueError,
+    KeyError,
+    FileNotFoundError,
+    PermissionError,
+    zipfile.BadZipFile,
+    InvalidFileException,
+)
+
+
+def _user_error(tool: str, exc: Exception) -> dict[str, object]:
+    message = str(exc) or type(exc).__name__
+    return {"status": "error", "tool": tool, "error": message, "message": message, "user_message": message, "error_kind": type(exc).__name__}
+
+
+def run_bom_compare(root: Path, params: dict[str, object]) -> dict[str, object]:
+    try:
+        return _run_bom_compare_impl(root, params)
+    except USER_INPUT_EXCEPTIONS as exc:
+        return _user_error("bom_compare", exc)
+
+
+def run_bom_risk_check(root: Path, params: dict[str, object]) -> dict[str, object]:
+    try:
+        return _run_bom_risk_check_impl(root, params)
+    except USER_INPUT_EXCEPTIONS as exc:
+        return _user_error("bom_risk_check", exc)
+
+
+def run_netlist_compare(root: Path, params: dict[str, object]) -> dict[str, object]:
+    try:
+        return _run_netlist_compare_impl(root, params)
+    except USER_INPUT_EXCEPTIONS as exc:
+        return _user_error("netlist_compare", exc)
+
+
+def run_smt_package_check(root: Path, params: dict[str, object]) -> dict[str, object]:
+    try:
+        return _run_smt_package_check_impl(root, params)
+    except USER_INPUT_EXCEPTIONS as exc:
+        return _user_error("smt_package_check", exc)
+
+
+def run_single_network_check(root: Path, params: dict[str, object]) -> dict[str, object]:
+    try:
+        return _run_single_network_check_impl(root, params)
+    except USER_INPUT_EXCEPTIONS as exc:
+        return _user_error("single_network_check", exc)
+
+
+def run_bom_process(root: Path, params: dict[str, object]) -> dict[str, object]:
+    try:
+        return _run_bom_process_impl(root, params)
+    except USER_INPUT_EXCEPTIONS as exc:
+        return _user_error("bom_process", exc)
 
 
 def create_analysis_tools(root: Path) -> list[Tool]:

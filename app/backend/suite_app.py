@@ -8,10 +8,14 @@ import uuid
 import re
 import zipfile
 import io
+import shutil
+import tempfile
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import quote, unquote, urlparse
+
+from openpyxl.utils.exceptions import InvalidFileException
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -104,6 +108,83 @@ def _parse_multipart_files(body: bytes, content_type: str) -> list[tuple[str, by
     return files
 
 
+def _multipart_boundary(content_type: str) -> bytes:
+    marker = "boundary="
+    if marker not in content_type:
+        raise ValueError("missing multipart boundary")
+    boundary = content_type.split(marker, 1)[1].split(";", 1)[0].strip().strip('"')
+    if not boundary:
+        raise ValueError("missing multipart boundary")
+    return ("--" + boundary).encode("utf-8")
+
+
+def _parse_multipart_files_from_disk(body_path: Path, content_type: str, target_dir: Path) -> list[dict[str, str]]:
+    boundary = _multipart_boundary(content_type)
+    final_boundary = boundary + b"--"
+    files: list[dict[str, str]] = []
+
+    with body_path.open("rb") as handle:
+        line = handle.readline()
+        while line and line.rstrip(b"\r\n") != boundary:
+            line = handle.readline()
+
+        while line:
+            headers: list[bytes] = []
+            while True:
+                line = handle.readline()
+                if not line:
+                    return files
+                if line in (b"\r\n", b"\n"):
+                    break
+                headers.append(line)
+
+            header_text = b"".join(headers).decode("utf-8", errors="ignore")
+            match = re.search(r'filename="([^"]+)"', header_text)
+            filename = Path(match.group(1)).name if match else ""
+            target = target_dir / filename if filename else None
+            pending: bytes | None = None
+            out = target.open("wb") if target else None
+            try:
+                while True:
+                    line = handle.readline()
+                    if not line:
+                        if pending and out:
+                            out.write(pending)
+                        return files
+                    stripped = line.rstrip(b"\r\n")
+                    if stripped == boundary or stripped == final_boundary:
+                        if pending and out:
+                            if pending.endswith(b"\r\n"):
+                                pending = pending[:-2]
+                            elif pending.endswith(b"\n"):
+                                pending = pending[:-1]
+                            out.write(pending)
+                        if target:
+                            files.append({"name": filename, "path": str(target)})
+                        if stripped == final_boundary:
+                            return files
+                        break
+                    if pending and out:
+                        out.write(pending)
+                    pending = line
+            finally:
+                if out:
+                    out.close()
+
+
+def _copy_exact_request_body(source, target, length: int, chunk_size: int = 64 * 1024) -> int:
+    remaining = length
+    copied = 0
+    while remaining > 0:
+        chunk = source.read(min(chunk_size, remaining))
+        if not chunk:
+            break
+        target.write(chunk)
+        copied += len(chunk)
+        remaining -= len(chunk)
+    return copied
+
+
 def _content_disposition(filename: str) -> str:
     ascii_fallback = "".join(char if 32 <= ord(char) < 127 and char not in {'"', "\\", ";"} else "_" for char in filename)
     encoded = quote(filename.encode("utf-8"))
@@ -152,7 +233,7 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
     @staticmethod
     def _is_user_input_error(exc: Exception) -> bool:
         message = str(exc)
-        return isinstance(exc, (KeyError, ValueError, FileNotFoundError, PermissionError)) or any(
+        return isinstance(exc, (KeyError, ValueError, FileNotFoundError, PermissionError, zipfile.BadZipFile, InvalidFileException)) or any(
             pattern in message for pattern in USER_INPUT_ERROR_PATTERNS
         )
 
@@ -424,13 +505,22 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
         target_dir = self._uploads_dir() / session
         target_dir.mkdir(parents=True, exist_ok=True)
         files = []
-        length = int(self.headers.get("Content-Length", "0") or "0")
-        body = self.rfile.read(length)
-        for filename, content in _parse_multipart_files(body, content_type):
-            target = target_dir / filename
-            target.write_bytes(content)
-            files.append({"name": filename, "path": str(target)})
-        self._send_json({"status": "ok", "session": session, "files": files, "folder": str(target_dir)})
+        tmp_path: Path | None = None
+        try:
+            length = int(self.headers.get("Content-Length", "0") or "0")
+            with tempfile.NamedTemporaryFile(delete=False, dir=target_dir) as tmp:
+                copied = _copy_exact_request_body(self.rfile, tmp, length)
+                if length and copied != length:
+                    raise ValueError("upload truncated")
+                tmp_path = Path(tmp.name)
+            files = _parse_multipart_files_from_disk(tmp_path, content_type, target_dir)
+            if tmp_path.exists():
+                tmp_path.unlink()
+            self._send_json({"status": "ok", "session": session, "files": files, "folder": str(target_dir)})
+        except Exception as exc:
+            shutil.rmtree(target_dir, ignore_errors=True)
+            message = str(exc) or type(exc).__name__
+            self._send_json({"status": "error", "error": message, "user_message": message, "error_kind": type(exc).__name__}, 400)
 
     def _handle_package(self) -> None:
         try:

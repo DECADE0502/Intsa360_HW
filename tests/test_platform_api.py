@@ -422,6 +422,113 @@ class PlatformApiTests(unittest.TestCase):
         finally:
             shutil.rmtree(root, ignore_errors=True)
 
+    def test_upload_large_body_does_not_load_into_memory(self) -> None:
+        text = (ROOT / "app" / "backend" / "suite_app.py").read_text(encoding="utf-8")
+
+        upload_impl = text.split("def _handle_upload", 1)[1].split("def _handle_package", 1)[0]
+        self.assertIn("NamedTemporaryFile", upload_impl)
+        self.assertIn("_copy_exact_request_body", upload_impl)
+        self.assertIn("_parse_multipart_files_from_disk", upload_impl)
+        self.assertNotIn("body = self.rfile.read(length)", upload_impl)
+        self.assertNotIn("read_bytes()", upload_impl)
+
+    def test_upload_multipart_stream_parser_saves_files(self) -> None:
+        root = _make_temp_root()
+        try:
+            boundary = "----hwagent-test-boundary"
+            body = (
+                f"--{boundary}\r\n"
+                'Content-Disposition: form-data; name="file"; filename="demo.txt"\r\n'
+                "Content-Type: text/plain\r\n\r\n"
+                "hello upload\r\n"
+                f"--{boundary}--\r\n"
+            ).encode("utf-8")
+            server = create_server(root, port=0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                host, port = server.server_address
+                request = Request(
+                    f"http://{host}:{port}/api/upload",
+                    data=body,
+                    method="POST",
+                    headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+                )
+                with urlopen(request, timeout=5) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+            finally:
+                server.shutdown()
+                server.server_close()
+
+            self.assertEqual(payload["status"], "ok")
+            saved = Path(payload["files"][0]["path"])
+            self.assertEqual(saved.name, "demo.txt")
+            self.assertEqual(saved.read_text(encoding="utf-8"), "hello upload")
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+    def test_run_tool_returns_400_for_bad_zip(self) -> None:
+        root = _make_temp_root()
+        try:
+            bad = root / "bad.xlsx"
+            bad.write_bytes(b"not a zip workbook")
+            server = create_server(root, port=0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                host, port = server.server_address
+                body = json.dumps({"bom1": str(bad), "bom2": str(bad)}).encode("utf-8")
+                request = Request(
+                    f"http://{host}:{port}/api/tools/bom_compare/run",
+                    data=body,
+                    method="POST",
+                    headers={"Content-Type": "application/json"},
+                )
+                with self.assertRaises(HTTPError) as ctx:
+                    urlopen(request, timeout=5)
+            finally:
+                server.shutdown()
+                server.server_close()
+
+            self.assertEqual(ctx.exception.code, 400)
+            payload = json.loads(ctx.exception.read().decode("utf-8"))
+            self.assertEqual(payload["status"], "error")
+            self.assertIn("user_message", payload)
+            self.assertIn("error_kind", payload)
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+    def test_run_tool_returns_400_for_invalid_xlsx(self) -> None:
+        root = _make_temp_root()
+        try:
+            bad = root / "bad.txt"
+            bad.write_text("not an excel file", encoding="utf-8")
+            server = create_server(root, port=0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                host, port = server.server_address
+                body = json.dumps({"bom1": str(bad), "bom2": str(bad)}).encode("utf-8")
+                request = Request(
+                    f"http://{host}:{port}/api/tools/bom_compare/run",
+                    data=body,
+                    method="POST",
+                    headers={"Content-Type": "application/json"},
+                )
+                with self.assertRaises(HTTPError) as ctx:
+                    urlopen(request, timeout=5)
+            finally:
+                server.shutdown()
+                server.server_close()
+
+            self.assertEqual(ctx.exception.code, 400)
+            payload = json.loads(ctx.exception.read().decode("utf-8"))
+            self.assertEqual(payload["status"], "error")
+            self.assertIn("user_message", payload)
+            self.assertIn("error_kind", payload)
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
     def test_cadence_script_menu_endpoint_updates_registry_without_redeploy_for_dry_run(self) -> None:
         root = _make_temp_root()
         try:
