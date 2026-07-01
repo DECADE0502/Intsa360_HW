@@ -381,6 +381,66 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertNotIn("HwAgentSourceOnlyRootDirs", text)
         self.assertNotIn("HwAgentSourceOnlyRootFiles", text)
 
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
+    def test_sync_preserves_config_local_json(self) -> None:
+        """Sync-HwAgentTree must preserve target's config/local.json when source has one too.
+
+        Also ensures the exclude doesn't accidentally match plugins/user/*/local.json.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            source = tmp_path / "source"
+            target = tmp_path / "target"
+
+            # Source: has NEW config/local.json plus a plugins/user file with same filename
+            (source / "config").mkdir(parents=True)
+            (source / "config" / "local.json").write_text('{"src": true}')
+            (source / "plugins" / "user" / "custom").mkdir(parents=True)
+            (source / "plugins" / "user" / "custom" / "local.json").write_text('{"user_new": true}')
+            (source / "app").mkdir()
+            (source / "app" / "code.py").write_text("new code")
+
+            # Target: existing installation with USER'S config/local.json (must NOT be overwritten)
+            (target / "config").mkdir(parents=True)
+            (target / "config" / "local.json").write_text('{"user_config": true}')
+            # NOTE: plugins/user is entirely user data - also excluded from sync via /XD
+            (target / "app").mkdir()
+            (target / "app" / "code.py").write_text("old code")
+
+            ps = (
+                f". '{ROOT / 'scripts' / 'lib' / 'Update.ps1'}'; "
+                f"Sync-HwAgentTree -SourceRoot '{source}' -TargetRoot '{target}'"
+            )
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
+                capture_output=True, text=True, timeout=60,
+            )
+            # Sync succeeds
+            self.assertEqual(result.returncode, 0, f"stderr={result.stderr} stdout={result.stdout}")
+            # Target's config/local.json is UNCHANGED (user's original)
+            self.assertEqual(
+                (target / "config" / "local.json").read_text(),
+                '{"user_config": true}',
+                "config/local.json overwritten by sync",
+            )
+            # But app code IS updated
+            self.assertEqual((target / "app" / "code.py").read_text(), "new code")
+
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
+    def test_sync_local_json_exclude_is_path_scoped_not_filename_only(self) -> None:
+        """local.json exclude is scoped to config/local.json only.
+
+        Regression: bare filename /XF local.json used to match ANY local.json in tree.
+        """
+        content = (ROOT / "scripts" / "lib" / "Update.ps1").read_text(encoding="utf-8")
+        # Must NOT have bare "local.json" in exclude list
+        self.assertNotRegex(
+            content,
+            r'HwAgentExcludeFiles\s*=\s*@\("local\.json"',
+            "HwAgentExcludeFiles has bare 'local.json' - must be path-scoped as 'config\\local.json'",
+        )
+        self.assertIn('config\\local.json', content, "expected path-scoped config\\local.json in Update.ps1")
+
     def test_update_library_rejects_sha256_mismatch_and_removes_bad_zip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             update_lib = Path(tmp) / "Update.ps1"

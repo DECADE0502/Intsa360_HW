@@ -9,7 +9,7 @@ $script:HwAgentProtected = @("data", "config/local.json", "plugins/user", "unins
 $script:HwAgentInstallerOwned = @("unins000.exe", "unins000.dat", "unins000.msg")
 $script:HwAgentExcludeDirs = @(".git", "data", "plugins\user", "BOM*", "node_modules", ".pytest_cache", "__pycache__")
 $script:HwAgentRootExcludeDirs = @("frontend", "tests", "docs", "launcher")
-$script:HwAgentExcludeFiles = @("local.json", ".gitignore", "HWAgent_Setup.iss", "Insta360_HW_Setup.exe")
+$script:HwAgentExcludeFiles = @("config\local.json", ".gitignore", "HWAgent_Setup.iss", "Insta360_HW_Setup.exe")
 
 function Get-HwAgentUpdateStateDir {
   param([Parameter(Mandatory=$true)][string]$Root)
@@ -163,7 +163,20 @@ function Sync-HwAgentTree {
     }
     $excludeDirs = $script:HwAgentExcludeDirs + $rootExcludePaths
     Write-Host ("MIR: keep excluded dirs=" + ($excludeDirs -join ","))
-    $args = @($SourceRoot, $TargetRoot, "/MIR", "/R:2", "/W:1", "/XD") + $excludeDirs + @("/XF") + $script:HwAgentExcludeFiles
+    # robocopy /XF matches a full absolute path when the pattern contains a
+    # directory separator; a bare filename matches ANY file with that name
+    # anywhere under the source root. Resolve subdir-scoped entries against
+    # SourceRoot so e.g. "config\local.json" only excludes <src>\config\local.json
+    # and does not silently drop plugins\user\*\local.json.
+    $excludeFiles = @()
+    foreach ($file in $script:HwAgentExcludeFiles) {
+      if ($file -match '[\\/]') {
+        $excludeFiles += (Join-Path $SourceRoot $file)
+      } else {
+        $excludeFiles += $file
+      }
+    }
+    $args = @($SourceRoot, $TargetRoot, "/MIR", "/R:2", "/W:1", "/XD") + $excludeDirs + @("/XF") + $excludeFiles
     & robocopy @args | Out-Null
     if ($LASTEXITCODE -ge 8) {
       throw ("robocopy failed: " + $LASTEXITCODE)
