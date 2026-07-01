@@ -1449,6 +1449,46 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertEqual(user_script.read_text(encoding="utf-8"), "keep-me")
             self.assertFalse((autoload / "iac_bom_tool.tcl").exists())
 
+    def test_uninstall_preupgrade_emits_sentinel_and_keeps_data(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            install = tmp_path / "install"
+            autoload = tmp_path / "autoload"
+            autoload.mkdir()
+            history = install / "data" / "history"
+            history.mkdir(parents=True)
+            (install / "app" / "backend").mkdir(parents=True)
+            (install / "app" / "backend" / "suite_app.py").write_text("# dummy", encoding="utf-8")
+            run_record = history / "run_x.json"
+            run_record.write_text("{}", encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    "powershell",
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    str(ROOT / "uninstall.ps1"),
+                    "-PreUpgrade",
+                    "-InstallDir",
+                    str(install),
+                    "-CaptureAutoLoadDir",
+                    str(autoload),
+                    "-Force",
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=30,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr.decode("utf-8", errors="replace"))
+            stdout = result.stdout.decode("utf-8", errors="replace")
+            self.assertIn("__HWAGENT_PREUPGRADE_STARTED__", stdout)
+            self.assertIn("__HWAGENT_PREUPGRADE_DONE__", stdout)
+            self.assertTrue(run_record.exists(), "pre-upgrade must not delete user data")
+            self.assertTrue(install.exists(), "pre-upgrade must not delete the install root")
+
     def test_oneclick_uninstall_offers_detach_and_full_cleanup(self) -> None:
         text = _decode_base64_labels(
             (ROOT / "oneclick_uninstall.ps1").read_text(encoding="utf-8")
@@ -2025,6 +2065,17 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertIn(f'Type: filesandordirs; Name: "{{app}}\\{stale_dir}"', text)
         self.assertNotIn('Type: filesandordirs; Name: "{app}"', text)
         self.assertIn('uninstall.ps1"" -Mode Detach', text)
+
+    def test_inno_setup_stops_services_before_overwrite_and_warns_on_downgrade(self) -> None:
+        text = (ROOT / "HWAgent_Setup.iss").read_text(encoding="utf-8")
+
+        self.assertIn("CloseApplications=yes", text)
+        self.assertIn("function PrepareToInstall", text)
+        self.assertIn("StopHwAgentServices", text)
+        self.assertIn("-PreUpgrade", text)
+        self.assertIn("function InitializeSetup", text)
+        self.assertIn("CompareSemver", text)
+        self.assertIn("A newer version", text)
 
 
 if __name__ == "__main__":

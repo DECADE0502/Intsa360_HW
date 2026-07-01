@@ -3,6 +3,7 @@ param(
   [string]$CaptureAutoLoadDir = "",
   [ValidateSet("Detach", "Full")]
   [string]$Mode = "Full",
+  [switch]$PreUpgrade,
   [switch]$Force,
   [switch]$DryRun
 )
@@ -91,6 +92,16 @@ if (-not (Test-Path -LiteralPath $Root)) {
   exit 0
 }
 $Root = Assert-SafeInstallRoot -Path $Root
+
+if ($PreUpgrade) {
+  Write-Host "__HWAGENT_PREUPGRADE_STARTED__"
+  $stopped = Stop-HwAgentServicesByPort -Ports @(8765..8775) -DryRun:$DryRun
+  if ($stopped.Count -gt 0) {
+    Write-Host ("Stopped HWAgent service processes: " + ($stopped -join ", "))
+  }
+  Write-Host "__HWAGENT_PREUPGRADE_DONE__"
+  exit 0
+}
 
 if (-not $Force -and -not $DryRun) {
   throw "Add -Force to uninstall, or -DryRun to preview."

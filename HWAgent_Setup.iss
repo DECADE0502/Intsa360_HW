@@ -25,7 +25,7 @@ UninstallDisplayIcon={app}\Insta360_HW.exe
 SetupIconFile={#IconFile}
 ShowLanguageDialog=no
 LanguageDetectionMethod=none
-CloseApplications=no
+CloseApplications=yes
 RestartIfNeededByRun=no
 
 [Languages]
@@ -136,9 +136,60 @@ begin
   RegDeleteKeyIncludingSubkeys(HKCU, GetUninstallRegPath());
 end;
 
+function PopVersionPart(var V: String): Integer;
+var
+  Dot: Integer;
+  Part: String;
+begin
+  Dot := Pos('.', V);
+  if Dot > 0 then begin
+    Part := Copy(V, 1, Dot - 1);
+    Delete(V, 1, Dot);
+  end else begin
+    Part := V;
+    V := '';
+  end;
+  Result := StrToIntDef(Part, 0);
+end;
+
+function CompareSemver(A, B: String): Integer;
+var
+  I: Integer;
+  PA: Integer;
+  PB: Integer;
+begin
+  Result := 0;
+  for I := 1 to 3 do begin
+    PA := PopVersionPart(A);
+    PB := PopVersionPart(B);
+    if PA < PB then begin
+      Result := -1;
+      Exit;
+    end;
+    if PA > PB then begin
+      Result := 1;
+      Exit;
+    end;
+  end;
+end;
+
+function InitializeSetup(): Boolean;
+var
+  Installed: String;
+begin
+  Result := True;
+  CleanupBrokenInstallRegistration();
+  Installed := '';
+  if RegQueryStringValue(HKLM, GetUninstallRegPath(), 'DisplayVersion', Installed) or
+     RegQueryStringValue(HKCU, GetUninstallRegPath(), 'DisplayVersion', Installed) then begin
+    if CompareSemver(Installed, '{#MyAppVersion}') > 0 then begin
+      Result := (MsgBox('A newer version ' + Installed + ' is already installed. Continue downgrading to {#MyAppVersion}?', mbConfirmation, MB_YESNO) = IDYES);
+    end;
+  end;
+end;
+
 procedure InitializeWizard();
 begin
-  CleanupBrokenInstallRegistration();
   AlreadyInstalled := (GetUninstallString() <> '');
   if AlreadyInstalled then begin
     // The 5th arg (Exclusive) is True -> radio buttons, exactly one selectable.
@@ -157,6 +208,25 @@ begin
   // signal — far better than a frozen window. Created unconditionally; only
   // shown when the user picks Uninstall.
   UninstallProgressPage := CreateOutputProgressPage('Uninstalling existing version', '');
+end;
+
+function StopHwAgentServices(): Boolean;
+var
+  ResultCode: Integer;
+begin
+  Exec('powershell.exe',
+       '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}') + '\uninstall.ps1" -PreUpgrade -InstallDir "' + ExpandConstant('{app}') + '" -Force',
+       '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Result := (ResultCode = 0);
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Result := '';
+  if AlreadyInstalled then begin
+    if not StopHwAgentServices() then
+      Result := 'Failed to stop existing Insta360 HW services. Please close the platform and retry.';
+  end;
 end;
 
 // Suppress the "Exit Setup?" confirmation when we close the wizard
@@ -278,7 +348,6 @@ var
   ParentDir: String;
   FindRec: TFindRec;
   Safe: Boolean;
-  ResultCode: Integer;
 begin
   if CurUninstallStep <> usPostUninstall then
     Exit;
