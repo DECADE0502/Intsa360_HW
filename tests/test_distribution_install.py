@@ -70,6 +70,7 @@ class DistributionInstallTests(unittest.TestCase):
             "scripts/lib/TclScripts.ps1",
             "scripts/build_frontend.ps1",
             "scripts/build_installer.ps1",
+            "scripts/publish_release.ps1",
             "scripts/verify_all.ps1",
             "scripts/redeploy_cadence_loader.ps1",
             "scripts/diagnose_platform.ps1",
@@ -360,6 +361,47 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse(bad_zip.exists())
             self.assertIn("SHA256 mismatch", result.stderr + result.stdout)
+
+    def test_update_zip_download_receives_sha256_from_release_asset_metadata(self) -> None:
+        text = (ROOT / "scripts" / "lib" / "Update.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("Sha256", text)
+        self.assertIn("ExpectedSha256", text)
+        self.assertIn("Download-HwAgentFile -Url $zipUrl -Target $zipPath -ExpectedSha256 $expectedSha256", text)
+        self.assertNotIn("Download-HwAgentFile -Url $zipUrl -Target $zipPath\n", text)
+
+    def test_update_library_extracts_sha256_from_latest_release_asset(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            update_lib = Path(tmp) / "Update.ps1"
+            shutil.copyfile(FS_ROOT / "scripts" / "lib" / "Update.ps1", update_lib)
+            sha = "a" * 64
+            ps = (
+                "$ErrorActionPreference='Stop'; "
+                f". '{update_lib}'; "
+                "function Invoke-RestMethod { "
+                "  param($Method,$Uri,$Headers,$TimeoutSec); "
+                "  if ($Uri -like '*/releases/latest') { "
+                "    return [pscustomobject]@{ target_commitish='main'; assets=@([pscustomobject]@{ "
+                "      name='Insta360_HW_v0.2.16.zip'; browser_download_url='https://example.test/release.zip'; "
+                f"      sha256='{sha}'; size=12345 "
+                "    }) } "
+                "  } "
+                "  return [pscustomobject]@{ sha='bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' } "
+                "} "
+                "$asset = Resolve-HwAgentReleaseAssetUrl -Repo 'DECADE0502/Intsa360_HW' -ExpectedRevision ''; "
+                "$asset.Url + '|' + $asset.Sha256 + '|' + $asset.Size"
+            )
+            encoded = base64.b64encode(ps.encode("utf-16le")).decode("ascii")
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=20,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(f"https://example.test/release.zip|{sha}|12345", result.stdout)
 
     def test_update_rollback_restores_install_tree_after_apply_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -718,6 +760,41 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertEqual(notice["target_revision"], "2222222")
             self.assertEqual(notice["title"], "单网络检查增强")
             self.assertIn("新增更新公告弹窗", notice["highlights"])
+
+    def test_update_api_normalizes_update_notice_assets(self) -> None:
+        import sys
+        sys.path.insert(0, str(ROOT))
+        try:
+            from app.backend import update_api
+        finally:
+            sys.path.pop(0)
+
+        sha = "b" * 64
+        notice = update_api._normalize_update_notice({
+            "version": "0.2.16",
+            "assets": [
+                {
+                    "kind": "release_zip",
+                    "url": "https://example.test/Insta360_HW_v0.2.16.zip",
+                    "sha256": sha,
+                    "size_bytes": 4321,
+                },
+                {"kind": "", "url": "", "sha256": "bad", "size_bytes": "x"},
+            ],
+        })
+
+        self.assertEqual(len(notice["assets"]), 1)
+        self.assertEqual(notice["assets"][0]["sha256"], sha)
+        self.assertEqual(notice["assets"][0]["size_bytes"], 4321)
+
+    def test_publish_release_supports_dry_run_and_writes_sha256_notice_assets(self) -> None:
+        text = (ROOT / "scripts" / "publish_release.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("[switch]$DryRun", text)
+        self.assertIn("Update-HwAgentNoticeAssets", text)
+        self.assertIn("Get-FileHash", text)
+        self.assertIn("size_bytes", text)
+        self.assertIn("sha256", text)
 
     def test_update_api_uses_notice_version_when_version_endpoint_is_stale(self) -> None:
         import sys

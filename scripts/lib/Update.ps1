@@ -300,7 +300,14 @@ function Resolve-HwAgentReleaseAssetUrl {
     foreach ($asset in @($release.assets)) {
       $name = [string]$asset.name
       if ($name -match '^Insta360_HW_.*\.zip$' -or $name -match 'HWAgent.*\.zip$') {
-        return [string]$asset.browser_download_url
+        $sha256 = ""
+        if ($asset.sha256) { $sha256 = [string]$asset.sha256 }
+        elseif ($asset.digest -and ([string]$asset.digest) -match '^sha256:(.+)$') { $sha256 = $Matches[1] }
+        return @{
+          Url = [string]$asset.browser_download_url
+          Sha256 = $sha256
+          Size = [int64]$asset.size
+        }
       }
     }
   } catch {
@@ -400,10 +407,15 @@ function Invoke-HwAgentZipUpdate {
 
   $repoPath = ConvertTo-HwAgentRepoPath -Repo $Repo
   $remoteRevision = Resolve-HwAgentRemoteRevision -Repo $Repo -Branch $Branch
-  $assetUrl = Resolve-HwAgentReleaseAssetUrl -Repo $Repo -ExpectedRevision $remoteRevision
-  if ($assetUrl) {
-    $zipUrl = $assetUrl
+  $asset = Resolve-HwAgentReleaseAssetUrl -Repo $Repo -ExpectedRevision $remoteRevision
+  $expectedSha256 = ""
+  if ($asset) {
+    $zipUrl = [string]$asset.Url
+    $expectedSha256 = [string]$asset.Sha256
     Write-Host ("Using runtime release package: " + $zipUrl)
+    if ([string]::IsNullOrWhiteSpace($expectedSha256)) {
+      Write-Host "Runtime release package has no SHA256 metadata; download will not be integrity-checked."
+    }
   } else {
     $zipUrl = "https://codeload.github.com/$repoPath/zip/refs/heads/$Branch"
     Write-Host ("No runtime release asset found; falling back to source ZIP: " + $zipUrl)
@@ -419,7 +431,7 @@ function Invoke-HwAgentZipUpdate {
   try {
     New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null
     [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
-    Download-HwAgentFile -Url $zipUrl -Target $zipPath
+    Download-HwAgentFile -Url $zipUrl -Target $zipPath -ExpectedSha256 $expectedSha256
     if (-not (Test-Path -LiteralPath $zipPath)) { throw "ZIP download failed." }
     Write-Host "__HWAGENT_PROGRESS__ 30 update package downloaded"
 

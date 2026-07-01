@@ -399,6 +399,20 @@ def _normalize_update_notice(raw: dict[str, Any], remote_version: str = "", remo
         highlights = []
     highlights = [str(item).strip() for item in highlights if str(item or "").strip()]
     revision = str(raw.get("revision") or remote_revision or "").strip()
+    assets = []
+    for item in raw.get("assets") if isinstance(raw.get("assets"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        sha256 = str(item.get("sha256") or "").strip().lower()
+        url = str(item.get("url") or "").strip()
+        kind = str(item.get("kind") or "").strip()
+        if len(sha256) != 64 or any(ch not in "0123456789abcdef" for ch in sha256) or not url or not kind:
+            continue
+        try:
+            size_bytes = int(item.get("size_bytes") or 0)
+        except (TypeError, ValueError):
+            size_bytes = 0
+        assets.append({"kind": kind, "url": url, "sha256": sha256, "size_bytes": size_bytes})
     return {
         "version": str(raw.get("version") or remote_version or "").strip(),
         "revision": revision,
@@ -408,6 +422,7 @@ def _normalize_update_notice(raw: dict[str, Any], remote_version: str = "", remo
         "summary": str(raw.get("summary") or "").strip(),
         "highlights": highlights,
         "compatibility": str(raw.get("compatibility") or "").strip(),
+        "assets": assets,
         "trace": raw.get("trace") if isinstance(raw.get("trace"), dict) else {},
     }
 
@@ -491,6 +506,11 @@ def check_update(root: Path) -> dict[str, object]:
             update_reason = "notice_version"
     if remote_notice:
         remote_notice = _normalize_update_notice(dict(remote_notice), remote_version, remote_revision)
+    expected_sha256 = ""
+    for asset in remote_notice.get("assets", []) if remote_notice else []:
+        if isinstance(asset, dict) and asset.get("kind") == "release_zip":
+            expected_sha256 = str(asset.get("sha256") or "")
+            break
     if has_update:
         message = "发现新版本，可一键更新"
     elif remote_status in _REMOTE_VERSION_OK_STATUSES:
@@ -504,6 +524,7 @@ def check_update(root: Path) -> dict[str, object]:
         "remote_version": remote_version,
         "remote_revision": remote_revision,
         "update_notice": remote_notice if has_update else {},
+        "expected_sha256": expected_sha256 if has_update else "",
         "notice_status": notice_status,
         "has_update": has_update,
         "update_reason": update_reason,

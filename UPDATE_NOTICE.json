@@ -1,18 +1,26 @@
-{
-  "version": "0.2.15",
-  "revision": "",
-  "date": "2026-07-01",
-  "title": "0.2.15 OTA stability and interrupted-update recovery",
-  "summary": "This update fixes OTA jobs that could hang at the file-apply stage, prevents duplicate update processes, and restores the previous runtime automatically after an interrupted update.",
-  "highlights": [
-    "Only one OTA update can run at a time, so repeated clicks no longer start multiple robocopy jobs.",
-    "File synchronization now stops the running platform processes and uses short robocopy retry limits instead of waiting indefinitely on locked files.",
-    "If an update is interrupted halfway, the next launch or update attempt automatically restores the previous runtime from the rollback snapshot.",
-    "The update log handle is released immediately after the updater starts, reducing Windows file-lock cleanup problems."
-  ],
-  "compatibility": "No data migration is required. Existing history, user plugins and local config are preserved.",
-  "trace": {
-    "repo": "DECADE0502/Intsa360_HW",
-    "branch": "main"
-  }
+﻿{
+    "version":  "0.2.15",
+    "revision":  "",
+    "date":  "2026-07-01",
+    "title":  "0.2.15 OTA stability and interrupted-update recovery",
+    "summary":  "This update fixes OTA jobs that could hang at the file-apply stage, prevents duplicate update processes, and restores the previous runtime automatically after an interrupted update.",
+    "highlights":  [
+                       "Only one OTA update can run at a time, so repeated clicks no longer start multiple robocopy jobs.",
+                       "File synchronization now stops the running platform processes and uses short robocopy retry limits instead of waiting indefinitely on locked files.",
+                       "If an update is interrupted halfway, the next launch or update attempt automatically restores the previous runtime from the rollback snapshot.",
+                       "The update log handle is released immediately after the updater starts, reducing Windows file-lock cleanup problems."
+                   ],
+    "assets":  [
+                   {
+                       "kind":  "release_zip",
+                       "url":  "https://github.com/DECADE0502/Intsa360_HW/releases/download/v0.2.15/Insta360_HW_v0.2.15.zip",
+                       "sha256":  "e9f2a88d9ac24c367ebea7130e56da792a94396014270e9f0039c311d0a45a12",
+                       "size_bytes":  665338
+                   }
+               ],
+    "compatibility":  "No data migration is required. Existing history, user plugins and local config are preserved.",
+    "trace":  {
+                  "repo":  "DECADE0502/Intsa360_HW",
+                  "branch":  "main"
+              }
 }
