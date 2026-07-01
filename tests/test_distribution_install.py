@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 import base64
@@ -1692,6 +1693,32 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("/win32icon:", text)
         self.assertIn("insta360_icon.ico", text)
         self.assertIn("Insta360_HW.exe", text)
+        self.assertIn("AssemblyInfo.cs.template", text)
+
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
+    def test_launcher_exe_has_version_info(self) -> None:
+        exe = ROOT / "Insta360_HW.exe"
+        if not exe.exists():
+            self.skipTest("launcher exe not built")
+
+        result = subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-Command",
+                f"(Get-Item '{exe}').VersionInfo | Select-Object FileVersion,CompanyName,ProductName | ConvertTo-Json -Compress",
+            ],
+            text=True,
+            capture_output=True,
+            timeout=30,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        info = json.loads(result.stdout)
+        self.assertRegex(info["FileVersion"], r"^\d+\.\d+\.\d+\.\d+$")
+        self.assertNotEqual(info["FileVersion"], "0.0.0.0")
+        self.assertEqual(info["CompanyName"], "Insta360")
+        self.assertEqual(info["ProductName"], "Insta360 HW Platform")
 
     def test_oneclick_install_supports_silent_mode(self) -> None:
         text = (ROOT / "oneclick_install.ps1").read_text(encoding="utf-8")
@@ -1724,6 +1751,21 @@ class DistributionInstallTests(unittest.TestCase):
         # PE signature (MZ) sanity check.
         header = exe.read_bytes()[:2]
         self.assertEqual(header, b"MZ")
+
+    def test_launcher_exe_has_version_info(self) -> None:
+        import sys
+        if sys.platform != "win32":
+            self.skipTest("windows only")
+        # build.ps1 writes the compiled launcher to the repo root, not launcher/.
+        exe = ROOT / "Insta360_HW.exe"
+        if not exe.exists():
+            self.skipTest("launcher not built")
+        r = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             f"(Get-Item '{exe}').VersionInfo.FileVersion"],
+            capture_output=True, text=True, timeout=15)
+        self.assertRegex(r.stdout.strip(), r"^\d+\.\d+\.\d+\.\d+$",
+                         f"exe FileVersion missing: got '{r.stdout}'")
 
     # ── Release tree builder ───────────────────────────────────────────────
 

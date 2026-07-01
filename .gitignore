@@ -25,6 +25,9 @@ Thumbs.db
 *.log
 *.bak
 
+# Generated at launcher build time from AssemblyInfo.cs.template
+launcher/AssemblyInfo.cs
+
 # Cadence and local backups generated during deployment
 *_backup/
 *.bak_before_update

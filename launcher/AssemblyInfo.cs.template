@@ -1,0 +1,11 @@
+using System.Reflection;
+using System.Runtime.InteropServices;
+[assembly: AssemblyTitle("Insta360 HW Launcher")]
+[assembly: AssemblyDescription("Insta360 HW Platform Launcher")]
+[assembly: AssemblyCompany("Insta360")]
+[assembly: AssemblyProduct("Insta360 HW Platform")]
+[assembly: AssemblyCopyright("Copyright (c) Insta360 2026")]
+[assembly: AssemblyVersion("{{VERSION}}")]
+[assembly: AssemblyFileVersion("{{VERSION}}")]
+[assembly: ComVisible(false)]
+[assembly: Guid("b7f3ac9e-2d5e-4a8c-9f6e-1a3d4e5f6b72")]
