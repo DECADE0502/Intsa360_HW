@@ -41,7 +41,20 @@ internal static class Program
         string installScript = Path.Combine(root, "oneclick_install.ps1");
         string redeployScript = Path.Combine(root, "scripts", "redeploy_cadence_loader.ps1");
         string launchScript = Path.Combine(root, "launch_tool_suite.ps1");
-        string readyMarker = Path.Combine(root, "data", ".ready");
+        // The .ready marker lives under %LOCALAPPDATA%\Insta360_HW so read-only
+        // install locations (Program Files, network mounts) do not break the
+        // first-run gate. Any prior data\.ready copy is ignored.
+        string readyMarker = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Insta360_HW", ".ready");
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(readyMarker));
+        }
+        catch
+        {
+            // Marker directory is a convenience; failure will surface at write time.
+        }
 
         bool createdNew;
         Mutex mutex = null;
@@ -75,6 +88,13 @@ internal static class Program
             try
             {
                 WriteLog("Launcher started. root=" + root);
+                if (!File.Exists(readyMarker))
+                {
+                    // First-run: open waiting.html (or fall back to a
+                    // MessageBox) so the user sees something within a few
+                    // seconds while the ~30-60s silent installer runs.
+                    OpenWaitingPage(root);
+                }
                 EnsureFirstRunReady(root, installScript, readyMarker);
             }
             catch (Exception ex)
@@ -123,7 +143,7 @@ internal static class Program
         RunPowerShellHidden(root, installScript, "-Silent");
         try
         {
-            Directory.CreateDirectory(Path.Combine(root, "data"));
+            Directory.CreateDirectory(Path.GetDirectoryName(readyMarker));
             File.WriteAllText(readyMarker, DateTime.Now.ToString("s") + "\n");
         }
         catch
@@ -187,6 +207,59 @@ internal static class Program
             }
             WriteLog("PowerShell exited " + proc.ExitCode + ": " + script);
             return proc.ExitCode;
+        }
+    }
+
+    private static void OpenWaitingPage(string root)
+    {
+        try
+        {
+            string waitFile = Path.Combine(root, "app", "frontend", "waiting.html");
+            if (File.Exists(waitFile))
+            {
+                // file:/// URL so the default browser opens the local page.
+                string url = "file:///" + waitFile.Replace('\\', '/');
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = url,
+                    UseShellExecute = true,
+                });
+                WriteLog("Opened first-run waiting page: " + waitFile);
+                return;
+            }
+            WriteLog("waiting.html not found at " + waitFile + "; falling back to MessageBox.");
+        }
+        catch (Exception ex)
+        {
+            WriteLog("OpenWaitingPage failed, falling back to MessageBox: " + ex);
+        }
+
+        // Fallback: show a non-blocking MessageBox on a background thread so
+        // Main can proceed to the ~30-60s silent installer.
+        try
+        {
+            var thread = new Thread(() =>
+            {
+                try
+                {
+                    MessageBox.Show(
+                        "Insta360_HW 正在初始化，请稍候 30-60 秒...\n\n第一次运行需要部署 Python 运行时和 OrCAD 集成。",
+                        "Insta360 HW",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
+                }
+                catch
+                {
+                    // Never let UI failure block first-run install.
+                }
+            });
+            thread.IsBackground = true;
+            thread.SetApartmentState(ApartmentState.STA);
+            thread.Start();
+        }
+        catch (Exception ex)
+        {
+            WriteLog("OpenWaitingPage MessageBox fallback failed: " + ex);
         }
     }
 
