@@ -2512,5 +2512,33 @@ class DistributionInstallTests(unittest.TestCase):
                              f"backup dir {backup_dir} still exists")
 
 
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
+    def test_pre_release_check_script_exists_and_parses(self):
+        script = ROOT / "scripts" / "pre_release_check.ps1"
+        self.assertTrue(script.exists(), "scripts/pre_release_check.ps1 must exist")
+        # PowerShell parse check
+        r = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             f"[void][System.Management.Automation.Language.Parser]::ParseFile('{script}', [ref]$null, [ref]$null); 'PARSE_OK'"],
+            capture_output=True, text=True, timeout=15)
+        self.assertIn("PARSE_OK", r.stdout, f"parse failed: {r.stderr}")
+
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
+    def test_pre_release_check_script_covers_required_gates(self):
+        """Verify pre-release script checks all 7 required gates."""
+        content = (ROOT / "scripts" / "pre_release_check.ps1").read_text(encoding="utf-8")
+        required_gates = [
+            "git status",             # gate 1
+            "HWAgent_Setup.iss",      # gate 2 (iss version)
+            "REVISION",               # gate 3
+            "Assert-HwAgentNoticeHasAssets",  # gate 4 (sha256)
+            "HWAgent_release",        # gate 5 (release exe)
+            "pytest",                 # gate 6
+            "npm run build",          # gate 7
+        ]
+        for gate in required_gates:
+            self.assertIn(gate, content, f"pre-release gate '{gate}' missing")
+
+
 if __name__ == "__main__":
     unittest.main()
