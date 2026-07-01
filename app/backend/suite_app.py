@@ -49,6 +49,36 @@ def _safe_child(base: Path, requested: str) -> Path | None:
     return target
 
 
+def _resolve_output_member(outputs_dir: Path, requested: object) -> Path:
+    text = unquote(str(requested)).strip()
+    if not text:
+        raise ValueError("empty package path")
+    if text.startswith("\\\\") or text.startswith("//"):
+        raise ValueError("package path must be inside data/outputs")
+    normalized = text.replace("\\", "/")
+    if re.match(r"^[A-Za-z]:/", normalized):
+        candidate = Path(text)
+        try:
+            rel = candidate.resolve().relative_to(outputs_dir.resolve())
+        except (OSError, ValueError) as exc:
+            raise ValueError("package path must be inside data/outputs") from exc
+    else:
+        parts = [part for part in normalized.split("/") if part]
+        if ".." in parts:
+            raise ValueError("package path must not contain '..'")
+        marker = ["data", "outputs"]
+        rel_parts = parts
+        for idx in range(0, max(len(parts) - 1, 0)):
+            if [part.lower() for part in parts[idx:idx + 2]] == marker:
+                rel_parts = parts[idx + 2:]
+                break
+        rel = Path(*rel_parts) if rel_parts else Path("")
+    target = _safe_child(outputs_dir, rel.as_posix())
+    if target is None:
+        raise ValueError("package path must be inside data/outputs")
+    return target
+
+
 def _parse_multipart_files(body: bytes, content_type: str) -> list[tuple[str, bytes]]:
     marker = "boundary="
     if marker not in content_type:
@@ -105,6 +135,19 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
 
     def _uploads_dir(self) -> Path:
         return self.root / "data" / "uploads"
+
+    def _validate_output_dir_param(self, params: dict[str, object]) -> None:
+        raw = params.get("output_dir")
+        if not raw:
+            return
+        outputs = self._outputs_dir().resolve()
+        requested = Path(str(raw))
+        if not requested.is_absolute():
+            requested = outputs / requested
+        try:
+            requested.resolve().relative_to(outputs)
+        except ValueError as exc:
+            raise ValueError("bad_output_dir: output_dir must be inside data/outputs") from exc
 
     @staticmethod
     def _is_user_input_error(exc: Exception) -> bool:
@@ -265,9 +308,15 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
             tool_id = parsed.path.removeprefix("/api/tools/").removesuffix("/run")
             try:
                 params = self._read_json_body()
+                self._validate_output_dir_param(params)
                 result = self.registry.run_tool(tool_id, params)
             except Exception as exc:
-                self._send_json({"status": "error", "error": str(exc)}, 400 if self._is_user_input_error(exc) else 500)
+                message = str(exc)
+                error_kind = "bad_output_dir" if message.startswith("bad_output_dir") else "tool_error"
+                self._send_json(
+                    {"status": "error", "error": message, "message": message, "user_message": message, "error_kind": error_kind},
+                    400 if self._is_user_input_error(exc) else 500,
+                )
                 return
             self._record_history(tool_id, params, result)
             self._send_json(result, 400 if result.get("status") == "error" else 200)
@@ -392,15 +441,16 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
         name = str(params.get("name") or "BOM导出").strip() or "BOM导出"
         members: list[Path] = []
         seen: set[str] = set()
-        for raw in params.get("files") or []:
-            normalized = unquote(str(raw)).replace("\\", "/")
-            marker = "/data/outputs/"
-            idx = normalized.find(marker)
-            rel = normalized[idx + len(marker):] if idx >= 0 else normalized.replace("data/outputs/", "")
-            target = _safe_child(self._outputs_dir(), rel)
-            if target and target.is_file() and str(target) not in seen:
-                seen.add(str(target))
-                members.append(target)
+        try:
+            requested_files = params.get("files") or []
+            for raw in requested_files:
+                target = _resolve_output_member(self._outputs_dir(), raw)
+                if target and target.is_file() and str(target) not in seen:
+                    seen.add(str(target))
+                    members.append(target)
+        except ValueError as exc:
+            self._send_json({"status": "error", "error": str(exc), "user_message": str(exc), "error_kind": "bad_package_path"}, 400)
+            return
         if not members:
             self._send_json({"error": "no files to package"}, 404)
             return

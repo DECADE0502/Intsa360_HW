@@ -88,6 +88,40 @@ class PlatformApiTests(unittest.TestCase):
         finally:
             shutil.rmtree(root, ignore_errors=True)
 
+    def test_plugins_endpoint_reports_bad_manifest_without_500(self) -> None:
+        root = _make_temp_root()
+        try:
+            (root / "plugins" / "user" / "bad.json").write_text("{bad json", encoding="utf-8")
+            (root / "plugins" / "user" / "scripts" / "demo.tcl").write_text("proc ::Demo::Run {} {}\n", encoding="utf-8")
+            (root / "plugins" / "user" / "good.json").write_text(
+                json.dumps(
+                    {
+                        "id": "user.good",
+                        "name": "Good Script",
+                        "type": "cadence_tcl",
+                        "command": "::Demo::Run",
+                        "script": "scripts/demo.tcl",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            server = create_server(root, port=0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                host, port = server.server_address
+                with urlopen(f"http://{host}:{port}/api/plugins", timeout=5) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+            finally:
+                server.shutdown()
+                server.server_close()
+
+            self.assertEqual(payload["groups"]["user"][0]["id"], "user.good")
+            self.assertEqual(payload["warnings"][0]["source"], "user")
+            self.assertIn("bad.json", payload["warnings"][0]["path"])
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
     def test_user_plugin_menu_endpoint_updates_manifest_without_redeploy_for_dry_run(self) -> None:
         root = _make_temp_root()
         try:
@@ -314,6 +348,77 @@ class PlatformApiTests(unittest.TestCase):
             self.assertEqual(downloaded, "server-root-output")
             self.assertEqual(package_type, "application/zip")
             self.assertGreater(len(package_body), 20)
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+    def test_package_endpoint_rejects_paths_outside_outputs(self) -> None:
+        root = _make_temp_root()
+        try:
+            output_dir = root / "data" / "outputs"
+            output_dir.mkdir(parents=True)
+            output_file = output_dir / "demo.txt"
+            output_file.write_text("server-root-output", encoding="utf-8")
+
+            server = create_server(root, port=0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                host, port = server.server_address
+                safe_body = json.dumps({"name": "demo", "files": [str(output_file)]}).encode("utf-8")
+                safe_request = Request(
+                    f"http://{host}:{port}/api/package",
+                    data=safe_body,
+                    method="POST",
+                    headers={"Content-Type": "application/json"},
+                )
+                with urlopen(safe_request, timeout=5) as response:
+                    self.assertEqual(response.headers.get("Content-Type"), "application/zip")
+
+                for unsafe in ["../demo.txt", "C:/Windows/win.ini", r"\\server\share\demo.txt"]:
+                    body = json.dumps({"name": "demo", "files": [unsafe]}).encode("utf-8")
+                    request = Request(
+                        f"http://{host}:{port}/api/package",
+                        data=body,
+                        method="POST",
+                        headers={"Content-Type": "application/json"},
+                    )
+                    with self.subTest(unsafe=unsafe):
+                        with self.assertRaises(HTTPError) as ctx:
+                            urlopen(request, timeout=5)
+                        self.assertEqual(ctx.exception.code, 400)
+            finally:
+                server.shutdown()
+                server.server_close()
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+    def test_tool_run_rejects_output_dir_outside_outputs(self) -> None:
+        root = _make_temp_root()
+        try:
+            outside = root / "outside"
+            outside.mkdir()
+            server = create_server(root, port=0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                host, port = server.server_address
+                body = json.dumps({"bom1": str(root / "missing1.xlsx"), "bom2": str(root / "missing2.xlsx"), "output_dir": str(outside)}).encode("utf-8")
+                request = Request(
+                    f"http://{host}:{port}/api/tools/bom_compare/run",
+                    data=body,
+                    method="POST",
+                    headers={"Content-Type": "application/json"},
+                )
+                with self.assertRaises(HTTPError) as ctx:
+                    urlopen(request, timeout=5)
+            finally:
+                server.shutdown()
+                server.server_close()
+
+            self.assertEqual(ctx.exception.code, 400)
+            payload = json.loads(ctx.exception.read().decode("utf-8"))
+            self.assertEqual(payload["status"], "error")
+            self.assertEqual(payload["error_kind"], "bad_output_dir")
         finally:
             shutil.rmtree(root, ignore_errors=True)
 

@@ -134,22 +134,31 @@ def _load_manifest(path: Path, source: str) -> dict[str, Any]:
     return plugin
 
 
-def _manifest_plugins(root: Path, source: str) -> list[dict[str, Any]]:
+def _manifest_plugins(root: Path, source: str, warnings: list[dict[str, str]] | None = None) -> list[dict[str, Any]]:
     directory = root / "plugins" / source
     if not directory.exists():
         return []
-    return [_load_manifest(path, source) for path in sorted(directory.glob("*.json"))]
+    plugins: list[dict[str, Any]] = []
+    for path in sorted(directory.glob("*.json")):
+        try:
+            plugins.append(_load_manifest(path, source))
+        except (json.JSONDecodeError, ValueError, OSError) as exc:
+            if warnings is not None:
+                warnings.append({"source": source, "path": str(path), "message": str(exc)})
+    return plugins
 
 
 def load_plugins(root: Path, system_script_dirs: Iterable[Path] | None = None) -> dict[str, Any]:
+    warnings: list[dict[str, str]] = []
     system = _official_cadence_plugins(system_script_dirs)
-    platform = _platform_plugins_from_capabilities(root) + _manifest_plugins(root, "platform")
-    user = _manifest_plugins(root, "user")
+    platform = _platform_plugins_from_capabilities(root) + _manifest_plugins(root, "platform", warnings)
+    user = _manifest_plugins(root, "user", warnings)
     plugins = system + platform + user
     return {
         "platform": {"name": "Insta360硬件提效平台", "cadence_menu": PLUGIN_MENU},
         "plugins": plugins,
         "groups": {"system": system, "platform": platform, "user": user},
+        "warnings": warnings,
         "summary": {
             "total": len(plugins),
             "system": len(system),
