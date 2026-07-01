@@ -12,6 +12,102 @@ $script:HwAgentExcludeFiles = @("local.json", ".gitignore", "HWAgent_Setup.iss",
 $script:HwAgentSourceOnlyRootDirs = @("frontend", "tests", "docs", "launcher")
 $script:HwAgentSourceOnlyRootFiles = @(".gitignore", "HWAgent_Setup.iss", "Insta360_HW_Setup.exe")
 
+function Get-HwAgentUpdateStateDir {
+  param([Parameter(Mandatory=$true)][string]$Root)
+  return (Join-Path $Root "data\reports\runtime")
+}
+
+function Get-HwAgentUpdatePendingPath {
+  param([Parameter(Mandatory=$true)][string]$Root)
+  return (Join-Path (Get-HwAgentUpdateStateDir -Root $Root) "update_pending.json")
+}
+
+function New-HwAgentRollbackRoot {
+  param([Parameter(Mandatory=$true)][string]$Root)
+  return (Join-Path (Get-HwAgentUpdateStateDir -Root $Root) "update_rollback_current")
+}
+
+function Start-HwAgentUpdateTransaction {
+  param([Parameter(Mandatory=$true)][string]$Root)
+  $stateDir = Get-HwAgentUpdateStateDir -Root $Root
+  New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
+  $rollbackRoot = New-HwAgentRollbackRoot -Root $Root
+  if (Test-Path -LiteralPath $rollbackRoot) {
+    Remove-Item -LiteralPath $rollbackRoot -Recurse -Force -ErrorAction SilentlyContinue
+  }
+  Copy-HwAgentTreeForRollback -Root $Root -BackupRoot $rollbackRoot
+  $pending = @{
+    started_at = (Get-Date).ToString("o")
+    root = $Root
+    rollback_root = $rollbackRoot
+  }
+  $pending | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Get-HwAgentUpdatePendingPath -Root $Root) -Encoding UTF8
+  return $rollbackRoot
+}
+
+function Complete-HwAgentUpdateTransaction {
+  param([Parameter(Mandatory=$true)][string]$Root)
+  $pendingPath = Get-HwAgentUpdatePendingPath -Root $Root
+  $rollbackRoot = New-HwAgentRollbackRoot -Root $Root
+  if (Test-Path -LiteralPath $pendingPath) {
+    Remove-Item -LiteralPath $pendingPath -Force -ErrorAction SilentlyContinue
+  }
+  if (Test-Path -LiteralPath $rollbackRoot) {
+    Remove-Item -LiteralPath $rollbackRoot -Recurse -Force -ErrorAction SilentlyContinue
+  }
+}
+
+function Restore-HwAgentInterruptedUpdate {
+  param([Parameter(Mandatory=$true)][string]$Root)
+  $pendingPath = Get-HwAgentUpdatePendingPath -Root $Root
+  if (-not (Test-Path -LiteralPath $pendingPath)) { return $false }
+
+  $rollbackRoot = New-HwAgentRollbackRoot -Root $Root
+  try {
+    $pending = Get-Content -LiteralPath $pendingPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($pending.rollback_root) {
+      $rollbackRoot = [string]$pending.rollback_root
+    }
+  } catch {
+    $rollbackRoot = New-HwAgentRollbackRoot -Root $Root
+  }
+
+  Write-Host "__HWAGENT_PROGRESS__ 5 restoring interrupted update"
+  if (Test-Path -LiteralPath $rollbackRoot) {
+    Restore-HwAgentTreeFromRollback -BackupRoot $rollbackRoot -Root $Root
+  }
+  Complete-HwAgentUpdateTransaction -Root $Root
+  Write-Host "Recovered from an interrupted update by restoring previous runtime files."
+  return $true
+}
+
+function Stop-HwAgentLauncherProcesses {
+  param([Parameter(Mandatory=$true)][string]$Root)
+  $exePath = Join-Path $Root "Insta360_HW.exe"
+  if (-not (Test-Path -LiteralPath $exePath)) { return @() }
+  $resolvedExe = (Resolve-Path -LiteralPath $exePath).Path
+  $stopped = @()
+  try {
+    Get-CimInstance Win32_Process |
+      Where-Object { $_.Name -ieq "Insta360_HW.exe" -and $_.ExecutablePath -and $_.ExecutablePath -ieq $resolvedExe } |
+      ForEach-Object {
+        Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+        $stopped += [string]$_.ProcessId
+      }
+  } catch {
+    return $stopped
+  }
+  return $stopped
+}
+
+function Stop-HwAgentRuntimeLocks {
+  param([Parameter(Mandatory=$true)][string]$Root)
+  Stop-HwAgentLauncherProcesses -Root $Root | Out-Null
+  if (Get-Command Stop-HwAgentServicesByPort -ErrorAction SilentlyContinue) {
+    Stop-HwAgentServicesByPort | Out-Null
+  }
+}
+
 function Copy-HwAgentProtectedItems {
   param(
     [Parameter(Mandatory=$true)][string]$Root,
@@ -59,7 +155,9 @@ function Sync-HwAgentTree {
       }
     }
 
-    $args = @($SourceRoot, $TargetRoot, "/MIR", "/XD") + $script:HwAgentExcludeDirs + @("/XF") + $script:HwAgentExcludeFiles
+    Stop-HwAgentRuntimeLocks -Root $TargetRoot
+
+    $args = @($SourceRoot, $TargetRoot, "/MIR", "/R:2", "/W:1", "/XD") + $script:HwAgentExcludeDirs + @("/XF") + $script:HwAgentExcludeFiles
     & robocopy @args | Out-Null
     if ($LASTEXITCODE -ge 8) {
       throw ("robocopy failed: " + $LASTEXITCODE)
@@ -97,7 +195,7 @@ function Copy-HwAgentTreeForRollback {
     [Parameter(Mandatory=$true)][string]$BackupRoot
   )
   New-Item -ItemType Directory -Force -Path $BackupRoot | Out-Null
-  $args = @($Root, $BackupRoot, "/MIR", "/XD", "data", "plugins\user", ".git", "node_modules", "/XF", "config\local.json")
+  $args = @($Root, $BackupRoot, "/MIR", "/R:2", "/W:1", "/XD", "data", "plugins\user", ".git", "node_modules", "/XF", "config\local.json")
   & robocopy @args | Out-Null
   if ($LASTEXITCODE -ge 8) {
     throw ("rollback backup failed: " + $LASTEXITCODE)
@@ -110,7 +208,7 @@ function Restore-HwAgentTreeFromRollback {
     [Parameter(Mandatory=$true)][string]$Root
   )
   if (-not (Test-Path -LiteralPath $BackupRoot)) { return }
-  $args = @($BackupRoot, $Root, "/MIR", "/XD", "data", "plugins\user", ".git", "node_modules", "/XF", "config\local.json")
+  $args = @($BackupRoot, $Root, "/MIR", "/R:2", "/W:1", "/XD", "data", "plugins\user", ".git", "node_modules", "/XF", "config\local.json")
   & robocopy @args | Out-Null
   if ($LASTEXITCODE -ge 8) {
     throw ("rollback restore failed: " + $LASTEXITCODE)
@@ -122,23 +220,24 @@ function Invoke-HwAgentWithRollback {
     [Parameter(Mandatory=$true)][string]$Root,
     [Parameter(Mandatory=$true)][scriptblock]$Operation
   )
-  $rollbackRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("insta360_hw_rollback_" + [System.Guid]::NewGuid().ToString("N"))
+  $rollbackRoot = $null
   try {
-    Copy-HwAgentTreeForRollback -Root $Root -BackupRoot $rollbackRoot
+    Restore-HwAgentInterruptedUpdate -Root $Root | Out-Null
+    $rollbackRoot = Start-HwAgentUpdateTransaction -Root $Root
     & $Operation
+    Complete-HwAgentUpdateTransaction -Root $Root
   } catch {
     Write-Host "__HWAGENT_PROGRESS__ 90 rolling back failed update"
     try {
-      Restore-HwAgentTreeFromRollback -BackupRoot $rollbackRoot -Root $Root
+      if ($rollbackRoot -and (Test-Path -LiteralPath $rollbackRoot)) {
+        Restore-HwAgentTreeFromRollback -BackupRoot $rollbackRoot -Root $Root
+      }
+      Complete-HwAgentUpdateTransaction -Root $Root
       Write-Host "Update failed; restored previous runtime files."
     } catch {
       Write-Host ("Rollback failed: " + $_.Exception.Message)
     }
     throw
-  } finally {
-    if (Test-Path -LiteralPath $rollbackRoot) {
-      Remove-Item -LiteralPath $rollbackRoot -Recurse -Force -ErrorAction SilentlyContinue
-    }
   }
 }
 

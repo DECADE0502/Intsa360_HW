@@ -522,6 +522,14 @@ def run_update(root: Path) -> dict[str, object]:
     if not script.exists():
         return {"status": "error", "error": "未找到更新脚本"}
 
+    if _is_update_running(root):
+        return {
+            "status": "ok",
+            "already_running": True,
+            "message": "更新已经在进行中，请查看当前进度",
+            "version": read_version(root),
+        }
+
     # Capture the update output to a log file instead of DEVNULL, so failures
     # are diagnosable (network issues, extraction errors).
     log_dir = root / "data" / "reports" / "runtime"
@@ -539,6 +547,8 @@ def run_update(root: Path) -> dict[str, object]:
         stderr=subprocess.STDOUT if log_out else subprocess.DEVNULL,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
+    if log_out:
+        log_out.close()
     return {"status": "ok", "message": "更新已在后台启动，完成后服务会自动重启。可在「系统状态」查看更新日志。", "version": read_version(root)}
 
 

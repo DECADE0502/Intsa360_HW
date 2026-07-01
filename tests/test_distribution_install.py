@@ -511,6 +511,59 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("__HWAGENT_PROGRESS__ 10", lib_text)
         self.assertIn("__HWAGENT_PROGRESS__ 100", update_text)
 
+    def test_update_scripts_prevent_duplicate_runs_and_bound_robocopy_retries(self) -> None:
+        update_text = (ROOT / "update.ps1").read_text(encoding="utf-8")
+        lib_text = (ROOT / "scripts" / "lib" / "Update.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("scripts\\lib\\Service.ps1", update_text)
+        self.assertIn("Start-HwAgentService", update_text)
+        self.assertIn("Global\\Insta360_HW_Update", update_text)
+        self.assertIn("WaitOne(0)", update_text)
+        self.assertIn("another update is already running", update_text)
+        self.assertIn("Stop-HwAgentServicesByPort", lib_text)
+        self.assertIn("Stop-HwAgentLauncherProcesses", lib_text)
+        self.assertIn("Restore-HwAgentInterruptedUpdate", lib_text)
+        self.assertIn("update_pending.json", lib_text)
+        self.assertIn("update_rollback_current", lib_text)
+
+        robocopy_arg_lines = [line for line in lib_text.splitlines() if "$args = @(" in line and '"/MIR"' in line]
+        self.assertGreaterEqual(len(robocopy_arg_lines), 3)
+        for line in robocopy_arg_lines:
+            with self.subTest(line=line):
+                self.assertIn('"/R:2"', line)
+                self.assertIn('"/W:1"', line)
+
+    def test_update_api_refuses_to_start_duplicate_update(self) -> None:
+        import sys
+        sys.path.insert(0, str(ROOT))
+        try:
+            from app.backend import update_api
+        finally:
+            sys.path.pop(0)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "install"
+            root.mkdir()
+            (root / "VERSION").write_text("0.2.13\n", encoding="utf-8")
+            (root / "update.ps1").write_text("echo update\n", encoding="utf-8")
+
+            original_running = update_api._is_update_running
+            original_popen = subprocess.Popen
+            try:
+                update_api._is_update_running = lambda _root: True
+
+                def fail_popen(*_args, **_kwargs):
+                    raise AssertionError("run_update must not spawn a second updater")
+
+                subprocess.Popen = fail_popen
+                result = update_api.run_update(root)
+            finally:
+                update_api._is_update_running = original_running
+                subprocess.Popen = original_popen
+
+            self.assertEqual(result["status"], "ok")
+            self.assertTrue(result["already_running"])
+
     def test_update_script_defaults_to_zip_and_skips_user_machine_frontend_build(self) -> None:
         update_text = (ROOT / "update.ps1").read_text(encoding="utf-8")
 

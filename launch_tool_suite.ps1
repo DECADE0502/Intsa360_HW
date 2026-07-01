@@ -4,6 +4,7 @@ $ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $Root "scripts\lib\Paths.ps1")
+. (Join-Path $Root "scripts\lib\Update.ps1")
 $Root = Get-HwAgentRoot -StartPath $Root
 $Python = Find-Python -Root $Root
 $LogDir = Join-Path $Root "data\reports\runtime"
@@ -97,6 +98,14 @@ function Open-WaitingPage {
 }
 
 Write-LauncherLog "Launch requested Source='$Source' Name='$Name' Restart='$Restart'"
+
+try {
+  if (Restore-HwAgentInterruptedUpdate -Root $Root) {
+    Write-LauncherLog "Recovered interrupted update before launch."
+  }
+} catch {
+  Write-LauncherLog ("Interrupted update recovery failed: " + $_.Exception.Message)
+}
 
 # 0) 已有健康服务且未要求重启 → 直接复用（防重复启动）
 if (-not $Restart) {

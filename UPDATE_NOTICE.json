@@ -1,14 +1,14 @@
 {
-  "version": "0.2.14",
+  "version": "0.2.15",
   "revision": "",
   "date": "2026-07-01",
-  "title": "0.2.14 OTA and Cadence integration recovery",
-  "summary": "This update fixes the OTA version judgment that could incorrectly offer an older same-version revision, restores the Cadence integration repair entry, and improves launcher diagnostics.",
+  "title": "0.2.15 OTA stability and interrupted-update recovery",
+  "summary": "This update fixes OTA jobs that could hang at the file-apply stage, prevents duplicate update processes, and restores the previous runtime automatically after an interrupted update.",
   "highlights": [
-    "OTA no longer treats an older same-version revision as a new update.",
-    "The platform keeps the Repair Cadence Integration action after updating.",
-    "Insta360_HW.exe now uses a single instance and writes launcher logs to LOCALAPPDATA.",
-    "Update package verification and rollback were hardened to reduce broken-update risk."
+    "Only one OTA update can run at a time, so repeated clicks no longer start multiple robocopy jobs.",
+    "File synchronization now stops the running platform processes and uses short robocopy retry limits instead of waiting indefinitely on locked files.",
+    "If an update is interrupted halfway, the next launch or update attempt automatically restores the previous runtime from the rollback snapshot.",
+    "The update log handle is released immediately after the updater starts, reducing Windows file-lock cleanup problems."
   ],
   "compatibility": "No data migration is required. Existing history, user plugins and local config are preserved.",
   "trace": {
