@@ -336,6 +336,42 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertFalse((target / "launcher").exists())
             self.assertTrue((target / "app" / "frontend" / "index.html").exists())
 
+    def test_update_sync_preserves_user_dropped_docs_and_frontend_when_source_omits_them(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "payload"
+            target = Path(tmp) / "install"
+            source.mkdir()
+            target.mkdir()
+            (source / "app" / "frontend").mkdir(parents=True)
+            (source / "app" / "frontend" / "index.html").write_text("new", encoding="utf-8")
+
+            (target / "docs").mkdir()
+            (target / "docs" / "my_notes.md").write_text("user note", encoding="utf-8")
+            (target / "frontend").mkdir()
+            (target / "frontend" / "local_probe.txt").write_text("user frontend probe", encoding="utf-8")
+
+            ps = (
+                f". '{ROOT / 'scripts' / 'lib' / 'Update.ps1'}'; "
+                f"Sync-HwAgentTree -SourceRoot '{source}' -TargetRoot '{target}'"
+            )
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=30,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr.decode("utf-8", errors="replace"))
+            self.assertEqual((target / "docs" / "my_notes.md").read_text(encoding="utf-8"), "user note")
+            self.assertEqual((target / "frontend" / "local_probe.txt").read_text(encoding="utf-8"), "user frontend probe")
+            self.assertTrue((target / "app" / "frontend" / "index.html").exists())
+
+    def test_update_sync_no_longer_uses_source_only_force_delete_lists(self) -> None:
+        text = (ROOT / "scripts" / "lib" / "Update.ps1").read_text(encoding="utf-8")
+
+        self.assertNotIn("HwAgentSourceOnlyRootDirs", text)
+        self.assertNotIn("HwAgentSourceOnlyRootFiles", text)
+
     def test_update_library_rejects_sha256_mismatch_and_removes_bad_zip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             update_lib = Path(tmp) / "Update.ps1"

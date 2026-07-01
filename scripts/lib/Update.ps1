@@ -7,10 +7,9 @@ function Get-HwAgentText {
 
 $script:HwAgentProtected = @("data", "config/local.json", "plugins/user", "unins000.exe", "unins000.dat", "unins000.msg")
 $script:HwAgentInstallerOwned = @("unins000.exe", "unins000.dat", "unins000.msg")
-$script:HwAgentExcludeDirs = @(".git", "data", "plugins\user", "tests", "docs", "launcher", "BOM*", "node_modules", ".pytest_cache", "__pycache__")
+$script:HwAgentExcludeDirs = @(".git", "data", "plugins\user", "BOM*", "node_modules", ".pytest_cache", "__pycache__")
+$script:HwAgentRootExcludeDirs = @("frontend", "tests", "docs", "launcher")
 $script:HwAgentExcludeFiles = @("local.json", ".gitignore", "HWAgent_Setup.iss", "Insta360_HW_Setup.exe")
-$script:HwAgentSourceOnlyRootDirs = @("frontend", "tests", "docs", "launcher")
-$script:HwAgentSourceOnlyRootFiles = @(".gitignore", "HWAgent_Setup.iss", "Insta360_HW_Setup.exe")
 
 function Get-HwAgentUpdateStateDir {
   param([Parameter(Mandatory=$true)][string]$Root)
@@ -157,7 +156,14 @@ function Sync-HwAgentTree {
 
     Stop-HwAgentRuntimeLocks -Root $TargetRoot
 
-    $args = @($SourceRoot, $TargetRoot, "/MIR", "/R:2", "/W:1", "/XD") + $script:HwAgentExcludeDirs + @("/XF") + $script:HwAgentExcludeFiles
+    $rootExcludePaths = @()
+    foreach ($dir in $script:HwAgentRootExcludeDirs) {
+      $rootExcludePaths += (Join-Path $SourceRoot $dir)
+      $rootExcludePaths += (Join-Path $TargetRoot $dir)
+    }
+    $excludeDirs = $script:HwAgentExcludeDirs + $rootExcludePaths
+    Write-Host ("MIR: keep excluded dirs=" + ($excludeDirs -join ","))
+    $args = @($SourceRoot, $TargetRoot, "/MIR", "/R:2", "/W:1", "/XD") + $excludeDirs + @("/XF") + $script:HwAgentExcludeFiles
     & robocopy @args | Out-Null
     if ($LASTEXITCODE -ge 8) {
       throw ("robocopy failed: " + $LASTEXITCODE)
@@ -167,19 +173,6 @@ function Sync-HwAgentTree {
       $backupPath = Join-Path $installerBackupRoot $item
       if (Test-Path -LiteralPath $backupPath) {
         Copy-Item -LiteralPath $backupPath -Destination (Join-Path $TargetRoot $item) -Force
-      }
-    }
-
-    foreach ($dir in $script:HwAgentSourceOnlyRootDirs) {
-      $path = Join-Path $TargetRoot $dir
-      if (Test-Path -LiteralPath $path) {
-        Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
-      }
-    }
-    foreach ($file in $script:HwAgentSourceOnlyRootFiles) {
-      $path = Join-Path $TargetRoot $file
-      if (Test-Path -LiteralPath $path) {
-        Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
       }
     }
   } finally {
