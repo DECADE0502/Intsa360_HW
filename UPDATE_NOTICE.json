@@ -1,23 +1,18 @@
 ﻿{
-    "version":  "0.2.15",
+    "version":  "0.2.16",
     "revision":  "",
     "date":  "2026-07-01",
-    "title":  "0.2.15 OTA stability and interrupted-update recovery",
-    "summary":  "This update fixes OTA jobs that could hang at the file-apply stage, prevents duplicate update processes, and restores the previous runtime automatically after an interrupted update.",
+    "title":  "0.2.16 P0 hardening and safer OTA",
+    "summary":  "This update finishes the first P0 hardening wave: safer OTA checks, rollback protection, large-file upload streaming, launcher recovery, and more robust history/plugin handling.",
     "highlights":  [
-                       "Only one OTA update can run at a time, so repeated clicks no longer start multiple robocopy jobs.",
-                       "File synchronization now stops the running platform processes and uses short robocopy retry limits instead of waiting indefinitely on locked files.",
-                       "If an update is interrupted halfway, the next launch or update attempt automatically restores the previous runtime from the rollback snapshot.",
-                       "The update log handle is released immediately after the updater starts, reducing Windows file-lock cleanup problems."
+                       "OTA release packages now support SHA256 metadata and the updater verifies the package before applying it.",
+                       "Updates refuse silent downgrades by default and roll back failed git updates to the previous revision.",
+                       "Runtime file synchronization preserves local history, user plugins, local config and user-dropped files instead of deleting them.",
+                       "The launcher can recover from abandoned single-instance locks, rotates launcher logs, and reports startup failures visibly.",
+                       "Uploads stream to disk to avoid large-file memory spikes, and invalid workbooks now return clear user-facing errors.",
+                       "History deletion validates run IDs, corrupt history indexes rebuild from saved runs, and bad user plugin manifests no longer block plugin scanning."
                    ],
-    "assets":  [
-                   {
-                       "kind":  "release_zip",
-                       "url":  "https://github.com/DECADE0502/Intsa360_HW/releases/download/v0.2.15/Insta360_HW_v0.2.15.zip",
-                       "sha256":  "e9f2a88d9ac24c367ebea7130e56da792a94396014270e9f0039c311d0a45a12",
-                       "size_bytes":  665338
-                   }
-               ],
+    "assets":  [],
     "compatibility":  "No data migration is required. Existing history, user plugins and local config are preserved.",
     "trace":  {
                   "repo":  "DECADE0502/Intsa360_HW",
