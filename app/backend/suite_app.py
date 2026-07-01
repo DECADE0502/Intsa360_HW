@@ -288,6 +288,25 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/version":
             self._send_json(update_api.version_payload(self.root))
             return
+        if parsed.path == "/api/diagnostic/report":
+            try:
+                text = update_api.collect_diagnostic_report(self.root)
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"status": "error", "error": str(exc)}, 500)
+                return
+            data = text.encode("utf-8")
+            stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            self._send(
+                200,
+                data,
+                {
+                    "Content-Type": "text/plain; charset=utf-8",
+                    "Content-Length": str(len(data)),
+                    "Content-Disposition": _content_disposition(f"insta360_hw_diagnostic_{stamp}.txt"),
+                    "Cache-Control": "no-store",
+                },
+            )
+            return
         if parsed.path == "/api/update/check":
             self._send_json(update_api.check_update(self.root))
             return

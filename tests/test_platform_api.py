@@ -11,6 +11,7 @@ from urllib.request import Request
 from urllib.request import urlopen
 
 from app.backend import history
+from app.backend import update_api
 from app.backend.suite_app import create_server
 
 
@@ -696,6 +697,85 @@ class PlatformApiTests(unittest.TestCase):
             self.assertEqual(payload["capability"]["module"], "cadence/modules/enhanced_core_tools.tcl")
             self.assertTrue(payload["capability"]["show_in_cadence"])
             self.assertFalse(payload["redeployed"])
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+
+    def test_collect_diagnostic_report_covers_all_required_sections(self) -> None:
+        root = _make_temp_root()
+        try:
+            # Give the temp root a UPDATE_NOTICE.json so the integrity section
+            # has a real target to parse; the invalid sha256 length is verified
+            # to prove the diagnostic actually inspects the field.
+            (root / "UPDATE_NOTICE.json").write_text(
+                json.dumps(
+                    {
+                        "version": "9.9.9",
+                        "revision": "deadbeef",
+                        "assets": [
+                            {
+                                "kind": "release_zip",
+                                "url": "https://example.com/x.zip",
+                                "sha256": "too-short",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            report = update_api.collect_diagnostic_report(root)
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+        required_sections = [
+            "## Python Runtime",
+            "## Launcher VersionInfo",
+            "## UPDATE_NOTICE.json Integrity",
+            "## GitHub Reachability",
+            "## Cadence Home",
+            "## Port 8765",
+            "## Filesystem Permissions",
+            "## Recent launcher.log",
+        ]
+        for section in required_sections:
+            self.assertIn(section, report, f"missing section: {section}")
+        # Verify the notice was actually parsed (sha256 length is shown).
+        self.assertIn("sha256_len=9", report)
+        self.assertIn("INVALID", report)
+        # Report should be non-trivial and end with the sentinel.
+        self.assertGreater(len(report), 500)
+        self.assertIn("=== End of Report ===", report)
+
+    def test_diagnostic_report_endpoint_returns_populated_text(self) -> None:
+        root = _make_temp_root()
+        try:
+            server = create_server(root, port=0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                host, port = server.server_address
+                with urlopen(f"http://{host}:{port}/api/diagnostic/report", timeout=15) as response:
+                    body = response.read().decode("utf-8")
+                    content_type = response.headers.get("Content-Type", "")
+                    disposition = response.headers.get("Content-Disposition", "")
+            finally:
+                server.shutdown()
+                server.server_close()
+
+            self.assertIn("text/plain", content_type)
+            self.assertIn("attachment", disposition)
+            self.assertIn("insta360_hw_diagnostic_", disposition)
+            for section in [
+                "Python Runtime",
+                "Launcher VersionInfo",
+                "UPDATE_NOTICE.json",
+                "GitHub Reachability",
+                "Cadence Home",
+                "Port 8765",
+                "Filesystem Permissions",
+                "Recent launcher.log",
+            ]:
+                self.assertIn(section, body, f"missing section: {section}")
         finally:
             shutil.rmtree(root, ignore_errors=True)
 

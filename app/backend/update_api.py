@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -761,6 +762,243 @@ def run_uninstall(root: Path, mode: str = "cadence_only") -> dict[str, object]:
 def _get_temp_path() -> Path:
     import tempfile
     return Path(tempfile.gettempdir())
+
+
+def collect_diagnostic_report(root: Path) -> str:
+    """Collect diagnostic info as multiline text, safe to display or download.
+
+    The output is intentionally readable and support-focused: it lists version
+    info, embedded runtime status, GitHub reachability, Cadence loader presence,
+    port ownership, filesystem permissions, and a tail of launcher.log so a user
+    can copy-paste it back to us when reporting an issue.
+    """
+    import datetime as _datetime
+    import json as _json
+    import platform as _platform
+    import socket as _socket
+    import urllib.error as _urlerror
+    import urllib.request as _urlrequest
+
+    lines: list[str] = []
+    lines.append("=== Insta360 HW Diagnostic Report ===")
+    lines.append(f"Generated: {_datetime.datetime.now(_datetime.timezone.utc).isoformat()}")
+    lines.append(f"OS: {_platform.platform()}")
+    lines.append(f"Root: {root}")
+    try:
+        lines.append(f"Local version: {read_version(root)}")
+        lines.append(f"Local revision: {_short_revision(read_revision(root))}")
+    except Exception as exc:  # noqa: BLE001
+        lines.append(f"  ERROR reading version/revision: {exc}")
+    lines.append("")
+
+    # 1. Python runtime
+    lines.append("## Python Runtime")
+    py_exe = root / "runtime" / "python" / "python.exe"
+    if py_exe.exists():
+        try:
+            v = subprocess.check_output(
+                [str(py_exe), "--version"],
+                text=True,
+                timeout=5,
+                stderr=subprocess.STDOUT,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            ).strip()
+            lines.append(f"  Embedded Python: {v} at {py_exe}")
+        except Exception as exc:  # noqa: BLE001
+            lines.append(f"  Embedded Python: ERROR {exc}")
+        try:
+            v = subprocess.check_output(
+                [str(py_exe), "-c", "import openpyxl; print(openpyxl.__version__)"],
+                text=True,
+                timeout=5,
+                stderr=subprocess.STDOUT,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            ).strip()
+            lines.append(f"  openpyxl (embedded): {v}")
+        except Exception as exc:  # noqa: BLE001
+            lines.append(f"  openpyxl (embedded): ERROR {exc}")
+    else:
+        lines.append(f"  Embedded Python NOT FOUND at {py_exe}")
+    # Best-effort report for whatever python is running the service (helps dev).
+    lines.append(f"  Service Python: {sys.version.splitlines()[0]} at {sys.executable}")
+    try:
+        import openpyxl  # noqa: PLC0415
+
+        lines.append(f"  openpyxl (service): {openpyxl.__version__}")
+    except Exception as exc:  # noqa: BLE001
+        lines.append(f"  openpyxl (service): ERROR {exc}")
+
+    # 2. Launcher VersionInfo (Windows only)
+    lines.append("")
+    lines.append("## Launcher VersionInfo")
+    exe = root / "Insta360_HW.exe"
+    if exe.exists() and sys.platform == "win32":
+        try:
+            escaped = str(exe).replace("'", "''")
+            cmd = [
+                "powershell",
+                "-NoProfile",
+                "-Command",
+                f"(Get-Item '{escaped}').VersionInfo | "
+                "Format-List FileVersion, ProductVersion, CompanyName, ProductName | Out-String",
+            ]
+            v = subprocess.check_output(
+                cmd,
+                text=True,
+                timeout=8,
+                stderr=subprocess.STDOUT,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            ).strip()
+            for ln in v.splitlines():
+                lines.append(f"  {ln}")
+        except Exception as exc:  # noqa: BLE001
+            lines.append(f"  ERROR {exc}")
+    elif not exe.exists():
+        lines.append(f"  Insta360_HW.exe not found at {exe}")
+    else:
+        lines.append("  Not on Windows; skipping VersionInfo")
+
+    # 3. UPDATE_NOTICE integrity
+    lines.append("")
+    lines.append("## UPDATE_NOTICE.json Integrity")
+    notice_path = root / "UPDATE_NOTICE.json"
+    if notice_path.exists():
+        try:
+            notice = _json.loads(notice_path.read_text(encoding="utf-8-sig"))
+            lines.append(f"  version: {notice.get('version')}")
+            lines.append(f"  revision: {notice.get('revision', '(empty)')}")
+            assets = notice.get("assets") if isinstance(notice.get("assets"), list) else []
+            lines.append(f"  assets: {len(assets)} entries")
+            for asset in assets:
+                if not isinstance(asset, dict):
+                    lines.append("    - <invalid asset entry>")
+                    continue
+                sha = str(asset.get("sha256") or "")
+                sha_ok = len(sha) == 64 and all(ch in "0123456789abcdef" for ch in sha.lower())
+                lines.append(
+                    f"    - {asset.get('kind', '?')}: sha256_len={len(sha)} "
+                    f"({'valid' if sha_ok else 'INVALID; expected 64 hex chars'})"
+                )
+        except Exception as exc:  # noqa: BLE001
+            lines.append(f"  ERROR parsing: {exc}")
+    else:
+        lines.append(f"  UPDATE_NOTICE.json NOT FOUND at {notice_path}")
+
+    # 4. GitHub reachability
+    lines.append("")
+    lines.append("## GitHub Reachability")
+    try:
+        req = _urlrequest.Request(
+            "https://raw.githubusercontent.com",
+            method="HEAD",
+            headers={"User-Agent": "HWAgent-Diagnostic"},
+        )
+        with _urlrequest.urlopen(req, timeout=3):
+            lines.append("  raw.githubusercontent.com: REACHABLE")
+    except _urlerror.HTTPError as http_exc:
+        lines.append(f"  raw.githubusercontent.com: HTTP {http_exc.code} (still reachable)")
+    except Exception as exc:  # noqa: BLE001
+        lines.append(f"  raw.githubusercontent.com: UNREACHABLE ({type(exc).__name__}: {exc})")
+
+    # 5. Cadence Home
+    lines.append("")
+    lines.append("## Cadence Home")
+    home = os.environ.get("USERPROFILE") or os.environ.get("HOME") or ""
+    lines.append(f"  HOME/USERPROFILE: {home or '(unset)'}")
+    if home:
+        auto_load = Path(home) / "cdssetup" / "OrCAD_Capture" / "tclscripts" / "capAutoLoad"
+        lines.append(f"  autoLoad dir: {'EXISTS' if auto_load.exists() else 'MISSING'} ({auto_load})")
+        loader = auto_load / "iac_bom_tool.tcl"
+        lines.append(f"  iac_bom_tool.tcl: {'PRESENT' if loader.exists() else 'MISSING'}")
+
+    # 6. Port 8765
+    lines.append("")
+    lines.append("## Port 8765")
+    try:
+        sock = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+        sock.settimeout(1)
+        result = sock.connect_ex(("127.0.0.1", 8765))
+        sock.close()
+        if result == 0:
+            lines.append("  Port 8765: OCCUPIED (someone listening)")
+            if sys.platform == "win32":
+                try:
+                    cmd = [
+                        "powershell",
+                        "-NoProfile",
+                        "-Command",
+                        "Get-NetTCPConnection -LocalPort 8765 -State Listen "
+                        "-ErrorAction SilentlyContinue | Select-Object -First 1 OwningProcess | "
+                        "ForEach-Object { Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue | "
+                        "Select-Object Id, ProcessName } | Format-List | Out-String",
+                    ]
+                    out = subprocess.check_output(
+                        cmd,
+                        text=True,
+                        timeout=5,
+                        stderr=subprocess.STDOUT,
+                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                    ).strip()
+                    for ln in out.splitlines():
+                        if ln.strip():
+                            lines.append(f"    {ln}")
+                except Exception:  # noqa: BLE001
+                    pass
+        else:
+            lines.append("  Port 8765: FREE")
+    except Exception as exc:  # noqa: BLE001
+        lines.append(f"  Port 8765: ERROR checking ({exc})")
+
+    # 7. Filesystem permissions
+    lines.append("")
+    lines.append("## Filesystem Permissions")
+    localappdata = os.environ.get("LOCALAPPDATA")
+    if localappdata:
+        appdata_root = Path(localappdata) / "Insta360_HW"
+        try:
+            appdata_root.mkdir(parents=True, exist_ok=True)
+            test_file = appdata_root / ".diag_write_test"
+            test_file.write_text("ok", encoding="utf-8")
+            test_file.unlink()
+            lines.append(f"  %LOCALAPPDATA%\\Insta360_HW: WRITABLE")
+        except Exception as exc:  # noqa: BLE001
+            lines.append(f"  %LOCALAPPDATA%\\Insta360_HW: NOT WRITABLE ({exc})")
+    else:
+        lines.append("  LOCALAPPDATA env var unset")
+    try:
+        test_file = root / ".diag_write_test"
+        test_file.write_text("ok", encoding="utf-8")
+        test_file.unlink()
+        lines.append(f"  install root: WRITABLE")
+    except Exception as exc:  # noqa: BLE001
+        lines.append(f"  install root: NOT WRITABLE ({exc})")
+
+    # 8. Recent launcher.log tail
+    lines.append("")
+    lines.append("## Recent launcher.log (last 50 lines)")
+    log_candidates: list[Path] = []
+    if localappdata:
+        log_candidates.append(Path(localappdata) / "Insta360_HW" / "launcher.log")
+    log_candidates.append(root / "data" / "reports" / "runtime" / "launcher_latest.log")
+    picked: Path | None = None
+    for candidate in log_candidates:
+        if candidate.exists():
+            picked = candidate
+            break
+    if picked is not None:
+        lines.append(f"  Source: {picked}")
+        try:
+            content = picked.read_text(encoding="utf-8", errors="replace")
+            tail = content.splitlines()[-50:]
+            lines.extend("  " + ln for ln in tail)
+        except Exception as exc:  # noqa: BLE001
+            lines.append(f"  ERROR reading log: {exc}")
+    else:
+        lines.append(f"  launcher.log NOT FOUND (checked: {', '.join(str(p) for p in log_candidates)})")
+
+    lines.append("")
+    lines.append("=== End of Report ===")
+    return "\n".join(lines)
 
 
 def _full_uninstall_helper(root: Path, uninstall_cmd: list[str], log_path: Path | None = None) -> str:

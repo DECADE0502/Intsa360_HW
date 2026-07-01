@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Alert, Badge, Card, Descriptions, List, Space, Typography } from "antd";
-import { fetchLifecycleCheck, type LifecyclePayload } from "../api/client";
+import { Alert, Badge, Button, Card, Descriptions, List, Space, Typography, message } from "antd";
+import { DownloadOutlined } from "@ant-design/icons";
+import { fetchDiagnosticReport, fetchLifecycleCheck, type LifecyclePayload } from "../api/client";
 
 const statusMap = {
   ok: { status: "success" as const, text: "正常" },
@@ -11,6 +12,30 @@ const statusMap = {
 export function SystemStatus({ status }: { status: any }) {
   const [lifecycle, setLifecycle] = useState<LifecyclePayload | null>(null);
   const [error, setError] = useState("");
+  const [diagnosticLoading, setDiagnosticLoading] = useState(false);
+
+  async function downloadDiagnostic() {
+    if (diagnosticLoading) return;
+    setDiagnosticLoading(true);
+    try {
+      const blob = await fetchDiagnosticReport();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `insta360_hw_diagnostic_${Date.now()}.txt`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      setTimeout(() => {
+        URL.revokeObjectURL(url);
+        anchor.remove();
+      }, 4000);
+      message.success("诊断报告已下载");
+    } catch (err: any) {
+      message.error(`诊断报告生成失败: ${err?.userMessage || err?.message || err}`);
+    } finally {
+      setDiagnosticLoading(false);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -32,7 +57,19 @@ export function SystemStatus({ status }: { status: any }) {
 
   return (
     <Space direction="vertical" size={14} style={{ width: "100%" }}>
-      <Card title="系统状态">
+      <Card
+        title="系统状态"
+        extra={
+          <Button
+            size="small"
+            icon={<DownloadOutlined />}
+            loading={diagnosticLoading}
+            onClick={downloadDiagnostic}
+          >
+            生成诊断报告
+          </Button>
+        }
+      >
         <Descriptions column={1} size="small">
           <Descriptions.Item label="平台">{status?.platform || "Insta360硬件提效平台"}</Descriptions.Item>
           <Descriptions.Item label="工具数量">{status?.tools ?? "-"}</Descriptions.Item>

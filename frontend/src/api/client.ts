@@ -331,6 +331,20 @@ export async function checkUninstall(): Promise<UninstallCheck> {
   return payload;
 }
 
+export async function fetchDiagnosticReport(opts?: ApiOpts): Promise<Blob> {
+  // The endpoint returns text/plain (not JSON), so we bypass apiCall and grab
+  // the raw response body as a Blob for direct download.
+  const res = await fetch("/api/diagnostic/report", { signal: opts?.signal });
+  if (!res.ok) {
+    throw new ApiError(
+      "DiagnosticError",
+      `诊断报告生成失败 (HTTP ${res.status})`,
+      res.status,
+    );
+  }
+  return await res.blob();
+}
+
 export async function runUninstall(mode: "cadence_only" | "detach") {
   const payload = await requestJson<any>("/api/uninstall/run", {
     method: "POST",
