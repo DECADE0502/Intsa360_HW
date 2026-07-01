@@ -1,8 +1,8 @@
 ﻿{
-    "version":  "0.2.16",
-    "revision":  "434e3a076eb97f6139f289ad4ae0bd341562d372",
+    "version":  "0.2.17",
+    "revision":  "d07e9e5fedb0c08aa4eff6d7c7ba9cb2665aa85c",
     "date":  "2026-07-01",
-    "title":  "0.2.16 release readiness hardening",
+    "title":  "0.2.17 release readiness hardening",
     "summary":  "This update continues release readiness work: embedded Python packaging and verified OTA metadata generation.",
     "highlights":  [
                        "Release builds now include an embedded Python 3.11 runtime with openpyxl, so new machines do not depend on a user-installed Python.",
@@ -12,9 +12,9 @@
     "assets":  [
                    {
                        "kind":  "release_zip",
-                       "url":  "https://github.com/DECADE0502/Intsa360_HW/releases/download/v0.2.16/Insta360_HW_v0.2.16.zip",
-                       "sha256":  "d8ef268f2ae41eff972ba462eb9a86b77b58ce5cbb95ad3ef14ef738203cd1b1",
-                       "size_bytes":  12771928
+                       "url":  "https://github.com/DECADE0502/Intsa360_HW/releases/download/v0.2.17/Insta360_HW_v0.2.17.zip",
+                       "sha256":  "d800d80ddff94f65d72a34990ca6f78ee842c7955c02b43082ef926b8bd8070f",
+                       "size_bytes":  12773794
                    }
                ],
     "compatibility":  "No data migration is required. Existing history, user plugins and local config are preserved.",

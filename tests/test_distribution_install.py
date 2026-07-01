@@ -39,6 +39,7 @@ class DistributionInstallTests(unittest.TestCase):
             "update.ps1",
             "uninstall.ps1",
             "oneclick_update.ps1",
+            "scripts/bump_version.ps1",
             "scripts/build_installer.ps1",
             "scripts/lib/Paths.ps1",
             "scripts/lib/Cadence.ps1",
@@ -65,6 +66,7 @@ class DistributionInstallTests(unittest.TestCase):
             "oneclick_update.ps1",
             "oneclick_uninstall.ps1",
             "launch_tool_suite.ps1",
+            "scripts/bump_version.ps1",
             "scripts/lib/Paths.ps1",
             "scripts/lib/Cadence.ps1",
             "scripts/lib/EmbeddedPython.ps1",
@@ -1918,6 +1920,72 @@ class DistributionInstallTests(unittest.TestCase):
         version = (ROOT / "VERSION").read_text(encoding="utf-8-sig").strip()
 
         self.assertIn(f'#define MyAppVersion "{version}"', text)
+
+    def test_outer_stale_inno_setup_file_is_removed(self) -> None:
+        self.assertFalse(
+            (ROOT.parent / "HWAgent_Setup.iss").exists(),
+            "The parent-folder HWAgent_Setup.iss is stale and can build the wrong installer.",
+        )
+
+    def test_version_metadata_is_consistent(self) -> None:
+        version = (ROOT / "VERSION").read_text(encoding="utf-8-sig").strip()
+        revision = (ROOT / "REVISION").read_text(encoding="utf-8-sig").strip()
+        notice = json.loads((ROOT / "UPDATE_NOTICE.json").read_text(encoding="utf-8-sig"))
+        iss = (ROOT / "HWAgent_Setup.iss").read_text(encoding="utf-8-sig")
+
+        self.assertEqual(notice["version"], version, "UPDATE_NOTICE.version diverges")
+        self.assertEqual(str(notice["revision"]).strip(), revision, "UPDATE_NOTICE.revision diverges")
+        self.assertIn(f'#define MyAppVersion "{version}"', iss, "iss version diverges")
+
+    def test_bump_version_script_updates_version_iss_revision_and_notice(self) -> None:
+        script = ROOT / "scripts" / "bump_version.ps1"
+        self.assertTrue(script.exists(), "scripts/bump_version.ps1 should exist")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            temp_root = Path(tmp) / "fixture"
+            temp_root.mkdir()
+            (temp_root / "VERSION").write_text("0.1.0\n", encoding="ascii")
+            (temp_root / "REVISION").write_text("old\n", encoding="ascii")
+            (temp_root / "HWAgent_Setup.iss").write_text(
+                '#define MyAppName "Insta360_HW"\n#define MyAppVersion "0.1.0"\n',
+                encoding="utf-8",
+            )
+            (temp_root / "UPDATE_NOTICE.json").write_text(
+                json.dumps({"version": "0.1.0", "revision": "old", "date": "", "assets": []}),
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [
+                    "powershell",
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    str(script),
+                    "-NewVersion",
+                    "0.2.17",
+                    "-Root",
+                    str(temp_root),
+                    "-Revision",
+                    "abcdef1234567890",
+                ],
+                text=True,
+                capture_output=True,
+                timeout=30,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((temp_root / "VERSION").read_text(encoding="utf-8-sig").strip(), "0.2.17")
+            self.assertEqual((temp_root / "REVISION").read_text(encoding="utf-8-sig").strip(), "abcdef1234567890")
+            self.assertIn(
+                '#define MyAppVersion "0.2.17"',
+                (temp_root / "HWAgent_Setup.iss").read_text(encoding="utf-8-sig"),
+            )
+            notice = json.loads((temp_root / "UPDATE_NOTICE.json").read_text(encoding="utf-8-sig"))
+            self.assertEqual(notice["version"], "0.2.17")
+            self.assertEqual(notice["revision"], "abcdef1234567890")
+            self.assertRegex(notice["date"], r"^\d{4}-\d{2}-\d{2}$")
 
     def test_inno_existing_install_uninstall_prompt_uses_ascii_text(self) -> None:
         text = (ROOT / "HWAgent_Setup.iss").read_text(encoding="utf-8")

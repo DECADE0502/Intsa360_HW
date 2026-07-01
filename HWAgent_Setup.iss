@@ -1,5 +1,5 @@
 #define MyAppName "Insta360_HW"
-#define MyAppVersion "0.2.16"
+#define MyAppVersion "0.2.17"
 #define MyAppPublisher "Insta360"
 #define ReleaseDir "..\HWAgent_release"
 #define IconFile "..\HWAgent_release\app\frontend\assets\insta360_icon.ico"
@@ -314,3 +314,4 @@ begin
     DelTree(ParentDir, True, True, True);
   end;
 end;
+
