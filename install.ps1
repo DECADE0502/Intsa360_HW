@@ -69,7 +69,7 @@ if ($Python) {
   if ($CaptureAutoLoadDir) {
     $AutoLoadDirs += $CaptureAutoLoadDir
   } else {
-    $AutoLoadDirs += Find-CadenceAutoLoadDirs
+    $AutoLoadDirs += Find-CadenceLoaderInstallDirs
   }
   foreach ($autoLoadDir in $AutoLoadDirs) {
     Move-HwAgentAutoLoadBackupDirs -AutoLoadDir $autoLoadDir | Out-Null

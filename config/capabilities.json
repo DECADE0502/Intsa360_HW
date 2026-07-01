@@ -82,7 +82,8 @@
       "enabled_command": "::capNCToggleSelected::enabled",
       "shortcut": "Ctrl+Q",
       "shortcut_command": "::capNCToggleSelected::toggleImpl",
-      "shortcut_context": "Schematic"
+      "shortcut_context": "Schematic",
+      "cadence_name": "Toggle Selected NC"
     },
     {
       "id": "cadence_ground_name_visible",
@@ -97,7 +98,8 @@
       "show_in_platform": true,
       "show_in_cadence": false,
       "can_enable": true,
-      "module": "cadence/modules/gnd_net_visibility.tcl"
+      "module": "cadence/modules/gnd_net_visibility.tcl",
+      "cadence_name": "Show GND Net Names"
     },
     {
       "id": "cadence_ground_name_hidden",
@@ -112,7 +114,8 @@
       "show_in_platform": true,
       "show_in_cadence": false,
       "can_enable": true,
-      "module": "cadence/modules/gnd_net_visibility.tcl"
+      "module": "cadence/modules/gnd_net_visibility.tcl",
+      "cadence_name": "Hide GND Net Names"
     },
     {
       "id": "cadence_net_name_replace",
@@ -127,7 +130,8 @@
       "show_in_platform": true,
       "show_in_cadence": false,
       "can_enable": true,
-      "module": "cadence/modules/enhanced_core_tools.tcl"
+      "module": "cadence/modules/enhanced_core_tools.tcl",
+      "cadence_name": "Replace Net Names"
     },
     {
       "id": "cadence_nc_part_gray",
@@ -142,7 +146,8 @@
       "show_in_platform": true,
       "show_in_cadence": false,
       "can_enable": true,
-      "module": "cadence/modules/part_color_tools.tcl"
+      "module": "cadence/modules/part_color_tools.tcl",
+      "cadence_name": "Gray NC Parts"
     },
     {
       "id": "cadence_restore_part_color",
@@ -157,7 +162,8 @@
       "show_in_platform": true,
       "show_in_cadence": false,
       "can_enable": true,
-      "module": "cadence/modules/part_color_tools.tcl"
+      "module": "cadence/modules/part_color_tools.tcl",
+      "cadence_name": "Restore Part Colors"
     },
     {
       "id": "cadence_grayed_part_value_nc",
@@ -172,7 +178,8 @@
       "show_in_platform": true,
       "show_in_cadence": false,
       "can_enable": true,
-      "module": "cadence/modules/enhanced_core_tools.tcl"
+      "module": "cadence/modules/enhanced_core_tools.tcl",
+      "cadence_name": "Set Gray NC Value to NC"
     },
     {
       "id": "cadence_reset_net_color",
@@ -187,7 +194,8 @@
       "show_in_platform": true,
       "show_in_cadence": false,
       "can_enable": true,
-      "module": "cadence/modules/reset_net_color.tcl"
+      "module": "cadence/modules/reset_net_color.tcl",
+      "cadence_name": "Reset Net Name Colors"
     },
     {
       "id": "cadence_randomize_net_names",
@@ -202,7 +210,8 @@
       "show_in_platform": true,
       "show_in_cadence": false,
       "can_enable": true,
-      "module": "cadence/modules/enhanced_core_tools.tcl"
+      "module": "cadence/modules/enhanced_core_tools.tcl",
+      "cadence_name": "Randomize Net Names"
     },
     {
       "id": "cadence_delete_all_graphic",
@@ -217,7 +226,8 @@
       "show_in_platform": true,
       "show_in_cadence": false,
       "can_enable": true,
-      "module": "cadence/modules/enhanced_core_tools.tcl"
+      "module": "cadence/modules/enhanced_core_tools.tcl",
+      "cadence_name": "Delete All Graphics"
     },
     {
       "id": "cadence_delete_text_titleblocks",
@@ -232,7 +242,8 @@
       "show_in_platform": true,
       "show_in_cadence": false,
       "can_enable": true,
-      "module": "cadence/modules/enhanced_core_tools.tcl"
+      "module": "cadence/modules/enhanced_core_tools.tcl",
+      "cadence_name": "Delete Text and Title Blocks"
     },
     {
       "id": "cadence_hide_u_value",
@@ -247,7 +258,8 @@
       "show_in_platform": true,
       "show_in_cadence": false,
       "can_enable": true,
-      "module": "cadence/modules/display_visibility_tools.tcl"
+      "module": "cadence/modules/display_visibility_tools.tcl",
+      "cadence_name": "Hide U Value"
     },
     {
       "id": "cadence_show_u_value",
@@ -262,7 +274,8 @@
       "show_in_platform": true,
       "show_in_cadence": false,
       "can_enable": true,
-      "module": "cadence/modules/display_visibility_tools.tcl"
+      "module": "cadence/modules/display_visibility_tools.tcl",
+      "cadence_name": "Show U Value"
     },
     {
       "id": "cadence_hide_all_value",
@@ -277,7 +290,8 @@
       "show_in_platform": true,
       "show_in_cadence": false,
       "can_enable": true,
-      "module": "cadence/modules/display_visibility_tools.tcl"
+      "module": "cadence/modules/display_visibility_tools.tcl",
+      "cadence_name": "Hide All Values"
     },
     {
       "id": "cadence_show_all_value",
@@ -292,7 +306,8 @@
       "show_in_platform": true,
       "show_in_cadence": false,
       "can_enable": true,
-      "module": "cadence/modules/display_visibility_tools.tcl"
+      "module": "cadence/modules/display_visibility_tools.tcl",
+      "cadence_name": "Show All Values"
     },
     {
       "id": "cadence_hide_u_pin_names",
@@ -307,7 +322,8 @@
       "show_in_platform": true,
       "show_in_cadence": false,
       "can_enable": true,
-      "module": "cadence/modules/display_visibility_tools.tcl"
+      "module": "cadence/modules/display_visibility_tools.tcl",
+      "cadence_name": "Hide U Pin Names"
     },
     {
       "id": "cadence_required_sanitize",
@@ -322,7 +338,8 @@
       "show_in_platform": true,
       "show_in_cadence": false,
       "can_enable": true,
-      "module": "cadence/modules/enhanced_core_tools.tcl"
+      "module": "cadence/modules/enhanced_core_tools.tcl",
+      "cadence_name": "Required Sanitization"
     },
     {
       "id": "cadence_required_restore",
@@ -337,7 +354,8 @@
       "show_in_platform": true,
       "show_in_cadence": false,
       "can_enable": true,
-      "module": "cadence/modules/enhanced_core_tools.tcl"
+      "module": "cadence/modules/enhanced_core_tools.tcl",
+      "cadence_name": "Restore Required Sanitization"
     },
     {
       "id": "cadence_schematic_obfuscation",
@@ -352,7 +370,8 @@
       "show_in_platform": true,
       "show_in_cadence": false,
       "can_enable": true,
-      "module": "cadence/modules/enhanced_core_tools.tcl"
+      "module": "cadence/modules/enhanced_core_tools.tcl",
+      "cadence_name": "Schematic Obfuscation"
     }
   ]
 }

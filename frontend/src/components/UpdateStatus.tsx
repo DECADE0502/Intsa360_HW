@@ -10,6 +10,7 @@ import {
   checkUninstall,
   checkUpdate,
   fetchUpdateStatus,
+  installCadenceIntegration,
   runUninstall,
   startUpdate,
   type UpdateNotice,
@@ -19,6 +20,7 @@ const { Text, Paragraph } = Typography;
 
 export function UpdateStatus({ version }: { version: string }) {
   const [detaching, setDetaching] = useState(false);
+  const [installingCadence, setInstallingCadence] = useState(false);
   const [checking, setChecking] = useState(false);
   const [hasUpdate, setHasUpdate] = useState(false);
   const [remoteVersion, setRemoteVersion] = useState<string>("");
@@ -113,6 +115,21 @@ export function UpdateStatus({ version }: { version: string }) {
     }
   }
 
+  async function onInstallCadence() {
+    setInstallingCadence(true);
+    try {
+      const result = await installCadenceIntegration();
+      message.success(result.message || "Cadence 集成已重新安装");
+      if (result.hot_reload_command) {
+        message.info("Capture 已打开时，请执行热更新指令或重启 Capture。");
+      }
+    } catch (e) {
+      message.error((e as Error).message || "Cadence 集成安装失败");
+    } finally {
+      setInstallingCadence(false);
+    }
+  }
+
   return (
     <div className="maint-card">
       <div className="maint-version">
@@ -145,6 +162,9 @@ export function UpdateStatus({ version }: { version: string }) {
           onClick={onDetach}
         >
           移除 Cadence 集成
+        </Button>
+        <Button className="maint-btn" size="small" loading={installingCadence} onClick={onInstallCadence}>
+          修复 Cadence 集成
         </Button>
       </div>
 

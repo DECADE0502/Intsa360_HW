@@ -105,7 +105,7 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("Find-Python", text)
         self.assertIn("Python lookup failed", text)
         self.assertIn("Skipping Cadence loader deployment", text)
-        self.assertIn("Find-CadenceAutoLoadDirs", text)
+        self.assertIn("Find-CadenceLoaderInstallDirs", text)
         self.assertIn("Find-CadenceVendorAutoLoadDirs", text)
         self.assertIn("Disable-HwAgentVendorAutoLoadScripts", text)
         self.assertIn("robocopy", text)
@@ -151,6 +151,22 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertFalse((release / "scripts" / "publish_release.ps1").exists())
         self.assertFalse((release / "scripts" / "verify_all.ps1").exists())
         self.assertFalse(any(item.name.startswith("BOM") for item in release.iterdir() if item.is_dir()))
+
+    def test_built_release_tree_contains_cadence_reinstall_ui_when_present(self) -> None:
+        release = ROOT.parent / "HWAgent_release"
+        if not release.exists():
+            self.skipTest("release tree has not been built")
+
+        backend = (release / "app" / "backend" / "suite_app.py").read_text(encoding="utf-8")
+        index = (release / "app" / "frontend" / "index.html").read_text(encoding="utf-8")
+        assets_dir = release / "app" / "frontend" / "assets"
+        js_files = sorted(assets_dir.glob("*.js"))
+        combined_js = "\n".join(path.read_text(encoding="utf-8", errors="ignore") for path in js_files)
+
+        self.assertIn("/api/cadence/install", backend)
+        self.assertIn("/api/cadence/install", combined_js)
+        self.assertIn("修复 Cadence 集成", combined_js)
+        self.assertNotIn("index-LJFH012Z.js", index)
 
     def test_release_builder_does_not_exclude_lowercase_tools_bom_directory(self) -> None:
         text = (ROOT / "scripts" / "build_release.ps1").read_text(encoding="utf-8")
@@ -254,7 +270,7 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("scripts\\lib\\Cadence.ps1", update_text)
         self.assertIn("scripts\\lib\\TclScripts.ps1", update_text)
         self.assertIn("Find-Python", update_text)
-        self.assertIn("Find-CadenceAutoLoadDirs", update_text)
+        self.assertIn("Find-CadenceLoaderInstallDirs", update_text)
         self.assertIn("Find-CadenceVendorAutoLoadDirs", update_text)
         self.assertIn("Disable-HwAgentVendorAutoLoadScripts", update_text)
         self.assertIn("Install-CadenceLoader", update_text)
@@ -950,8 +966,22 @@ class DistributionInstallTests(unittest.TestCase):
         text = (ROOT / "scripts" / "lib" / "Paths.ps1").read_text(encoding="utf-8")
 
         self.assertIn("function Find-CadenceVendorAutoLoadDirs", text)
-        self.assertIn("SPB_17.4\\tools\\capture\\tclscripts\\capAutoLoad", text)
+        self.assertIn("function Find-CadenceLoaderInstallDirs", text)
+        self.assertIn('Get-ChildItem -LiteralPath $root -Directory -Filter "SPB_*"', text)
         self.assertNotIn("SPB_17.4\\tools\\capture\\tclscripts\\capAutoLoad\",\n    (Join-Path $env:USERPROFILE", text)
+
+        redeploy_text = (ROOT / "scripts" / "redeploy_cadence_loader.ps1").read_text(encoding="utf-8")
+        uninstall_text = (ROOT / "uninstall.ps1").read_text(encoding="utf-8")
+        self.assertIn("Find-CadenceLoaderInstallDirs", redeploy_text)
+        self.assertIn("Find-CadenceLoaderInstallDirs", uninstall_text)
+
+    def test_paths_library_discovers_all_spb_vendor_autoload_dirs(self) -> None:
+        text = (ROOT / "scripts" / "lib" / "Paths.ps1").read_text(encoding="utf-8")
+
+        self.assertIn('Get-ChildItem -LiteralPath $root -Directory -Filter "SPB_*"', text)
+        self.assertIn('tools\\capture\\tclscripts\\capAutoLoad', text)
+        self.assertIn('"C:\\Cadence"', text)
+        self.assertIn('"D:\\CADENCE\\Cadence"', text)
 
     def test_redeploy_cadence_loader_script_runs_with_windows_powershell_encoding(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -980,7 +1010,7 @@ class DistributionInstallTests(unittest.TestCase):
         script = ROOT / "scripts" / "diagnose_platform.ps1"
         text = script.read_text(encoding="utf-8")
 
-        self.assertIn("Find-CadenceAutoLoadDirs", text)
+        self.assertIn("Find-CadenceLoaderInstallDirs", text)
         self.assertIn("Find-CadenceVendorAutoLoadDirs", text)
         self.assertIn("Disable-HwAgentVendorAutoLoadScripts", text)
         self.assertIn("GetEncoding(936)", text)
@@ -1097,6 +1127,18 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("update_api.check_uninstall", text)
         self.assertIn("update_api.run_uninstall", text)
         self.assertIn("update_api.uninstall_status", text)
+
+    def test_suite_app_exposes_cadence_reinstall_endpoint(self) -> None:
+        text = (ROOT / "app" / "backend" / "suite_app.py").read_text(encoding="utf-8")
+        client = (ROOT / "frontend" / "src" / "api" / "client.ts").read_text(encoding="utf-8")
+        update_status = (ROOT / "frontend" / "src" / "components" / "UpdateStatus.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("/api/cadence/install", text)
+        self.assertIn("installCadenceIntegration", client)
+        self.assertIn("/api/cadence/install", client)
+        self.assertIn("onInstallCadence", update_status)
+        self.assertIn("修复 Cadence 集成", update_status)
+        self.assertIn('"installed": installed', text)
 
     def test_suite_app_exposes_update_status_endpoint(self) -> None:
         text = (ROOT / "app" / "backend" / "suite_app.py").read_text(encoding="utf-8")

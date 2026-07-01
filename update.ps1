@@ -39,7 +39,7 @@ try {
   foreach ($vendorAutoLoadDir in Find-CadenceVendorAutoLoadDirs) {
     Disable-HwAgentVendorAutoLoadScripts -VendorAutoLoadDir $vendorAutoLoadDir | Out-Null
   }
-  $AutoLoadDirs = Find-CadenceAutoLoadDirs
+  $AutoLoadDirs = Find-CadenceLoaderInstallDirs
   foreach ($autoLoadDir in $AutoLoadDirs) {
     Move-HwAgentAutoLoadBackupDirs -AutoLoadDir $autoLoadDir | Out-Null
   }

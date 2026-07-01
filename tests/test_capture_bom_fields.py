@@ -45,8 +45,15 @@ class CaptureBomFieldTests(unittest.TestCase):
         end = text.index("proc shouldProcess")
         prop_block = text[start:end]
         for field in VISIBLE_CAPTURE_FIELDS:
-            expected = field if " " not in field and field.isascii() else f"{{{field}}}"
-            self.assertIn(expected, prop_block)
+            if field.isascii():
+                candidates = [field, f"{{{field}}}", f'"{field}"']
+            else:
+                escaped = field.encode("unicode_escape").decode("ascii")
+                candidates = [f"{{{field}}}", f'"{escaped}"']
+            self.assertTrue(
+                any(candidate in prop_block for candidate in candidates),
+                f"{field!r} missing from Tcl PROP_NAMES block",
+            )
         self.assertIn("NewEffectivePropsIter", text)
 
     def test_frontend_capture_config_contains_practical_fields(self) -> None:

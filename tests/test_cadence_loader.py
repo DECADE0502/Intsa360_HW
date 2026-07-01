@@ -39,6 +39,106 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
                     f"{path.relative_to(ROOT)} uses Tcl command {command!r}: {reason}",
                 )
 
+    def test_cadence_runtime_tcl_files_are_ascii_safe_for_capture_166_and_174(self) -> None:
+        paths = [ROOT / "cadence" / "iac_bom_tool.tcl", *sorted((ROOT / "cadence" / "modules").glob("*.tcl"))]
+
+        for path in paths:
+            with self.subTest(path=path.relative_to(ROOT)):
+                try:
+                    path.read_bytes().decode("ascii")
+                except UnicodeDecodeError as exc:
+                    self.fail(
+                        f"{path.relative_to(ROOT)} contains non-ASCII byte at offset {exc.start}; "
+                        "Capture loads Tcl scripts through the local ANSI codepage, so runtime Tcl text must use "
+                        "ASCII messages and Tcl \\uXXXX escapes for required Chinese property names."
+                    )
+
+    def test_loader_property_names_do_not_use_multiline_command_substitution(self) -> None:
+        text = (ROOT / "cadence" / "iac_bom_tool.tcl").read_text(encoding="utf-8")
+
+        self.assertNotRegex(
+            text,
+            r"variable\s+PROP_NAMES\s+\[list\s*(?:\r?\n)",
+            "Tcl treats the newline after [list as a command separator, so Capture fails before registering "
+            "the insta360_HW menu.",
+        )
+
+    def test_generated_cadence_loader_menu_items_are_ascii_safe(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            root = tmp_path / "tool"
+            (root / "cadence" / "modules").mkdir(parents=True)
+            (root / "config").mkdir()
+            (root / "cadence" / "modules" / "demo.tcl").write_text("proc ::Demo::Run {} {}\n", encoding="ascii")
+            (root / "cadence" / "iac_bom_tool.tcl").write_text(
+                '\n'.join(
+                    [
+                        'set ::IAC_ROOT "{{TOOL_ROOT}}"',
+                        'set ::IAC_PY   "python"',
+                        'proc ::IAC::addAccessoryMenu { args } {',
+                        '  # {{CADENCE_SCRIPT_MENU_ITEMS}}',
+                        '}',
+                    ]
+                ),
+                encoding="ascii",
+            )
+            (root / "config" / "capabilities.json").write_text(
+                json.dumps(
+                    {
+                        "platform": {"name": "Insta360硬件提效平台", "cadence_menu": "insta360_HW"},
+                        "capabilities": [
+                            {
+                                "id": "enabled",
+                                "type": "cadence_tcl",
+                                "name": "中文脚本名",
+                                "cadence_name": "English Script Name",
+                                "description": "",
+                                "category": "Cadence 脚本",
+                                "status": "available",
+                                "command": "::Demo::Run",
+                                "module": "cadence/modules/demo.tcl",
+                                "show_in_platform": True,
+                                "show_in_cadence": True,
+                            },
+                            {
+                                "id": "user.ascii_fallback",
+                                "type": "cadence_tcl",
+                                "name": "未配置英文名",
+                                "description": "",
+                                "category": "Cadence 脚本",
+                                "status": "available",
+                                "command": "::Demo::Run",
+                                "module": "cadence/modules/demo.tcl",
+                                "show_in_platform": True,
+                                "show_in_cadence": True,
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            out = tmp_path / "iac_bom_tool.tcl"
+            command = (
+                "$ErrorActionPreference='Stop'; "
+                f". '{ROOT / 'scripts' / 'lib' / 'Cadence.ps1'}'; "
+                f"Write-CadenceLoader -ToolRoot '{root}' -PythonPath 'C:/Python/python.exe' -OutputPath '{out}' | Out-Null"
+            )
+
+            subprocess.run(
+                [POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+
+            decoded = out.read_bytes().decode("gbk")
+            self.assertIn('AddAccessoryMenu "insta360_HW" "English Script Name" "::Demo::Run"', decoded)
+            self.assertIn('AddAccessoryMenu "insta360_HW" "user.ascii_fallback" "::Demo::Run"', decoded)
+            self.assertNotIn("中文脚本名", decoded)
+            self.assertNotIn("未配置英文名", decoded)
+            decoded.encode("ascii")
+
     def test_every_cadence_capability_points_to_existing_module_proc(self) -> None:
         data = json.loads((ROOT / "config" / "capabilities.json").read_text(encoding="utf-8"))
         for item in data["capabilities"]:
@@ -69,6 +169,10 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
 
         self.assertIn('"insta360_HW"', text)
         self.assertIn('[list "popup" "insta360_HW"', template)
+        self.assertIn('InsertXMLMenu [list [list "insta360_HW"]', template)
+        self.assertIn('InsertXMLMenu [list [list "insta360_HW" "Open"]', template)
+        self.assertIn('InsertXMLMenu [list [list "insta360_HW" "Export"]', template)
+        self.assertNotIn('InsertXMLMenu [list [list "IACBOM"', template)
         self.assertIn('"action" "Open Platform"', template)
         self.assertIn('"action" "Export and Process BOM"', template)
         self.assertNotIn('"action" "进入平台"', template)
@@ -101,7 +205,8 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
             raw = out.read_bytes()
             self.assertNotEqual(raw[:3], b"\xef\xbb\xbf")
             decoded = raw.decode("gbk")
-            self.assertIn('InsertXMLMenu [list [list "IACBOM"]', decoded)
+            self.assertIn('InsertXMLMenu [list [list "insta360_HW"]', decoded)
+            self.assertNotIn('InsertXMLMenu [list [list "IACBOM"', decoded)
             self.assertIn('"insta360_HW"', decoded)
             self.assertNotIn('AddAccessoryMenu "insta360_HW" "Open Platform"', decoded)
             self.assertNotIn('AddAccessoryMenu "insta360_HW" "Export and Process BOM"', decoded)
@@ -116,6 +221,48 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
             self.assertIn("proc PartsToJson", decoded)
             self.assertIn("convert_cadence_bom.py", decoded)
             decoded.encode("gbk")
+
+    def test_generated_loader_keeps_capture_property_unicode_escapes_unmodified(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "iac_bom_tool.tcl"
+            command = (
+                "$ErrorActionPreference='Stop'; "
+                f". '{ROOT / 'scripts' / 'lib' / 'Cadence.ps1'}'; "
+                f"Write-CadenceLoader -ToolRoot '{ROOT}' -PythonPath 'C:/Python/python.exe' -OutputPath '{out}' | Out-Null"
+            )
+
+            subprocess.run(
+                [POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+
+            decoded = out.read_bytes().decode("gbk")
+            prop_block = decoded[decoded.index("variable PROP_NAMES"):decoded.index("proc shouldProcess")]
+            self.assertIn('"PCB\\u5c01\\u88c5"', prop_block)
+            self.assertIn('"\\u7b49\\u7ea7"', prop_block)
+            self.assertIn('"\\u89c4\\u683c\\u578b\\u53f7"', prop_block)
+            self.assertIn('"\\u5668\\u4ef6\\u63cf\\u8ff0\\uff08\\u65b0\\u6574\\u7406\\uff09"', prop_block)
+            self.assertIn('"\\u7269\\u6599\\u540d\\u79f0"', prop_block)
+            self.assertNotIn("PCBCancel", prop_block)
+            self.assertNotIn("CancelCancel", prop_block)
+            self.assertNotIn("Net name randomization completed.", prop_block)
+
+    def test_capture_runtime_visible_messages_are_english_ascii(self) -> None:
+        paths = [ROOT / "cadence" / "iac_bom_tool.tcl", *sorted((ROOT / "cadence" / "modules").glob("*.tcl"))]
+        visible_message_pattern = re.compile(r"\b(tk_messageBox|puts|error|label|button)\b|\bwm\s+title\b")
+
+        for path in paths:
+            for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+                stripped = line.lstrip()
+                if stripped.startswith("#"):
+                    continue
+                if "\\u" in line and visible_message_pattern.search(line):
+                    self.fail(
+                        f"{path.relative_to(ROOT)}:{line_number} emits Tcl Unicode escapes in a Capture-visible "
+                        "message. Keep Capture-side logs/dialogs in English ASCII; reserve \\uXXXX for property names."
+                    )
 
     def test_generated_loader_can_mount_enabled_tcl_scripts_without_renaming_registeraction(self) -> None:
         text = (ROOT / "scripts" / "lib" / "Cadence.ps1").read_text(encoding="utf-8")
@@ -172,7 +319,7 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
 
             decoded = out.read_bytes().decode("gbk")
             self.assertIn('source "$::IAC_ROOT/cadence/modules/demo.tcl"', decoded)
-            self.assertIn('AddAccessoryMenu "insta360_HW" "启用脚本" "::Demo::Run"', decoded)
+            self.assertIn('AddAccessoryMenu "insta360_HW" "enabled" "::Demo::Run"', decoded)
             self.assertNotIn('AddAccessoryMenu "insta360_HW" "Open Platform"', decoded)
             self.assertNotIn('AddAccessoryMenu "insta360_HW" "Export and Process BOM"', decoded)
             self.assertNotIn("禁用脚本", decoded)
@@ -340,7 +487,7 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
             decoded = out.read_bytes().decode("gbk")
             self.assertIn('source "$::IAC_ROOT/cadence/modules/nc_toggle_selected.tcl"', decoded)
             self.assertIn('AddAccessoryMenu "insta360_HW"', decoded)
-            self.assertIn('"选中器件切换 NC (Ctrl+Q)"', decoded)
+            self.assertIn('"Toggle Selected NC (Ctrl+Q)"', decoded)
             self.assertIn('"::capNCToggleSelected::toggleFromMenu"', decoded)
             self.assertIn("proc RunShortcut", decoded)
             self.assertIn('::IAC::SetShortcut "cadence_nc_toggle" 1', decoded)
@@ -455,8 +602,8 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
 
             decoded = out.read_bytes().decode("gbk")
             self.assertIn('source "$::IAC_ROOT/cadence/modules/gnd_net_visibility.tcl"', decoded)
-            self.assertIn('AddAccessoryMenu "insta360_HW" "显示 GND 网络名" "::capMenuUtil::GroundNameVisible"', decoded)
-            self.assertIn('AddAccessoryMenu "insta360_HW" "隐藏 GND 网络名" "::capMenuUtil::GroundNameHidden"', decoded)
+            self.assertIn('AddAccessoryMenu "insta360_HW" "Show GND Net Names" "::capMenuUtil::GroundNameVisible"', decoded)
+            self.assertIn('AddAccessoryMenu "insta360_HW" "Hide GND Net Names" "::capMenuUtil::GroundNameHidden"', decoded)
             self.assertNotIn("RegisterAction \"_cdnCapTclAddDesignCustomMenu\" \"::capMenuUtil", decoded)
 
 

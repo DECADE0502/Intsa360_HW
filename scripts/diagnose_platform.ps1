@@ -105,7 +105,7 @@ function Test-PlatformApi {
 Write-Host $S.PlatformDiag -ForegroundColor Cyan
 Write-Host "$($S.Root)$Root"
 
-foreach ($dir in Find-CadenceAutoLoadDirs) {
+foreach ($dir in Find-CadenceLoaderInstallDirs) {
   $backups = @(Get-ChildItem -LiteralPath $dir -Directory -ErrorAction SilentlyContinue |
     Where-Object { $_.Name -like "_disabled_hwagent_loader_*" -or $_.Name -like "_disabled_custom_scripts_*" })
   if ($backups.Count -eq 0) {

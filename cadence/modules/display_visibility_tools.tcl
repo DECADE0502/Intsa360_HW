@@ -6,7 +6,7 @@ proc ::capMenuUtil::visibilityActiveDesignOrWarn {} {
     set design ""
     catch {set design [GetActivePMDesign]}
     if {$design eq "NULL" || $design eq ""} {
-        catch {tk_messageBox -icon error -message "未找到当前打开的设计。"}
+        catch {tk_messageBox -icon error -message "No active design is open."}
         return "NULL"
     }
     return $design
@@ -136,7 +136,7 @@ proc ::capMenuUtil::visibilityApplyPartValueDisplayType {part lStatus} {
 }
 
 proc ::capMenuUtil::confirmHideUcomponent {args} {
-    if {![::capMenuUtil::visibilityConfirm "将隐藏 U 器件的 Value。\n是否继续？"]} { return }
+    if {![::capMenuUtil::visibilityConfirm "Hide Value for U parts.\nContinue?"]} { return }
     ::capMenuUtil::HideUcomponent
 }
 
@@ -145,7 +145,7 @@ proc ::capMenuUtil::HideUcomponent {args} {
 }
 
 proc ::capMenuUtil::confirmShowUcomponent {args} {
-    if {![::capMenuUtil::visibilityConfirm "将显示 U 器件的 Value。\n是否继续？"]} { return }
+    if {![::capMenuUtil::visibilityConfirm "Show Value for U parts.\nContinue?"]} { return }
     ::capMenuUtil::ShowUcomponent
 }
 
@@ -154,7 +154,7 @@ proc ::capMenuUtil::ShowUcomponent {args} {
 }
 
 proc ::capMenuUtil::confirmHideALLcomponent {args} {
-    if {![::capMenuUtil::visibilityConfirm "将隐藏所有器件的 Value。\n是否继续？"]} { return }
+    if {![::capMenuUtil::visibilityConfirm "Hide Value for all parts.\nContinue?"]} { return }
     ::capMenuUtil::HideALLcomponent
 }
 
@@ -163,7 +163,7 @@ proc ::capMenuUtil::HideALLcomponent {args} {
 }
 
 proc ::capMenuUtil::confirmShowALLcomponent {args} {
-    if {![::capMenuUtil::visibilityConfirm "将显示所有器件的 Value。\n是否继续？"]} { return }
+    if {![::capMenuUtil::visibilityConfirm "Show Value for all parts.\nContinue?"]} { return }
     ::capMenuUtil::ShowALLcomponent
 }
 
@@ -172,7 +172,7 @@ proc ::capMenuUtil::ShowALLcomponent {args} {
 }
 
 proc ::capMenuUtil::confirmHideUPinNames {args} {
-    if {![::capMenuUtil::visibilityConfirm "将隐藏 U 器件的 Pin 名称。\n是否继续？"]} { return }
+    if {![::capMenuUtil::visibilityConfirm "Hide pin names for U parts.\nContinue?"]} { return }
     ::capMenuUtil::HideUPinNames
 }
 

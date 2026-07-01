@@ -1,4 +1,4 @@
-# Enhanced core tools for Insta360硬件提效平台.
+# Enhanced core tools for Insta360\u786c\u4ef6\u63d0\u6548\u5e73\u53f0.
 # This module is sourced only by the controlled platform loader when a script is enabled.
 # It must not register Capture menus or global actions by itself.
 
@@ -6,23 +6,23 @@ package provide capMenuUtil 1.0
 
 namespace eval ::capMenuUtil {
     variable toolVersion "V1.8"
-    # 注释编码已统一为 GBK，原注释内容已清理。
+    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
     if {[catch {package require Tk}]} {
         puts "Warning: Tk package not available, GUI features will be disabled"
     } else {
-        # 隐藏主Tk窗口（启动时不显示）
+        # \u9690\u85cf\u4e3bTk\u7a97\u53e3\uff08\u542f\u52a8\u65f6\u4e0d\u663e\u793a\uff09
         if {[winfo exists .]} {
             wm withdraw .
-            # 绑定窗口映射事件，防止主窗口意外显示
+            # \u7ed1\u5b9a\u7a97\u53e3\u6620\u5c04\u4e8b\u4ef6\uff0c\u9632\u6b62\u4e3b\u7a97\u53e3\u610f\u5916\u663e\u793a
             bind . <Map> { wm withdraw . }
         }
     }
     
-    # 缓存网络名映射关系，提高性能
+    # \u7f13\u5b58\u7f51\u7edc\u540d\u6620\u5c04\u5173\u7cfb\uff0c\u63d0\u9ad8\u6027\u80fd
     variable netNameMap [list]
-    # 已生成的随机名称集合，确保唯一性
+    # \u5df2\u751f\u6210\u7684\u968f\u673a\u540d\u79f0\u96c6\u5408\uff0c\u786e\u4fdd\u552f\u4e00\u6027
     variable generatedNames [list]
-    # 性能优化：默认关闭逐对象日志，避免大型原理图在 Capture 命令窗口刷屏卡顿。
+    # \u6027\u80fd\u4f18\u5316\uff1a\u9ed8\u8ba4\u5173\u95ed\u9010\u5bf9\u8c61\u65e5\u5fd7\uff0c\u907f\u514d\u5927\u578b\u539f\u7406\u56fe\u5728 Capture \u547d\u4ee4\u7a97\u53e3\u5237\u5c4f\u5361\u987f\u3002
     variable verboseLog 0
 }
 
@@ -34,12 +34,12 @@ proc ::capMenuUtil::logDebug {message} {
 }
 
 # ////////////////////////////////////////////////////////////////////////////////
-# 注释编码已统一为 GBK，原注释内容已清理。
+# \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
 # ////////////////////////////////////////////////////////////////////////////////
 # ////////////////////////////////////////////////////////////////////////////////
 proc ::capMenuUtil::confirmGrayedPartToNC { pLib } {
-    # 步骤1：用户确认（防止误操作）
-    set confirm [tk_messageBox -icon question -message "将把 NC 器件的 Value 改为 NC。\n是否继续？" -type yesno]
+    # \u6b65\u9aa41\uff1a\u7528\u6237\u786e\u8ba4\uff08\u9632\u6b62\u8bef\u64cd\u4f5c\uff09
+    set confirm [tk_messageBox -icon question -message "Set Value to NC for NC parts.\nContinue?" -type yesno]
     if {$confirm ne "yes"} {
         return
     }
@@ -47,8 +47,8 @@ proc ::capMenuUtil::confirmGrayedPartToNC { pLib } {
 }
 
 proc ::capMenuUtil::confirmHideUPinNames { pLib } {
-    # 步骤1：用户确认（防止误操作）
-    set confirm [tk_messageBox -icon question -message "将隐藏 U 器件的 Pin 名称。\n是否继续？" -type yesno]
+    # \u6b65\u9aa41\uff1a\u7528\u6237\u786e\u8ba4\uff08\u9632\u6b62\u8bef\u64cd\u4f5c\uff09
+    set confirm [tk_messageBox -icon question -message "Hide pin names for U parts.\nContinue?" -type yesno]
     if {$confirm ne "yes"} {
         return
     }
@@ -57,18 +57,18 @@ proc ::capMenuUtil::confirmHideUPinNames { pLib } {
 }
 
 proc ::capMenuUtil::confirmRandomizeNetNames { pLib } {
-# 步骤1：用户确认（防止误操作）
-    set confirm [tk_messageBox -icon question -message "将随机化原理图中的全部网络名。\n相同网络名会映射为同一个随机字符串。\n是否继续？" -type yesno]
+# \u6b65\u9aa41\uff1a\u7528\u6237\u786e\u8ba4\uff08\u9632\u6b62\u8bef\u64cd\u4f5c\uff09
+    set confirm [tk_messageBox -icon question -message "Randomize all schematic net names.\nEquivalent names keep the same generated value.\nContinue?" -type yesno]
     if {$confirm ne "yes"} {
         return
     }
 	::capMenuUtil::RandomizeNetNames $pLib
-	# 显示完成结果
-    tk_messageBox -message "网络名随机化完成！" -icon info
+	# \u663e\u793a\u5b8c\u6210\u7ed3\u679c
+    tk_messageBox -message "Net name randomization completed." -icon info
 }
 proc ::capMenuUtil::confirmDeleteAllGraphic { pLib } {
-    # 步骤1：用户确认（防止误操作）
-    set confirm [tk_messageBox -icon question -message "将Delete All Graphics对象。\n是否继续？" -type yesno]
+    # \u6b65\u9aa41\uff1a\u7528\u6237\u786e\u8ba4\uff08\u9632\u6b62\u8bef\u64cd\u4f5c\uff09
+    set confirm [tk_messageBox -icon question -message "Delete all graphic objects.\nContinue?" -type yesno]
     if {$confirm ne "yes"} {
         return
     }
@@ -76,8 +76,8 @@ proc ::capMenuUtil::confirmDeleteAllGraphic { pLib } {
 	
 }
 proc ::capMenuUtil::confirmHideUcomponent { pLib } {
-    # 步骤1：用户确认（防止误操作）
-    set confirm [tk_messageBox -icon question -message "将隐藏 U 器件的 Value。\n是否继续？" -type yesno]
+    # \u6b65\u9aa41\uff1a\u7528\u6237\u786e\u8ba4\uff08\u9632\u6b62\u8bef\u64cd\u4f5c\uff09
+    set confirm [tk_messageBox -icon question -message "Hide Value for U parts.\nContinue?" -type yesno]
     if {$confirm ne "yes"} {
         return
     }
@@ -85,8 +85,8 @@ proc ::capMenuUtil::confirmHideUcomponent { pLib } {
 	
 }
 proc ::capMenuUtil::confirmHideALLcomponent { pLib } {
-    # 步骤1：用户确认（防止误操作）
-    set confirm [tk_messageBox -icon question -message "将隐藏所有器件的 Value。\n是否继续？" -type yesno]
+    # \u6b65\u9aa41\uff1a\u7528\u6237\u786e\u8ba4\uff08\u9632\u6b62\u8bef\u64cd\u4f5c\uff09
+    set confirm [tk_messageBox -icon question -message "Hide Value for all parts.\nContinue?" -type yesno]
     if {$confirm ne "yes"} {
         return
     }
@@ -94,8 +94,8 @@ proc ::capMenuUtil::confirmHideALLcomponent { pLib } {
 	
 }
 proc ::capMenuUtil::confirmDeleteTextTitleblocks { pLib } {
-    # 步骤1：用户确认（防止误操作）
-    set confirm [tk_messageBox -icon question -message "将清空文本并删除标题栏。\n是否继续？" -type yesno]
+    # \u6b65\u9aa41\uff1a\u7528\u6237\u786e\u8ba4\uff08\u9632\u6b62\u8bef\u64cd\u4f5c\uff09
+    set confirm [tk_messageBox -icon question -message "Clear text and delete title blocks.\nContinue?" -type yesno]
     if {$confirm ne "yes"} {
         return
     }
@@ -103,8 +103,8 @@ proc ::capMenuUtil::confirmDeleteTextTitleblocks { pLib } {
 	
 }
 proc ::capMenuUtil::confirmSchematicObfuscation { pLib } {
-# 步骤1：用户确认（防止误操作）
-    set confirm [tk_messageBox -icon question -message "将对原理图关键信息执行一键混淆。\n是否继续？" -type yesno]
+# \u6b65\u9aa41\uff1a\u7528\u6237\u786e\u8ba4\uff08\u9632\u6b62\u8bef\u64cd\u4f5c\uff09
+    set confirm [tk_messageBox -icon question -message "Obfuscate sensitive schematic information.\nContinue?" -type yesno]
     if {$confirm ne "yes"} {
         return
     }
@@ -115,16 +115,16 @@ proc ::capMenuUtil::confirmSchematicObfuscation { pLib } {
 	::capMenuUtil::DeleteTextTitleblocks $pLib
 	::capMenuUtil::HideUPinNames $pLib
 	::capMenuUtil::RandomizeNetNames $pLib
-	# 显示完成结果
-    tk_messageBox -message "原理图混淆完成！" -icon info
+	# \u663e\u793a\u5b8c\u6210\u7ed3\u679c
+    tk_messageBox -message "Schematic obfuscation completed." -icon info
 }
 
 
 #/////////////////////////////////////////////////////////////////////////////////
-# 注释编码已统一为 GBK，原注释内容已清理。
+# \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
 #/////////////////////////////////////////////////////////////////////////////////
 proc ::capMenuUtil::confirmShowUPinNames { pLib } {
-    set confirm [tk_messageBox -icon question -message "将显示 U 器件的 Pin 名称。\n是否继续？" -type yesno]
+    set confirm [tk_messageBox -icon question -message "Show pin names for U parts.\nContinue?" -type yesno]
     if {$confirm ne "yes"} {
         return
     }
@@ -132,7 +132,7 @@ proc ::capMenuUtil::confirmShowUPinNames { pLib } {
 }
 
 proc ::capMenuUtil::confirmShowUcomponent { pLib } {
-    set confirm [tk_messageBox -icon question -message "将显示 U 器件的 Value。\n是否继续？" -type yesno]
+    set confirm [tk_messageBox -icon question -message "Show Value for U parts.\nContinue?" -type yesno]
     if {$confirm ne "yes"} {
         return
     }
@@ -140,58 +140,58 @@ proc ::capMenuUtil::confirmShowUcomponent { pLib } {
 }
 
 proc ::capMenuUtil::confirmShowALLcomponent { pLib } {
-    set confirm [tk_messageBox -icon question -message "将显示所有器件的 Value。\n是否继续？" -type yesno]
+    set confirm [tk_messageBox -icon question -message "Show Value for all parts.\nContinue?" -type yesno]
     if {$confirm ne "yes"} {
         return
     }
     ::capMenuUtil::ShowALLcomponent $pLib
 }
 proc ::capMenuUtil::HideUPinNames { pLib } {
-    # 初始化基础对象
+    # \u521d\u59cb\u5316\u57fa\u7840\u5bf9\u8c61
     set lStatus [DboState]
     set lDesign [GetActivePMDesign]
     set lNullObj NULL
     
-    # 注释编码已统一为 GBK，原注释内容已清理。
+    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
     if {$lDesign eq "NULL" || $lDesign eq ""} {
-        tk_messageBox -icon error -message "未找到当前打开的设计！"
+        tk_messageBox -icon error -message "No active design is open."
         return
     }
 
-    # 鍏煎16.6鐨勫師鐞嗗浘杩唬鍣ㄥ垱寤?
+    # \u934f\u714e\ue19016.6\u9428\u52eb\u5e2b\u941e\u55d7\u6d58\u6769\ue15d\u552c\u9363\u3125\u57b1\u5be4?
     if {[info exists ::IterDefs_SCHEMATICS]} {
         set lSchematicIter [$lDesign NewViewsIter $lStatus $::IterDefs_SCHEMATICS]
     } else {
         set lSchematicIter [$lDesign NewViewsIter $lStatus]
     }
 
-    # 遍历所有原理图
+    # \u904d\u5386\u6240\u6709\u539f\u7406\u56fe
     set lView [$lSchematicIter NextView $lStatus]
     while {$lView != $lNullObj} {
         set lSchematic [DboViewToDboSchematic $lView]
         set lPagesIter [$lSchematic NewPagesIter $lStatus]
 
-        # 注释编码已统一为 GBK，原注释内容已清理。
+        # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
         set lPage [$lPagesIter NextPage $lStatus]
         while {$lPage != $lNullObj} {
             set lPartInstsIter [$lPage NewPartInstsIter $lStatus]
-            # 注释编码已统一为 GBK，原注释内容已清理。
+            # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
             set lInst [$lPartInstsIter NextPartInst $lStatus]
             while {$lInst != $lNullObj} {
-                # 鑾峰彇鍣ㄤ欢浣嶅彿锛圧eference锛?
+                # \u947e\u5cf0\u5f47\u9363\u3124\u6b22\u6d63\u5d85\u5f7f\u951b\u5727eference\u951b?
                 set lRefName [DboTclHelper_sMakeCString "Reference"]
                 set lRefValue [DboTclHelper_sMakeCString]
                 $lInst GetEffectivePropStringValue $lRefName $lRefValue
                 set refDes [DboTclHelper_sGetConstCharPtr $lRefValue]
-                # 仅处理位号以U/u开头的器件
+                # \u4ec5\u5904\u7406\u4f4d\u53f7\u4ee5U/u\u5f00\u5934\u7684\u5668\u4ef6
                 if {[regexp -nocase {^U} $refDes]} {
                     set lPlacedInst [DboPartInstToDboPlacedInst $lInst]
                     if {$lPlacedInst != $lNullObj} {
                         
-                        # 已生成的随机名称集合，确保唯一性
+                        # \u5df2\u751f\u6210\u7684\u968f\u673a\u540d\u79f0\u96c6\u5408\uff0c\u786e\u4fdd\u552f\u4e00\u6027
                         set pinProp [DboTclHelper_sMakeCString "Name"]
                         
-                        # 注释编码已统一为 GBK，原注释内容已清理。
+                        # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                         set lPinsIter [$lPlacedInst NewPinsIter $lStatus]
                         set lPin [$lPinsIter NextPin $lStatus]
                         while {$lPin != $lNullObj} {
@@ -216,15 +216,15 @@ proc ::capMenuUtil::HideUPinNames { pLib } {
                             set lPin [$lPinsIter NextPin $lStatus]
                         }
                         
-                        # 注释编码已统一为 GBK，原注释内容已清理。
+                        # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                         catch {delete_DboPlacedInstPinsIter $lPinsIter}
                         
-                        # 统一释放外部申请的属性字符串
+                        # \u7edf\u4e00\u91ca\u653e\u5916\u90e8\u7533\u8bf7\u7684\u5c5e\u6027\u5b57\u7b26\u4e32
                         catch {DboTclHelper_sDeleteCString $pinProp}
                     }
                 }
 
-                # 注释编码已统一为 GBK，原注释内容已清理。
+                # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                 DboTclHelper_sDeleteCString $lRefName
                 DboTclHelper_sDeleteCString $lRefValue
                 set lInst [$lPartInstsIter NextPartInst $lStatus]
@@ -243,19 +243,19 @@ proc ::capMenuUtil::HideUPinNames { pLib } {
 
 
 # ////////////////////////////////////////////////////////////////////////////////
-# 注释编码已统一为 GBK，原注释内容已清理。
+# \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
 # ////////////////////////////////////////////////////////////////////////////////
 proc ::capMenuUtil::showNetNameExchangeDialog { pLib } {
     if {[winfo exists .netNameExchange]} {
         destroy .netNameExchange
     }
-    # 关键优化2：创建独立顶级窗口，不依赖主窗口显示
+    # \u5173\u952e\u4f18\u53162\uff1a\u521b\u5efa\u72ec\u7acb\u9876\u7ea7\u7a97\u53e3\uff0c\u4e0d\u4f9d\u8d56\u4e3b\u7a97\u53e3\u663e\u793a
     toplevel .netNameExchange
     wm title .netNameExchange "Replace Net Names"
     wm resizable .netNameExchange 0 0
-    # 注释编码已统一为 GBK，原注释内容已清理。
+    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
     # wm transient .netNameExchange .
-    # 寮哄埗鏄剧ず骞剁疆椤?
+    # \u5bee\u54c4\u57d7\u93c4\u5267\u305a\u9a9e\u5241\u7586\u6924?
     wm deiconify .netNameExchange
     raise .netNameExchange
     focus .netNameExchange
@@ -264,9 +264,9 @@ proc ::capMenuUtil::showNetNameExchangeDialog { pLib } {
     set pad 8
 
     frame .netNameExchange.inputFrame -padx $pad -pady $pad
-    label .netNameExchange.inputFrame.oldLabel -text "要替换的网络名：" -font $font
+    label .netNameExchange.inputFrame.oldLabel -text "Find net text:" -font $font
     entry .netNameExchange.inputFrame.oldEntry -width 30 -font $font
-    label .netNameExchange.inputFrame.newLabel -text "目标网络名：" -font $font
+    label .netNameExchange.inputFrame.newLabel -text "Replace with:" -font $font
     entry .netNameExchange.inputFrame.newEntry -width 30 -font $font
 
     grid .netNameExchange.inputFrame.oldLabel -row 0 -column 0 -sticky w -pady 2
@@ -275,12 +275,12 @@ proc ::capMenuUtil::showNetNameExchangeDialog { pLib } {
     grid .netNameExchange.inputFrame.newEntry -row 1 -column 1 -sticky w -pady 2
 
     frame .netNameExchange.btnFrame -padx $pad -pady $pad
-    button .netNameExchange.btnFrame.ok -text "确认" -font $font \
+    button .netNameExchange.btnFrame.ok -text "OK" -font $font \
         -command [list ::capMenuUtil::performNetNameExchange $pLib \
         [list .netNameExchange.inputFrame.oldEntry] \
         [list .netNameExchange.inputFrame.newEntry] \
         [list .netNameExchange]]
-    button .netNameExchange.btnFrame.cancel -text "取消" -font $font \
+    button .netNameExchange.btnFrame.cancel -text "Cancel" -font $font \
         -command [list destroy .netNameExchange]
 
     pack .netNameExchange.btnFrame.ok -side left -padx 5
@@ -299,7 +299,7 @@ proc ::capMenuUtil::performNetNameExchange { pLib oldEntryWidget newEntryWidget 
     set oldString [[lindex $oldEntryWidget 0] get]
     set newString [[lindex $newEntryWidget 0] get]
     if {$oldString eq ""} {
-        tk_messageBox -icon warning -message "请输入要替换的网络名字符串"
+        tk_messageBox -icon warning -message "Enter the net-name text to replace."
         return
     }
     destroy [lindex $window 0]
@@ -309,53 +309,53 @@ proc ::capMenuUtil::performNetNameExchange { pLib oldEntryWidget newEntryWidget 
 
 
 proc ::capMenuUtil::NetNameExchange { pLib oldString newString } {
-    # 注释编码已统一为 GBK，原注释内容已清理。
+    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
     set replaceMap [list $oldString $newString]
     
-    # 已生成的随机名称集合，确保唯一性
+    # \u5df2\u751f\u6210\u7684\u968f\u673a\u540d\u79f0\u96c6\u5408\uff0c\u786e\u4fdd\u552f\u4e00\u6027
     set lStatus [DboState]
-    # 鑾峰彇鎵ц鐨勮璁″璞?
+    # \u947e\u5cf0\u5f47\u93b5\u0446\ue511\u9428\u52ee\ue195\u7481\u2033\ue1ee\u749e?
     set lDesign [GetActivePMDesign]
     
-    # 检查是否有活动设计
+    # \u68c0\u67e5\u662f\u5426\u6709\u6d3b\u52a8\u8bbe\u8ba1
     if {$lDesign eq "NULL" || $lDesign eq ""} {
-        tk_messageBox -icon error -message "未找到当前打开的设计！"
+        tk_messageBox -icon error -message "No active design is open."
         return
     }
     
-    # 计算总页面数用于进度显示
+    # \u8ba1\u7b97\u603b\u9875\u9762\u6570\u7528\u4e8e\u8fdb\u5ea6\u663e\u793a
     set totalPages [::capMenuUtil::countTotalPages $lDesign $lStatus]
     if {$totalPages == 0} {
-        tk_messageBox -icon warning -message "当前设计中未找到页面！"
+        tk_messageBox -icon warning -message "No pages were found in the current design."
         return
     }
     
-    # 注释编码已统一为 GBK，原注释内容已清理。
-    set progressWindow [::capMenuUtil::showNetExchange处理中Dialog $totalPages $oldString $newString]
+    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
+    set progressWindow [::capMenuUtil::showNetExchangeProgressDialog $totalPages $oldString $newString]
     set currentPage 0
     
-    # 注释编码已统一为 GBK，原注释内容已清理。
+    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
     update
     
-    # 注释编码已统一为 GBK，原注释内容已清理。
+    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
     if {[info exists ::IterDefs_SCHEMATICS]} {
         set lSchematicIter [$lDesign NewViewsIter $lStatus $::IterDefs_SCHEMATICS]
     } else {
         set lSchematicIter [$lDesign NewViewsIter $lStatus]
     }
-    # 获取第一个原理图视图
+    # \u83b7\u53d6\u7b2c\u4e00\u4e2a\u539f\u7406\u56fe\u89c6\u56fe
     set lView [$lSchematicIter NextView $lStatus]
     set SchNum 0
     set lNullObj NULL
-    set totalReplacements 0  ;# 缁熻鎬绘浛鎹㈡鏁?
+    set totalReplacements 0  ;# \u7f01\u71bb\ue178\u93ac\u7ed8\u6d5b\u93b9\u3221\ue0bc\u93c1?
     
     while { $lView != $lNullObj} {
         incr SchNum
-        # 从DboView转换为DboSchematic
+        # \u4eceDboView\u8f6c\u6362\u4e3aDboSchematic
         set lSchematic [DboViewToDboSchematic $lView]
-        # 新建页面迭代器，用于遍历
+        # \u65b0\u5efa\u9875\u9762\u8fed\u4ee3\u5668\uff0c\u7528\u4e8e\u904d\u5386
         set lPagesIter [$lSchematic NewPagesIter $lStatus]
-        # 鑾峰彇绗竴椤?
+        # \u947e\u5cf0\u5f47\u7ed7\ue0ff\u7af4\u6924?
         set lPage [$lPagesIter NextPage $lStatus]
         set PageNum 0
         
@@ -363,27 +363,27 @@ proc ::capMenuUtil::NetNameExchange { pLib oldString newString } {
             incr PageNum
             incr currentPage
             
-            # 更新进度
+            # \u66f4\u65b0\u8fdb\u5ea6
             ::capMenuUtil::updateProgress $progressWindow $currentPage $totalPages
             
             puts "\n###############################Process Schematic $SchNum"
             puts "###############################Process Page $PageNum"
             
-            ##################################开始替换Net##################################
+            ##################################\u5f00\u59cb\u66ff\u6362Net##################################
             puts "Start processing network name replacement"
             
             set lWiresIter [$lPage NewWiresIter $lStatus]
-            # 鑾峰彇绗竴鏉″绾?
+            # \u947e\u5cf0\u5f47\u7ed7\ue0ff\u7af4\u93c9\u2033\ue1f1\u7efe?
             set lWire [$lWiresIter NextWire $lStatus] 
             while {$lWire != $lNullObj} {
                 set lAliasIter [$lWire NewAliasesIter $lStatus]
-                # 注释编码已统一为 GBK，原注释内容已清理。
+                # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                 set lAlias [$lAliasIter NextAlias $lStatus]
                 while { $lAlias!=$lNullObj} {
                     set lAliasString [DboTclHelper_sMakeCString]
                     $lAlias GetName $lAliasString
                     set lNameString [DboTclHelper_sGetConstCharPtr $lAliasString]
-                    # 如果含有目标字符，则进行替换
+                    # \u5982\u679c\u542b\u6709\u76ee\u6807\u5b57\u7b26\uff0c\u5219\u8fdb\u884c\u66ff\u6362
                     if {[string first $oldString $lNameString] != -1} {
                         incr totalReplacements
                         puts "\nFind the network name: $lNameString"
@@ -394,28 +394,28 @@ proc ::capMenuUtil::NetNameExchange { pLib oldString newString } {
                         puts "The network name has been replaced by: $lName"
                     }
                     
-                    # 注释编码已统一为 GBK，原注释内容已清理。
+                    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                     set lAlias [$lAliasIter NextAlias $lStatus]
                 }
                 delete_DboWireAliasesIter $lAliasIter
-                # 注释编码已统一为 GBK，原注释内容已清理。
+                # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                 set lWire [$lWiresIter NextWire $lStatus] 
             }
             delete_DboPageWiresIter $lWiresIter
             
             puts "\nNetwork name replacement ends"
-            ##################################结束替换Net##################################
+            ##################################\u7ed3\u675f\u66ff\u6362Net##################################
             
-            ##################################开始替换port##################################
+            ##################################\u5f00\u59cb\u66ff\u6362port##################################
             puts "Start processing port name replacement"
             set lPortsIter [$lPage NewPortsIter $lStatus]
-            # 注释编码已统一为 GBK，原注释内容已清理。
+            # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
             set lPort [$lPortsIter NextPort $lStatus]
             while {$lPort!=$lNullObj} {
                 set lPortString [DboTclHelper_sMakeCString]
                 $lPort GetName $lPortString
                 set lNameString [DboTclHelper_sGetConstCharPtr $lPortString]
-                # 如果含有目标字符，则进行替换
+                # \u5982\u679c\u542b\u6709\u76ee\u6807\u5b57\u7b26\uff0c\u5219\u8fdb\u884c\u66ff\u6362
                 if {[string first $oldString $lNameString] != -1} {
                     incr totalReplacements
                     puts "\nFind the port name: $lNameString"
@@ -426,29 +426,29 @@ proc ::capMenuUtil::NetNameExchange { pLib oldString newString } {
                     puts "The port name has been replaced by: $lName"
                 }
 
-                # 注释编码已统一为 GBK，原注释内容已清理。
+                # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                 set lPort [$lPortsIter NextPort $lStatus]
             }  
             delete_DboPagePortsIter $lPortsIter
             
             puts "\nPort name replacement ends"
-            ##################################结束替换port##################################
+            ##################################\u7ed3\u675f\u66ff\u6362port##################################
             
-            ##################################开始替换Offpage##################################
+            ##################################\u5f00\u59cb\u66ff\u6362Offpage##################################
             puts "Start processing Offpage name replacement"
-            # 注释编码已统一为 GBK，原注释内容已清理。
+            # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
             if {[info exists ::IterDefs_ALL]} {
                 set lOffPagesIter [$lPage NewOffPageConnectorsIter $lStatus $::IterDefs_ALL]
             } else {
                 set lOffPagesIter [$lPage NewOffPageConnectorsIter $lStatus]
             }
-            # 注释编码已统一为 GBK，原注释内容已清理。
+            # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
             set lOffPage [$lOffPagesIter NextOffPageConnector $lStatus]
             while {$lOffPage!=$lNullObj} {
                 set lOffPageString [DboTclHelper_sMakeCString]
                 $lOffPage GetName $lOffPageString
                 set lNameString [DboTclHelper_sGetConstCharPtr $lOffPageString]
-                # 如果含有目标字符，则进行替换
+                # \u5982\u679c\u542b\u6709\u76ee\u6807\u5b57\u7b26\uff0c\u5219\u8fdb\u884c\u66ff\u6362
                 if {[string first $oldString $lNameString] != -1} {
                     incr totalReplacements
                     puts "\nFind the Offpage name: $lNameString"
@@ -459,30 +459,30 @@ proc ::capMenuUtil::NetNameExchange { pLib oldString newString } {
                     puts "The Offpage name has been replaced by: $lName"
                 }
             
-                # 注释编码已统一为 GBK，原注释内容已清理。
+                # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                 set lOffPage [$lOffPagesIter NextOffPageConnector $lStatus]
             }
             delete_DboPageOffPageConnectorsIter $lOffPagesIter
             puts "\nOffpage name replacement ends"
-            ##################################结束替换Offpage##################################
+            ##################################\u7ed3\u675f\u66ff\u6362Offpage##################################
             
-            ##################################开始替换power##################################
+            ##################################\u5f00\u59cb\u66ff\u6362power##################################
             puts "Start processing Power name replacement"
             set lGlobalsIter [$lPage NewGlobalsIter $lStatus]
-            # 获取第一个全局对象
+            # \u83b7\u53d6\u7b2c\u4e00\u4e2a\u5168\u5c40\u5bf9\u8c61
             set lGlobal [$lGlobalsIter NextGlobal $lStatus]
             while { $lGlobal!=$lNullObj } { 
                 set lPropsIter [$lGlobal NewEffectivePropsIter $lStatus]
-                # 注释编码已统一为 GBK，原注释内容已清理。
+                # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                 set lPrpName [DboTclHelper_sMakeCString]
                 set lPrpValue [DboTclHelper_sMakeCString]
                 set lPrpType [DboTclHelper_sMakeDboValueType]
                 set lEditable [DboTclHelper_sMakeInt]
-                # 注释编码已统一为 GBK，原注释内容已清理。
+                # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                 set lStatus [$lPropsIter NextEffectiveProp $lPrpName $lPrpValue $lPrpType $lEditable]
                 while { [$lStatus OK] } {
                     set lNameString [DboTclHelper_sGetConstCharPtr $lPrpValue]
-                    # 如果含有目标字符，则进行替换
+                    # \u5982\u679c\u542b\u6709\u76ee\u6807\u5b57\u7b26\uff0c\u5219\u8fdb\u884c\u66ff\u6362
                     if {[string first $oldString $lNameString] != -1} {
                         incr totalReplacements
                         puts "\nFind the Power name: $lNameString"
@@ -496,38 +496,38 @@ proc ::capMenuUtil::NetNameExchange { pLib oldString newString } {
                     set lStatus [$lPropsIter NextEffectiveProp $lPrpName $lPrpValue $lPrpType $lEditable]
                 }
                 delete_DboEffectivePropsIter $lPropsIter			
-                # 获取下一个全局对象
+                # \u83b7\u53d6\u4e0b\u4e00\u4e2a\u5168\u5c40\u5bf9\u8c61
                 set lGlobal [$lGlobalsIter NextGlobal $lStatus]
             }
             delete_DboPageGlobalsIter $lGlobalsIter
             puts "\nPower name replacement ends"
-            ##################################结束替换power##################################
+            ##################################\u7ed3\u675f\u66ff\u6362power##################################
             
-            # 注释编码已统一为 GBK，原注释内容已清理。
+            # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
             set lPage [$lPagesIter NextPage $lStatus]
         }
         delete_DboSchematicPagesIter $lPagesIter
-        # 获取下一个原理图视图
+        # \u83b7\u53d6\u4e0b\u4e00\u4e2a\u539f\u7406\u56fe\u89c6\u56fe
         set lView [$lSchematicIter NextView $lStatus]
     }
     delete_DboLibViewsIter $lSchematicIter
     
-    # 注释编码已统一为 GBK，原注释内容已清理。
+    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
     destroy $progressWindow
     
-    # 显示完成结果
-    tk_messageBox -message "Replace Net Names完成！\n替换总数：$totalReplacements" -icon info
+    # \u663e\u793a\u5b8c\u6210\u7ed3\u679c
+    tk_messageBox -message "Replace Net Names completed.\nTotal replacements: $totalReplacements" -icon info
 }
 
 # ////////////////////////////////////////////////////////////////////////////////
-# 注释编码已统一为 GBK，原注释内容已清理。
+# \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
 # ////////////////////////////////////////////////////////////////////////////////
 
 proc ::capMenuUtil::NcPartGrayed { pLib } {
     set lStatus [DboState]
     set lDesign [GetActivePMDesign]
     if {$lDesign eq "NULL" || $lDesign eq ""} {
-        tk_messageBox -icon error -message "未找到当前打开的设计！"
+        tk_messageBox -icon error -message "No active design is open."
         return
     }
     
@@ -547,26 +547,26 @@ proc ::capMenuUtil::NcPartGrayed { pLib } {
             set lPartInstsIter [$lPage NewPartInstsIter $lStatus]
             set lInst [$lPartInstsIter NextPartInst $lStatus]
             while {$lInst!=$lNullObj} {
-                # 注释编码已统一为 GBK，原注释内容已清理。
+                # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                 set lPropNameCStr [DboTclHelper_sMakeCString "Value"]
                 set lPropValueCStr [DboTclHelper_sMakeCString]
                 $lInst GetEffectivePropStringValue $lPropNameCStr $lPropValueCStr
                 set lPropValueString [DboTclHelper_sGetConstCharPtr $lPropValueCStr]
                 
-                # 注释编码已统一为 GBK，原注释内容已清理。
+                # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                 set lPropPNNameCStr [DboTclHelper_sMakeCString "Part Number"]
                 set lPropPNCStr [DboTclHelper_sMakeCString]
                 $lInst GetEffectivePropStringValue $lPropPNNameCStr $lPropPNCStr
                 set lPropPNString [DboTclHelper_sGetConstCharPtr $lPropPNCStr]
 
-                # 判断是否为NC元件
+                # \u5224\u65ad\u662f\u5426\u4e3aNC\u5143\u4ef6
                 if { $lPropPNString == "" || [regexp "NC/" $lPropValueString] } {
-                    # 注释编码已统一为 GBK，原注释内容已清理。
+                    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                     set lColorPropNameCStr [DboTclHelper_sMakeCString "Color"]
                     set lColorPropValueCStr [DboTclHelper_sMakeCString "RGB(192,192,192)"]
                     $lInst SetEffectivePropStringValue $lColorPropNameCStr $lColorPropValueCStr
                     
-                    # 注释编码已统一为 GBK，原注释内容已清理。
+                    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                     set lPlacedInst [DboPartInstToDboPlacedInst $lInst] 
                     if {$lPlacedInst != $lNullObj} {
                         set lPropsIter [$lPlacedInst NewDisplayPropsIter $lStatus] 
@@ -578,12 +578,12 @@ proc ::capMenuUtil::NcPartGrayed { pLib } {
                         delete_DboDisplayPropsIter $lPropsIter
                     }
                 } else {
-                    # 非NC元件恢复默认颜色
+                    # \u975eNC\u5143\u4ef6\u6062\u590d\u9ed8\u8ba4\u989c\u8272
                     set lColorPropNameCStr [DboTclHelper_sMakeCString "Color"]
                     set lColorPropValueCStr [DboTclHelper_sMakeCString "Default"]
                     $lInst SetEffectivePropStringValue $lColorPropNameCStr $lColorPropValueCStr
                     
-                    # 注释编码已统一为 GBK，原注释内容已清理。
+                    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                     set lPlacedInst [DboPartInstToDboPlacedInst $lInst] 
                     if {$lPlacedInst != $lNullObj} {
                         set lPropsIter [$lPlacedInst NewDisplayPropsIter $lStatus] 
@@ -609,13 +609,13 @@ proc ::capMenuUtil::NcPartGrayed { pLib } {
 
 
 # ////////////////////////////////////////////////////////////////////////////////
-# 注释编码已统一为 GBK，原注释内容已清理。
+# \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
 # ////////////////////////////////////////////////////////////////////////////////
 proc ::capMenuUtil::GroundNameVisible { pLib } {
     set lStatus [DboState]
     set lDesign [GetActivePMDesign]
     if {$lDesign eq "NULL" || $lDesign eq ""} {
-        tk_messageBox -icon error -message "未找到当前打开的设计！"
+        tk_messageBox -icon error -message "No active design is open."
         return
     }
     
@@ -646,12 +646,12 @@ proc ::capMenuUtil::GroundNameVisible { pLib } {
                     set propName [DboTclHelper_sGetConstCharPtr $lPrpName]
                     if {$propName eq "Name"} {
                         set netName [DboTclHelper_sGetConstCharPtr $lPrpValue]
-                        # 已生成的随机名称集合，确保唯一性
+                        # \u5df2\u751f\u6210\u7684\u968f\u673a\u540d\u79f0\u96c6\u5408\uff0c\u786e\u4fdd\u552f\u4e00\u6027
                         if { [regexp "GND" $netName] || $netName == "0" } {
                             set varNullObj NULL
                             set pDispProp [$lGlobal GetDisplayProp $lPrpName $lStatus]
                             if { $pDispProp == $varNullObj } {
-                                # 注释编码已统一为 GBK，原注释内容已清理。
+                                # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                                 set rotation 0
                                 set logfont [DboTclHelper_sMakeLOGFONT]
                                 set lColor $::DboValue_DEFAULT_OBJECT_COLOR
@@ -659,7 +659,7 @@ proc ::capMenuUtil::GroundNameVisible { pLib } {
                                 set pNewDispProp [$lGlobal NewDisplayProp $lStatus $lPrpName $displocation $rotation $logfont $lColor]
                                 $pNewDispProp SetDisplayType 1 ;# VALUE_ONLY
                             } else {
-                                # 已有属性，强制显示Value
+                                # \u5df2\u6709\u5c5e\u6027\uff0c\u5f3a\u5236\u663e\u793aValue
                                 $pDispProp SetDisplayType 1
                             }
                         }
@@ -680,13 +680,13 @@ proc ::capMenuUtil::GroundNameVisible { pLib } {
 }
 
 # ////////////////////////////////////////////////////////////////////////////////
-# 注释编码已统一为 GBK，原注释内容已清理。
+# \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
 # ////////////////////////////////////////////////////////////////////////////////
 proc ::capMenuUtil::ResetNetnameColor { pLib } {
     set lStatus [DboState]
     set lDesign [GetActivePMDesign]
     if {$lDesign eq "NULL" || $lDesign eq ""} {
-        tk_messageBox -icon error -message "未找到当前打开的设计！"
+        tk_messageBox -icon error -message "No active design is open."
         return
     }
     
@@ -704,7 +704,7 @@ proc ::capMenuUtil::ResetNetnameColor { pLib } {
         set lPage [$lPagesIter NextPage $lStatus]
 
         while {$lPage!=$lNullObj} {
-            # 重置导线别名颜色
+            # \u91cd\u7f6e\u5bfc\u7ebf\u522b\u540d\u989c\u8272
             set lWiresIter [$lPage NewWiresIter $lStatus]
             set lWire [$lWiresIter NextWire $lStatus]
             while {$lWire!=$lNullObj} {
@@ -722,7 +722,7 @@ proc ::capMenuUtil::ResetNetnameColor { pLib } {
             }
             delete_DboPageWiresIter $lWiresIter
 
-            # 重置页间连接颜色
+            # \u91cd\u7f6e\u9875\u95f4\u8fde\u63a5\u989c\u8272
             set lOffPagesIter [$lPage NewOffPageConnectorsIter $lStatus]
             set lOffPage [$lOffPagesIter NextOffPageConnector $lStatus]
             while {$lOffPage!=$lNullObj} {
@@ -730,7 +730,7 @@ proc ::capMenuUtil::ResetNetnameColor { pLib } {
                 set lColorPropValueCStr [DboTclHelper_sMakeCString "Default"]
                 $lOffPage SetEffectivePropStringValue $lColorPropNameCStr $lColorPropValueCStr
                 
-                # 注释编码已统一为 GBK，原注释内容已清理。
+                # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                 set lPropsIter [$lOffPage NewDisplayPropsIter $lStatus] 
                 set lDProp [$lPropsIter NextProp $lStatus]
                 while {$lDProp !=$lNullObj } { 
@@ -743,7 +743,7 @@ proc ::capMenuUtil::ResetNetnameColor { pLib } {
             }
             delete_DboPageOffPageConnectorsIter $lOffPagesIter
 
-            # 重置端口颜色
+            # \u91cd\u7f6e\u7aef\u53e3\u989c\u8272
             set lPortsIter [$lPage NewPortsIter $lStatus]
             set lPort [$lPortsIter NextPort $lStatus]
             while {$lPort!=$lNullObj} {
@@ -751,7 +751,7 @@ proc ::capMenuUtil::ResetNetnameColor { pLib } {
                 set lColorPropValueCStr [DboTclHelper_sMakeCString "Default"]
                 $lPort SetEffectivePropStringValue $lColorPropNameCStr $lColorPropValueCStr
                 
-                # 注释编码已统一为 GBK，原注释内容已清理。
+                # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                 set lPropsIter [$lPort NewDisplayPropsIter $lStatus] 
                 set lDProp [$lPropsIter NextProp $lStatus]
                 while {$lDProp !=$lNullObj } { 
@@ -773,18 +773,18 @@ proc ::capMenuUtil::ResetNetnameColor { pLib } {
 }
 
 # ////////////////////////////////////////////////////////////////////////////////
-# 注释编码已统一为 GBK，原注释内容已清理。
+# \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
 # ////////////////////////////////////////////////////////////////////////////////
-# 1. 随机字符串生成器 - 兼容Tcl 8.4/8.5
+# 1. \u968f\u673a\u5b57\u7b26\u4e32\u751f\u6210\u5668 - \u517c\u5bb9Tcl 8.4/8.5
 
 # ////////////////////////////////////////////////////////////////////////////////
-# 安全反操作：隐藏/显示类操作，仅切换显示属性，不做快照恢复。
+# \u5b89\u5168\u53cd\u64cd\u4f5c\uff1a\u9690\u85cf/\u663e\u793a\u7c7b\u64cd\u4f5c\uff0c\u4ec5\u5207\u6362\u663e\u793a\u5c5e\u6027\uff0c\u4e0d\u505a\u5feb\u7167\u6062\u590d\u3002
 # ////////////////////////////////////////////////////////////////////////////////
 proc ::capMenuUtil::GroundNameHidden { pLib } {
     set lStatus [DboState]
     set lDesign [GetActivePMDesign]
     if {$lDesign eq "NULL" || $lDesign eq ""} {
-        tk_messageBox -icon error -message "未找到当前打开的设计！"
+        tk_messageBox -icon error -message "No active design is open."
         return
     }
 
@@ -840,7 +840,7 @@ proc ::capMenuUtil::setUPinNameDisplayType { pLib displayType } {
     set lDesign [GetActivePMDesign]
     set lNullObj NULL
     if {$lDesign eq "NULL" || $lDesign eq ""} {
-        tk_messageBox -icon error -message "未找到当前打开的设计！"
+        tk_messageBox -icon error -message "No active design is open."
         return
     }
 
@@ -902,7 +902,7 @@ proc ::capMenuUtil::setPartValueDisplayType { pLib onlyU displayType } {
     set lDesign [GetActivePMDesign]
     set lNullObj NULL
     if {$lDesign eq "NULL" || $lDesign eq ""} {
-        tk_messageBox -icon error -message "未找到当前打开的设计！"
+        tk_messageBox -icon error -message "No active design is open."
         return
     }
 
@@ -976,7 +976,7 @@ proc ::capMenuUtil::RestorePartDefaultColor { pLib } {
     set lDesign [GetActivePMDesign]
     set lNullObj NULL
     if {$lDesign eq "NULL" || $lDesign eq ""} {
-        tk_messageBox -icon error -message "未找到当前打开的设计！"
+        tk_messageBox -icon error -message "No active design is open."
         return
     }
 
@@ -1025,20 +1025,20 @@ proc ::capMenuUtil::RestorePartDefaultColor { pLib } {
 proc ::capMenuUtil::generateRandomString {} {
     variable generatedNames
     
-    # 注释编码已统一为 GBK，原注释内容已清理。
+    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
     set prefix "XX_"
     set chars "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
     set charCount [string length $chars]
     
-    # 注释编码已统一为 GBK，原注释内容已清理。
+    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
     while {1} {
         set str $prefix
-        # 已生成的随机名称集合，确保唯一性
+        # \u5df2\u751f\u6210\u7684\u968f\u673a\u540d\u79f0\u96c6\u5408\uff0c\u786e\u4fdd\u552f\u4e00\u6027
         for {set i 0} {$i < 8} {incr i} {
             append str [string index $chars [expr {int(rand() * $charCount)}]]
         }
         
-        # 注释编码已统一为 GBK，原注释内容已清理。
+        # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
         if {[lsearch $generatedNames $str] == -1} {
             lappend generatedNames $str
             return $str
@@ -1046,169 +1046,169 @@ proc ::capMenuUtil::generateRandomString {} {
     }
 }
 
-# 已生成的随机名称集合，确保唯一性
+# \u5df2\u751f\u6210\u7684\u968f\u673a\u540d\u79f0\u96c6\u5408\uff0c\u786e\u4fdd\u552f\u4e00\u6027
 proc ::capMenuUtil::normalizeNetName {netName} {
-    # 去除前后空格并转为大写，确保相同网络的不同表示形式被识别为同一网络
+    # \u53bb\u9664\u524d\u540e\u7a7a\u683c\u5e76\u8f6c\u4e3a\u5927\u5199\uff0c\u786e\u4fdd\u76f8\u540c\u7f51\u7edc\u7684\u4e0d\u540c\u8868\u793a\u5f62\u5f0f\u88ab\u8bc6\u522b\u4e3a\u540c\u4e00\u7f51\u7edc
     return [string trim [string toupper $netName]]
 }
 
-# 注释编码已统一为 GBK，原注释内容已清理。
-proc ::capMenuUtil::showNetExchange处理中Dialog {totalPages oldString newString} {
+# \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
+proc ::capMenuUtil::showNetExchangeProgressDialog {totalPages oldString newString} {
     set progressWindow .netExchangeProgress
     if {[winfo exists $progressWindow]} {
         destroy $progressWindow
     }
 
-    # 注释编码已统一为 GBK，原注释内容已清理。
+    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
     toplevel $progressWindow
     wm title $progressWindow "Replace Net Names"
     wm resizable $progressWindow 0 0
     wm attributes $progressWindow -toolwindow 1
-    # 注释编码已统一为 GBK，原注释内容已清理。
+    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
     # wm transient $progressWindow .
-    # 寮哄埗鏄剧ず骞剁疆椤?
+    # \u5bee\u54c4\u57d7\u93c4\u5267\u305a\u9a9e\u5241\u7586\u6924?
     wm deiconify $progressWindow
     raise $progressWindow
     focus $progressWindow
 
-    # 设置字体和颜色（兼容16.6的默认字体）
+    # \u8bbe\u7f6e\u5b57\u4f53\u548c\u989c\u8272\uff08\u517c\u5bb916.6\u7684\u9ed8\u8ba4\u5b57\u4f53\uff09
     set font {TkDefaultFont 10}
     set bgColor "#f0f0f0"
     set fgColor "#333333"
     
-    # 配置窗口样式
+    # \u914d\u7f6e\u7a97\u53e3\u6837\u5f0f
     $progressWindow configure -bg $bgColor
     
-    # 创建内容框架
+    # \u521b\u5efa\u5185\u5bb9\u6846\u67b6
     set contentFrame [frame $progressWindow.content -bg $bgColor -padx 20 -pady 20]
     pack $contentFrame -fill both -expand 1
     
-    # 注释编码已统一为 GBK，原注释内容已清理。
-    label $contentFrame.label -text "正在替换网络名..." \
+    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
+    label $contentFrame.label -text "Replacing net names..." \
         -font $font -fg $fgColor -bg $bgColor
     pack $contentFrame.label -pady 5
     
-    # 显示替换信息
-    label $contentFrame.replaceInfo -text "正在替换：\"$oldString\" -> \"$newString\"" \
+    # \u663e\u793a\u66ff\u6362\u4fe1\u606f
+    label $contentFrame.replaceInfo -text "Replacing: \"$oldString\" -> \"$newString\"" \
         -font [list TkDefaultFont 9] -fg $fgColor -bg $bgColor -wraplength 300
     pack $contentFrame.replaceInfo -pady 5
     
-    # 添加进度文本
-    label $contentFrame.status -text "第 0 / $totalPages 页" \
+    # \u6dfb\u52a0\u8fdb\u5ea6\u6587\u672c
+    label $contentFrame.status -text "Page 0 / $totalPages" \
         -font [list TkDefaultFont 9] -fg $fgColor -bg $bgColor
     pack $contentFrame.status -pady 5
     
-    # 使用传统进度条（不使用ttk，兼容旧版本Tk)
+    # \u4f7f\u7528\u4f20\u7edf\u8fdb\u5ea6\u6761\uff08\u4e0d\u4f7f\u7528ttk\uff0c\u517c\u5bb9\u65e7\u7248\u672cTk)
     frame $contentFrame.progress -relief sunken -bd 1 -width 300 -height 20
     canvas $contentFrame.progress.canvas -width 296 -height 16 -bg white
     $contentFrame.progress.canvas create rectangle 0 0 0 16 -fill blue -outline blue -tags bar
     pack $contentFrame.progress.canvas -fill both -expand 1
     pack $contentFrame.progress -pady 10 -fill x
     
-    # 添加说明文字
-    label $contentFrame.note -text "请稍候，不要关闭 OrCAD..." \
+    # \u6dfb\u52a0\u8bf4\u660e\u6587\u5b57
+    label $contentFrame.note -text "Please wait. Do not close OrCAD..." \
         -font [list TkDefaultFont 8] -fg "#666666" -bg $bgColor -wraplength 300
     pack $contentFrame.note -pady 5
-    # 注释编码已统一为 GBK，原注释内容已清理。
+    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
     update
 
-    # 居中显示弹窗
+    # \u5c45\u4e2d\u663e\u793a\u5f39\u7a97
     update idletasks
     set x [expr {([winfo screenwidth .] - [winfo reqwidth $progressWindow]) / 2}]
     set y [expr {([winfo screenheight .] - [winfo reqheight $progressWindow]) / 2}]
     wm geometry $progressWindow "+$x+$y"
 
-    # 强制处理所有挂起的事件
+    # \u5f3a\u5236\u5904\u7406\u6240\u6709\u6302\u8d77\u7684\u4e8b\u4ef6
     update
 
     return $progressWindow
 }
 
-# 4. 创建并显示随机化处理弹窗（优化显示）
-proc ::capMenuUtil::show处理中Dialog {totalPages} {
+# 4. \u521b\u5efa\u5e76\u663e\u793a\u968f\u673a\u5316\u5904\u7406\u5f39\u7a97\uff08\u4f18\u5316\u663e\u793a\uff09
+proc ::capMenuUtil::showProcessingDialog {totalPages} {
     set progressWindow .randomizeProgress
     if {[winfo exists $progressWindow]} {
         destroy $progressWindow
     }
 
-    # 注释编码已统一为 GBK，原注释内容已清理。
+    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
     toplevel $progressWindow
-    wm title $progressWindow "处理中"
+    wm title $progressWindow "Processing"
     wm resizable $progressWindow 0 0
     wm attributes $progressWindow -toolwindow 1
-    # 注释编码已统一为 GBK，原注释内容已清理。
+    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
     # wm transient $progressWindow .
-    # 寮哄埗鏄剧ず骞剁疆椤?
+    # \u5bee\u54c4\u57d7\u93c4\u5267\u305a\u9a9e\u5241\u7586\u6924?
     wm deiconify $progressWindow
     raise $progressWindow
     focus $progressWindow
 
-    # 设置字体和颜色（兼容16.6的默认字体）
+    # \u8bbe\u7f6e\u5b57\u4f53\u548c\u989c\u8272\uff08\u517c\u5bb916.6\u7684\u9ed8\u8ba4\u5b57\u4f53\uff09
     set font {TkDefaultFont 10}
     set bgColor "#f0f0f0"
     set fgColor "#333333"
     
-    # 配置窗口样式
+    # \u914d\u7f6e\u7a97\u53e3\u6837\u5f0f
     $progressWindow configure -bg $bgColor
     
-    # 创建内容框架
+    # \u521b\u5efa\u5185\u5bb9\u6846\u67b6
     set contentFrame [frame $progressWindow.content -bg $bgColor -padx 20 -pady 20]
     pack $contentFrame -fill both -expand 1
     
-    # 注释编码已统一为 GBK，原注释内容已清理。
-    label $contentFrame.label -text "正在Randomize Net Names..." \
+    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
+    label $contentFrame.label -text "Randomizing net names..." \
         -font $font -fg $fgColor -bg $bgColor
     pack $contentFrame.label -pady 5
     
-    # 添加进度文本
-    label $contentFrame.status -text "第 0 / $totalPages 页" \
+    # \u6dfb\u52a0\u8fdb\u5ea6\u6587\u672c
+    label $contentFrame.status -text "Page 0 / $totalPages" \
         -font [list TkDefaultFont 9] -fg $fgColor -bg $bgColor
     pack $contentFrame.status -pady 5
     
-    # 使用传统进度条（不使用ttk，兼容旧版本Tk)
+    # \u4f7f\u7528\u4f20\u7edf\u8fdb\u5ea6\u6761\uff08\u4e0d\u4f7f\u7528ttk\uff0c\u517c\u5bb9\u65e7\u7248\u672cTk)
     frame $contentFrame.progress -relief sunken -bd 1 -width 300 -height 20
     canvas $contentFrame.progress.canvas -width 296 -height 16 -bg white
     $contentFrame.progress.canvas create rectangle 0 0 0 16 -fill blue -outline blue -tags bar
     pack $contentFrame.progress.canvas -fill both -expand 1
     pack $contentFrame.progress -pady 10 -fill x
     
-    # 添加说明文字
-    label $contentFrame.note -text "请稍候，不要关闭 OrCAD..." \
+    # \u6dfb\u52a0\u8bf4\u660e\u6587\u5b57
+    label $contentFrame.note -text "Please wait. Do not close OrCAD..." \
         -font [list TkDefaultFont 8] -fg "#666666" -bg $bgColor -wraplength 300
     pack $contentFrame.note -pady 5
-    # 注释编码已统一为 GBK，原注释内容已清理。
+    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
     update
 
-    # 居中显示弹窗
+    # \u5c45\u4e2d\u663e\u793a\u5f39\u7a97
     update idletasks
     set x [expr {([winfo screenwidth .] - [winfo reqwidth $progressWindow]) / 2}]
     set y [expr {([winfo screenheight .] - [winfo reqheight $progressWindow]) / 2}]
     wm geometry $progressWindow "+$x+$y"
 
-    # 强制处理所有挂起的事件
+    # \u5f3a\u5236\u5904\u7406\u6240\u6709\u6302\u8d77\u7684\u4e8b\u4ef6
     update
 
     return $progressWindow
 
 }
 
-# 注释编码已统一为 GBK，原注释内容已清理。
+# \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
 proc ::capMenuUtil::updateProgress {progressWindow current total} {
-    set statusText "第 $current / $total 页"
+    set statusText "Page $current / $total"
     $progressWindow.content.status configure -text $statusText
     
-    # 璁＄畻杩涘害鐧惧垎姣?
+    # \u7481\uff04\u757b\u6769\u6d98\u5bb3\u9427\u60e7\u578e\u59e3?
     set percent [expr {double($current) / $total}]
     set width [expr {int(296 * $percent)}]
     
-    # 注释编码已统一为 GBK，原注释内容已清理。
+    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
     $progressWindow.content.progress.canvas coords bar 0 0 $width 16
     
-    # 强制更新界面
+    # \u5f3a\u5236\u66f4\u65b0\u754c\u9762
     update idletasks
 }
 
-# 已生成的随机名称集合，确保唯一性
+# \u5df2\u751f\u6210\u7684\u968f\u673a\u540d\u79f0\u96c6\u5408\uff0c\u786e\u4fdd\u552f\u4e00\u6027
 proc ::capMenuUtil::countTotalPages {lDesign lStatus} {
     set totalPages 0
     set lNullObj NULL
@@ -1238,11 +1238,11 @@ proc ::capMenuUtil::countTotalPages {lDesign lStatus} {
     return $totalPages
 }
 
-# 注释编码已统一为 GBK，原注释内容已清理。
+# \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
 proc ::capMenuUtil::RandomizeNetNames {pLib} {
     
     
-    # 初始化缓存（使用list替代dict，兼容Tcl 8.4的限制）
+    # \u521d\u59cb\u5316\u7f13\u5b58\uff08\u4f7f\u7528list\u66ff\u4ee3dict\uff0c\u517c\u5bb9Tcl 8.4\u7684\u9650\u5236\uff09
     variable netNameMap
     variable generatedNames
     set netNameMap [list]
@@ -1250,31 +1250,31 @@ proc ::capMenuUtil::RandomizeNetNames {pLib} {
     array set netNameMapArray {}
     set generatedNames [list]
     
-    # 获取设计信息
+    # \u83b7\u53d6\u8bbe\u8ba1\u4fe1\u606f
     set lStatus [DboState]
     set lDesign [GetActivePMDesign]
     
-    # 检查是否有活动设计
+    # \u68c0\u67e5\u662f\u5426\u6709\u6d3b\u52a8\u8bbe\u8ba1
     if {$lDesign eq "NULL" || $lDesign eq ""} {
-        tk_messageBox -icon error -message "未找到当前打开的设计！\n请先打开一个设计。"
+        tk_messageBox -icon error -message "No active design is open.\nOpen a design first."
         return
     }
     
-    # 计算总页面数用于进度显示
+    # \u8ba1\u7b97\u603b\u9875\u9762\u6570\u7528\u4e8e\u8fdb\u5ea6\u663e\u793a
     set totalPages [::capMenuUtil::countTotalPages $lDesign $lStatus]
     if {$totalPages == 0} {
-        tk_messageBox -icon warning -message "当前设计中未找到页面！"
+        tk_messageBox -icon warning -message "No pages were found in the current design."
         return
     }
     
-    # 注释编码已统一为 GBK，原注释内容已清理。
-    set progressWindow [::capMenuUtil::show处理中Dialog $totalPages]
+    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
+    set progressWindow [::capMenuUtil::showProcessingDialog $totalPages]
     set currentPage 0
     
-    # 注释编码已统一为 GBK，原注释内容已清理。
+    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
     update
     
-    # 兼容16.6的迭代器创建方式
+    # \u517c\u5bb916.6\u7684\u8fed\u4ee3\u5668\u521b\u5efa\u65b9\u5f0f
     if {[info exists ::IterDefs_SCHEMATICS]} {
         set lSchematicIter [$lDesign NewViewsIter $lStatus $::IterDefs_SCHEMATICS]
     } else {
@@ -1282,30 +1282,30 @@ proc ::capMenuUtil::RandomizeNetNames {pLib} {
     }
     set lView [$lSchematicIter NextView $lStatus]
     set lNullObj NULL
-    set SchNum 0                      ;# 原理图计数器
+    set SchNum 0                      ;# \u539f\u7406\u56fe\u8ba1\u6570\u5668
     
-    # 步骤2：遍历所有原理图
+    # \u6b65\u9aa42\uff1a\u904d\u5386\u6240\u6709\u539f\u7406\u56fe
     while {$lView != $lNullObj} {
         incr SchNum
         set lSchematic [DboViewToDboSchematic $lView]
         set lPagesIter [$lSchematic NewPagesIter $lStatus]
         set lPage [$lPagesIter NextPage $lStatus]
-        set PageNum 0                  ;# 椤甸潰璁℃暟鍣?
+        set PageNum 0                  ;# \u6924\u7538\u6f70\u7481\u2103\u669f\u9363?
 
-        # 姝ラ3锛氶亶鍘嗗綋鍓嶅師鐞嗗浘鐨勬墍鏈夐〉闈?
+        # \u59dd\u30e9\ue0033\u951b\u6c36\u4eb6\u9358\u55d7\u7d8b\u9353\u5d85\u5e2b\u941e\u55d7\u6d58\u9428\u52ec\u588d\u93c8\u5910\u3009\u95c8?
         while {$lPage != $lNullObj} {
             incr PageNum
             incr currentPage
             
-            # 注释编码已统一为 GBK，原注释内容已清理。
+            # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
             ::capMenuUtil::updateProgress $progressWindow $currentPage $totalPages
             
-            puts "\n===================== 处理中 Schematic $SchNum, Page $PageNum ====================="
+            puts "\n===================== Processing Schematic $SchNum, Page $PageNum ====================="
 
             # //////////////////////////////////////////////////////////////////////
-            # 注释编码已统一为 GBK，原注释内容已清理。
+            # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
             # //////////////////////////////////////////////////////////////////////
-            puts "\n[clock format [clock seconds] -format {%H:%M:%S}] - 处理中 Wire Aliases..."
+            puts "\n[clock format [clock seconds] -format {%H:%M:%S}] - Processing Wire Aliases..."
             set lWiresIter [$lPage NewWiresIter $lStatus]
             set lWire [$lWiresIter NextWire $lStatus] 
             
@@ -1314,14 +1314,14 @@ proc ::capMenuUtil::RandomizeNetNames {pLib} {
                 set lAlias [$lAliasIter NextAlias $lStatus]
                 
                 while { $lAlias != $lNullObj } {
-                    # 已生成的随机名称集合，确保唯一性
+                    # \u5df2\u751f\u6210\u7684\u968f\u673a\u540d\u79f0\u96c6\u5408\uff0c\u786e\u4fdd\u552f\u4e00\u6027
                     set lAliasString [DboTclHelper_sMakeCString]
                     $lAlias GetName $lAliasString
                     set lNameString [DboTclHelper_sGetConstCharPtr $lAliasString]
                     
-                    # 注释编码已统一为 GBK，原注释内容已清理。
+                    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                     if {![string match "XX_*" $lNameString] && $lNameString ne ""} {
-                        # 注释编码已统一为 GBK，原注释内容已清理。
+                        # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                         set normalizedName [::capMenuUtil::normalizeNetName $lNameString]
                         
                         if {[info exists netNameMapArray($normalizedName)]} {
@@ -1334,17 +1334,17 @@ proc ::capMenuUtil::RandomizeNetNames {pLib} {
                             ::capMenuUtil::logDebug "Mapping new network: $lNameString -> $newName"
                         }
                         
-                        # 注释编码已统一为 GBK，原注释内容已清理。
+                        # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                         set lNewName [DboTclHelper_sMakeCString $newName]
                         $lAlias SetName $lNewName
                     }
                     
-                    # 注释编码已统一为 GBK，原注释内容已清理。
+                    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                     set lAlias [$lAliasIter NextAlias $lStatus]
                 }
                 
                 delete_DboWireAliasesIter $lAliasIter
-                # 注释编码已统一为 GBK，原注释内容已清理。
+                # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                 set lWire [$lWiresIter NextWire $lStatus] 
             }
             
@@ -1352,9 +1352,9 @@ proc ::capMenuUtil::RandomizeNetNames {pLib} {
             puts "[clock format [clock seconds] -format {%H:%M:%S}] - Wire Aliases processed"
 
             # //////////////////////////////////////////////////////////////////////
-            # 注释编码已统一为 GBK，原注释内容已清理。
+            # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
             # //////////////////////////////////////////////////////////////////////
-            puts "\n[clock format [clock seconds] -format {%H:%M:%S}] - 处理中 Ports..."
+            puts "\n[clock format [clock seconds] -format {%H:%M:%S}] - Processing Ports..."
             set lPortsIter [$lPage NewPortsIter $lStatus]
             set lPort [$lPortsIter NextPort $lStatus]
             
@@ -1363,7 +1363,7 @@ proc ::capMenuUtil::RandomizeNetNames {pLib} {
                 $lPort GetName $lPortString
                 set lNameString [DboTclHelper_sGetConstCharPtr $lPortString]
                 
-                # 注释编码已统一为 GBK，原注释内容已清理。
+                # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                 if {![string match "XX_*" $lNameString] && $lNameString ne ""} {
                     set normalizedName [::capMenuUtil::normalizeNetName $lNameString]
                     
@@ -1377,12 +1377,12 @@ proc ::capMenuUtil::RandomizeNetNames {pLib} {
                         ::capMenuUtil::logDebug "Mapping new port: $lNameString -> $newName"
                     }
                     
-                    # 注释编码已统一为 GBK，原注释内容已清理。
+                    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                     set lNewName [DboTclHelper_sMakeCString $newName]
                     $lPort SetName $lNewName
                 }
 
-                # 注释编码已统一为 GBK，原注释内容已清理。
+                # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                 set lPort [$lPortsIter NextPort $lStatus]
             }  
             
@@ -1390,10 +1390,10 @@ proc ::capMenuUtil::RandomizeNetNames {pLib} {
             puts "[clock format [clock seconds] -format {%H:%M:%S}] - Ports processed"
 
             # //////////////////////////////////////////////////////////////////////
-            # 注释编码已统一为 GBK，原注释内容已清理。
+            # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
             # //////////////////////////////////////////////////////////////////////
-            puts "\n[clock format [clock seconds] -format {%H:%M:%S}] - 处理中 Offpage Connectors..."
-            # 鍏煎16.6鐨凮ffPage杩唬鍣ㄥ弬鏁?
+            puts "\n[clock format [clock seconds] -format {%H:%M:%S}] - Processing Offpage Connectors..."
+            # \u934f\u714e\ue19016.6\u9428\u51eeffPage\u6769\ue15d\u552c\u9363\u3125\u5f2c\u93c1?
             if {[info exists ::IterDefs_ALL]} {
                 set lOffPagesIter [$lPage NewOffPageConnectorsIter $lStatus $::IterDefs_ALL]
             } else {
@@ -1406,7 +1406,7 @@ proc ::capMenuUtil::RandomizeNetNames {pLib} {
                 $lOffPage GetName $lOffPageString
                 set lNameString [DboTclHelper_sGetConstCharPtr $lOffPageString]
                 
-                # 注释编码已统一为 GBK，原注释内容已清理。
+                # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                 if {![string match "XX_*" $lNameString] && $lNameString ne ""} {
                     set normalizedName [::capMenuUtil::normalizeNetName $lNameString]
                     
@@ -1420,12 +1420,12 @@ proc ::capMenuUtil::RandomizeNetNames {pLib} {
                         ::capMenuUtil::logDebug "Mapping new offpage: $lNameString -> $newName"
                     }
                     
-                    # 注释编码已统一为 GBK，原注释内容已清理。
+                    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                     set lNewName [DboTclHelper_sMakeCString $newName]
                     $lOffPage SetName $lNewName
                 }
                 
-                # 注释编码已统一为 GBK，原注释内容已清理。
+                # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                 set lOffPage [$lOffPagesIter NextOffPageConnector $lStatus]
             }
             
@@ -1433,9 +1433,9 @@ proc ::capMenuUtil::RandomizeNetNames {pLib} {
             puts "[clock format [clock seconds] -format {%H:%M:%S}] - Offpage Connectors processed"
 
             # //////////////////////////////////////////////////////////////////////
-            # 注释编码已统一为 GBK，原注释内容已清理。
+            # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
             # //////////////////////////////////////////////////////////////////////
-            puts "\n[clock format [clock seconds] -format {%H:%M:%S}] - 处理中 Power..."
+            puts "\n[clock format [clock seconds] -format {%H:%M:%S}] - Processing Power..."
             set lGlobalsIter [$lPage NewGlobalsIter $lStatus]
             set lGlobal [$lGlobalsIter NextGlobal $lStatus]
             
@@ -1452,11 +1452,11 @@ proc ::capMenuUtil::RandomizeNetNames {pLib} {
                     if {$propName eq "Name"} {
                         set lNameString [DboTclHelper_sGetConstCharPtr $lPrpValue]
                         
-                        # 注释编码已统一为 GBK，原注释内容已清理。
+                        # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                         set isFilePath [expr {[string match "*:*" $lNameString] || [string match "*\\*" $lNameString] || [string match "*/*" $lNameString]}]
                         set isNumeric [expr {[string is digit $lNameString]}]
                         
-                        # 过滤条件：不是XX_前缀、不包含GND、不是默认值、不是文件路径、不是纯数字
+                        # \u8fc7\u6ee4\u6761\u4ef6\uff1a\u4e0d\u662fXX_\u524d\u7f00\u3001\u4e0d\u5305\u542bGND\u3001\u4e0d\u662f\u9ed8\u8ba4\u503c\u3001\u4e0d\u662f\u6587\u4ef6\u8def\u5f84\u3001\u4e0d\u662f\u7eaf\u6570\u5b57
                         if {![string match "XX_*" $lNameString] && ![string match -nocase "*GND*" $lNameString] && 
                             ![string match "Default" $lNameString] && !$isFilePath && !$isNumeric && $lNameString ne ""} {
                             
@@ -1472,7 +1472,7 @@ proc ::capMenuUtil::RandomizeNetNames {pLib} {
                                 ::capMenuUtil::logDebug "Mapping new power: $lNameString -> $newName"
                             }
                             
-                            # 注释编码已统一为 GBK，原注释内容已清理。
+                            # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                             set lNewName [DboTclHelper_sMakeCString $newName]
                             $lGlobal SetEffectivePropStringValue $lPrpName $lNewName
                         }
@@ -1482,91 +1482,91 @@ proc ::capMenuUtil::RandomizeNetNames {pLib} {
                 }
                 
                 delete_DboEffectivePropsIter $lPropsIter			
-                # 获取下一个全局对象
+                # \u83b7\u53d6\u4e0b\u4e00\u4e2a\u5168\u5c40\u5bf9\u8c61
                 set lGlobal [$lGlobalsIter NextGlobal $lStatus]
             }
             
             delete_DboPageGlobalsIter $lGlobalsIter
             puts "[clock format [clock seconds] -format {%H:%M:%S}] - Power/Ground processed"
 
-            # 注释编码已统一为 GBK，原注释内容已清理。
+            # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
             set lPage [$lPagesIter NextPage $lStatus]
         }
         
         delete_DboSchematicPagesIter $lPagesIter
-        # 处理下一个原理图
+        # \u5904\u7406\u4e0b\u4e00\u4e2a\u539f\u7406\u56fe
         set lView [$lSchematicIter NextView $lStatus]
     }
     
     delete_DboLibViewsIter $lSchematicIter
 
-    # 注释编码已统一为 GBK，原注释内容已清理。
+    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
     destroy $progressWindow
 
     
 }
 
 
-# 注释编码已统一为 GBK，原注释内容已清理。
+# \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
 proc ::capMenuUtil::DeleteAllGraphic { pLib } {
     
 	
-	# 初始化状态对象与空对象标识（文档3.2节标准操作）
+	# \u521d\u59cb\u5316\u72b6\u6001\u5bf9\u8c61\u4e0e\u7a7a\u5bf9\u8c61\u6807\u8bc6\uff08\u6587\u68633.2\u8282\u6807\u51c6\u64cd\u4f5c\uff09
     set lStatus [DboState]
     set lNullObj NULL
     set lDeletedCount 0
 
-    # 注释编码已统一为 GBK，原注释内容已清理。
+    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
     set lDesign [GetActivePMDesign]
     if {$lDesign == $lNullObj} {
-        puts "Error: 未找到当前打开的设计！ Please open a design first."
+        puts "Error: No active design is open. Please open a design first."
         $lStatus -delete
         return
     }
-	# 计算总页面数用于进度显示
+	# \u8ba1\u7b97\u603b\u9875\u9762\u6570\u7528\u4e8e\u8fdb\u5ea6\u663e\u793a
     set totalPages [::capMenuUtil::countTotalPages $lDesign $lStatus]
     if {$totalPages == 0} {
-        tk_messageBox -icon warning -message "当前设计中未找到页面！"
+        tk_messageBox -icon warning -message "No pages were found in the current design."
         $lStatus -delete
         return
     }
-	# 注释编码已统一为 GBK，原注释内容已清理。
+	# \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
     set progressWindow [::capMenuUtil::showDeleteGraphicProgressDialog $totalPages]
     set currentPage 0
     
-    # 注释编码已统一为 GBK，原注释内容已清理。
+    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
     update
 	
 
-    # 注释编码已统一为 GBK，原注释内容已清理。
+    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
     set lSchematicIter [$lDesign NewViewsIter $lStatus $::IterDefs_SCHEMATICS]
     set lView [$lSchematicIter NextView $lStatus]
 
     while { $lView != $lNullObj } {
-        # 注释编码已统一为 GBK，原注释内容已清理。
+        # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
         set lSchematic [DboViewToDboSchematic $lView]
         
-        # 注释编码已统一为 GBK，原注释内容已清理。
+        # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
         set lPagesIter [$lSchematic NewPagesIter $lStatus]
         set lPage [$lPagesIter NextPage $lStatus]
 
         while { $lPage != $lNullObj } {
 		    incr currentPage
-            # 更新进度
+            # \u66f4\u65b0\u8fdb\u5ea6
             ::capMenuUtil::updateProgress $progressWindow $currentPage $totalPages
 			
-            # 先收集所有需要删除的图形对象，然后再统一删除（避免迭代器状态问题）
+            # \u5148\u6536\u96c6\u6240\u6709\u9700\u8981\u5220\u9664\u7684\u56fe\u5f62\u5bf9\u8c61\uff0c\u7136\u540e\u518d\u7edf\u4e00\u5220\u9664\uff08\u907f\u514d\u8fed\u4ee3\u5668\u72b6\u6001\u95ee\u9898\uff09
             set bitmapsToDelete [list]
             
-            # 注释编码已统一为 GBK，原注释内容已清理。
+            # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
             set lGraphicsIter [$lPage NewCommentGraphicsIter $lStatus]
             set lGraphic [$lGraphicsIter NextCommentGraphic $lStatus]
             while { $lGraphic != $lNullObj } {
-                # 注释编码已统一为 GBK，原注释内容已清理。
+                # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                 set lObjType [$lGraphic GetObjectType]
 				
                 if {$lObjType == $::DboBaseObject_GRAPHIC_BITMAP_INST||$::DboBaseObject_GRAPHIC_LINE_INST||$::DboBaseObject_GRAPHIC_BOX_INST||$::DboBaseObject_GRAPHIC_ARC_INST||$::DboBaseObject_GRAPHIC_BEZIER_INST} {
-                    # 已生成的随机名称集合，确保唯一性
+                    # \u5df2\u751f\u6210\u7684\u968f\u673a\u540d\u79f0\u96c6\u5408\uff0c\u786e\u4fdd\u552f\u4e00\u6027
 					
                     set lImageName [DboTclHelper_sMakeCString]
                     $lGraphic GetName $lImageName  
@@ -1574,108 +1574,108 @@ proc ::capMenuUtil::DeleteAllGraphic { pLib } {
                     set lImageNameStr [DboTclHelper_sGetConstCharPtr $lImageName]
                     ::capMenuUtil::logDebug "Found Graphic: $lImageNameStr"
                     
-                    # 添加到待删除列表
+                    # \u6dfb\u52a0\u5230\u5f85\u5220\u9664\u5217\u8868
                     lappend bitmapsToDelete $lGraphic
                 }
                 
-                # 注释编码已统一为 GBK，原注释内容已清理。
+                # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                 set lGraphic [$lGraphicsIter NextCommentGraphic $lStatus]
             }
 
-            # 閲婃斁鍥惧舰瀵硅薄杩唬鍣?
+            # \u95b2\u5a43\u6581\u9365\u60e7\u8230\u7035\u7845\u8584\u6769\ue15d\u552c\u9363?
             delete_DboPageCommentGraphicsIter $lGraphicsIter
 
-            # 注释编码已统一为 GBK，原注释内容已清理。
+            # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
             foreach bitmap $bitmapsToDelete {
                 $lPage DeleteCommentGraphic $bitmap
                 incr lDeletedCount
                 ::capMenuUtil::logDebug "Deleted Graphic"
             }
 
-            # 注释编码已统一为 GBK，原注释内容已清理。
+            # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
             set lPage [$lPagesIter NextPage $lStatus]
         }
 
-        # 閲婃斁椤甸潰杩唬鍣?
+        # \u95b2\u5a43\u6581\u6924\u7538\u6f70\u6769\ue15d\u552c\u9363?
         delete_DboSchematicPagesIter $lPagesIter
 
-        # 迭代下一个原理图
+        # \u8fed\u4ee3\u4e0b\u4e00\u4e2a\u539f\u7406\u56fe
         set lView [$lSchematicIter NextView $lStatus]
     }
 
-    # 释放原理图迭代器
+    # \u91ca\u653e\u539f\u7406\u56fe\u8fed\u4ee3\u5668
     delete_DboLibViewsIter $lSchematicIter
 
-    # 注释编码已统一为 GBK，原注释内容已清理。
+    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
     destroy $progressWindow
 
-    # 注释编码已统一为 GBK，原注释内容已清理。
+    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
     $lStatus -delete
 }
 
-# 鍒涘缓骞舵樉绀哄垹闄ゅ浘褰㈠鐞嗗脊绐?
+# \u9352\u6d98\u7f13\u9a9e\u8235\u6a09\u7ec0\u54c4\u57b9\u95c4\u3085\u6d58\u8930\u3220\ue629\u941e\u55d7\u810a\u7ed0?
 proc ::capMenuUtil::showDeleteGraphicProgressDialog {totalPages} {
     set progressWindow .deleteGraphicProgress
     if {[winfo exists $progressWindow]} {
         destroy $progressWindow
     }
 
-    # 注释编码已统一为 GBK，原注释内容已清理。
+    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
     toplevel $progressWindow
-    wm title $progressWindow "删除图形对象"
+    wm title $progressWindow "Delete Graphic Objects"
     wm resizable $progressWindow 0 0
     wm attributes $progressWindow -toolwindow 1
-    # 注释编码已统一为 GBK，原注释内容已清理。
+    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
     # wm transient $progressWindow .
-    # 寮哄埗鏄剧ず骞剁疆椤?
+    # \u5bee\u54c4\u57d7\u93c4\u5267\u305a\u9a9e\u5241\u7586\u6924?
     wm deiconify $progressWindow
     raise $progressWindow
     focus $progressWindow
 
-    # 设置字体和颜色（兼容16.6的默认字体）
+    # \u8bbe\u7f6e\u5b57\u4f53\u548c\u989c\u8272\uff08\u517c\u5bb916.6\u7684\u9ed8\u8ba4\u5b57\u4f53\uff09
     set font {TkDefaultFont 10}
     set bgColor "#f0f0f0"
     set fgColor "#333333"
     
-    # 配置窗口样式
+    # \u914d\u7f6e\u7a97\u53e3\u6837\u5f0f
     $progressWindow configure -bg $bgColor
     
-    # 创建内容框架
+    # \u521b\u5efa\u5185\u5bb9\u6846\u67b6
     set contentFrame [frame $progressWindow.content -bg $bgColor -padx 20 -pady 20]
     pack $contentFrame -fill both -expand 1
     
-    # 注释编码已统一为 GBK，原注释内容已清理。
-    label $contentFrame.label -text "正在删除图形对象..." \
+    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
+    label $contentFrame.label -text "Deleting graphic objects..." \
         -font $font -fg $fgColor -bg $bgColor
     pack $contentFrame.label -pady 5
     
-    # 添加进度文本
-    label $contentFrame.status -text "第 0 / $totalPages 页" \
+    # \u6dfb\u52a0\u8fdb\u5ea6\u6587\u672c
+    label $contentFrame.status -text "Page 0 / $totalPages" \
         -font [list TkDefaultFont 9] -fg $fgColor -bg $bgColor
     pack $contentFrame.status -pady 5
     
-    # 使用传统进度条（不使用ttk，兼容旧版本Tk)
+    # \u4f7f\u7528\u4f20\u7edf\u8fdb\u5ea6\u6761\uff08\u4e0d\u4f7f\u7528ttk\uff0c\u517c\u5bb9\u65e7\u7248\u672cTk)
     frame $contentFrame.progress -relief sunken -bd 1 -width 300 -height 20
     canvas $contentFrame.progress.canvas -width 296 -height 16 -bg white
     $contentFrame.progress.canvas create rectangle 0 0 0 16 -fill blue -outline blue -tags bar
     pack $contentFrame.progress.canvas -fill both -expand 1
     pack $contentFrame.progress -pady 10 -fill x
     
-    # 添加说明文字
-    label $contentFrame.note -text "请稍候，不要关闭 OrCAD..." \
+    # \u6dfb\u52a0\u8bf4\u660e\u6587\u5b57
+    label $contentFrame.note -text "Please wait. Do not close OrCAD..." \
         -font [list TkDefaultFont 8] -fg "#666666" -bg $bgColor -wraplength 300
     pack $contentFrame.note -pady 5
     
-    # 注释编码已统一为 GBK，原注释内容已清理。
+    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
     update
 
-    # 居中显示弹窗
+    # \u5c45\u4e2d\u663e\u793a\u5f39\u7a97
     update idletasks
     set x [expr {([winfo screenwidth .] - [winfo reqwidth $progressWindow]) / 2}]
     set y [expr {([winfo screenheight .] - [winfo reqheight $progressWindow]) / 2}]
     wm geometry $progressWindow "+$x+$y"
 
-    # 强制处理所有挂起的事件
+    # \u5f3a\u5236\u5904\u7406\u6240\u6709\u6302\u8d77\u7684\u4e8b\u4ef6
     update
 
     return $progressWindow
@@ -1683,11 +1683,11 @@ proc ::capMenuUtil::showDeleteGraphicProgressDialog {totalPages} {
 
 
 # ////////////////////////////////////////////////////////////////////////////////
-# 一键混淆补充：隐藏器件型号、封装等敏感显示属性。
+# \u4e00\u952e\u6df7\u6dc6\u8865\u5145\uff1a\u9690\u85cf\u5668\u4ef6\u578b\u53f7\u3001\u5c01\u88c5\u7b49\u654f\u611f\u663e\u793a\u5c5e\u6027\u3002
 # ////////////////////////////////////////////////////////////////////////////////
 namespace eval ::capMenuUtil {
     variable toolVersion "V1.8"
-    variable sensitiveDisplayProperties [list "Value" "规格型号" "Part Number" "PCB Footprint" "Footprint" "Source Package" "Source Part" "Part" "Package"]
+    variable sensitiveDisplayProperties [list "Value" "\u89c4\u683c\u578b\u53f7" "Part Number" "PCB Footprint" "Footprint" "Source Package" "Source Part" "Part" "Package"]
 }
 
 proc ::capMenuUtil::isSensitiveDisplayProperty {propName} {
@@ -1704,7 +1704,7 @@ proc ::capMenuUtil::SetSensitiveComponentPropertiesDisplayType { pLib displayTyp
     set lStatus [DboState]
     set lDesign [GetActivePMDesign]
     if {$lDesign eq "NULL" || $lDesign eq ""} {
-        tk_messageBox -icon error -message "未找到当前打开的设计！"
+        tk_messageBox -icon error -message "No active design is open."
         return
     }
 
@@ -1765,25 +1765,25 @@ proc ::capMenuUtil::ShowSensitiveComponentProperties { pLib } {
 }
 
 proc ::capMenuUtil::HideUcomponent { pLib } {
-    # 已生成的随机名称集合，确保唯一性
+    # \u5df2\u751f\u6210\u7684\u968f\u673a\u540d\u79f0\u96c6\u5408\uff0c\u786e\u4fdd\u552f\u4e00\u6027
     set lStatus [DboState]
 	
-    # 鑾峰彇鎵ц鐨勮璁″璞?
+    # \u947e\u5cf0\u5f47\u93b5\u0446\ue511\u9428\u52ee\ue195\u7481\u2033\ue1ee\u749e?
     set lDesign [GetActivePMDesign]
     
-    # 检查是否有活动设计
+    # \u68c0\u67e5\u662f\u5426\u6709\u6d3b\u52a8\u8bbe\u8ba1
     if {$lDesign eq "NULL" || $lDesign eq ""} {
-        tk_messageBox -icon error -message "未找到当前打开的设计！"
+        tk_messageBox -icon error -message "No active design is open."
         return
     }
-    # 注释编码已统一为 GBK，原注释内容已清理。
+    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
     if {[info exists ::IterDefs_SCHEMATICS]} {
         set lSchematicIter [$lDesign NewViewsIter $lStatus $::IterDefs_SCHEMATICS]
     } else {
         set lSchematicIter [$lDesign NewViewsIter $lStatus]
     }
     
-    # 获取第一个原理图视图
+    # \u83b7\u53d6\u7b2c\u4e00\u4e2a\u539f\u7406\u56fe\u89c6\u56fe
     set lView [$lSchematicIter NextView $lStatus]
     set SchNum 0
     set lNullObj NULL
@@ -1791,11 +1791,11 @@ proc ::capMenuUtil::HideUcomponent { pLib } {
     while { $lView != $lNullObj } {
         incr SchNum
 		
-        # 从DboView转换为DboSchematic
+        # \u4eceDboView\u8f6c\u6362\u4e3aDboSchematic
         set lSchematic [DboViewToDboSchematic $lView]
-        # 新建页面迭代器，用于遍历
+        # \u65b0\u5efa\u9875\u9762\u8fed\u4ee3\u5668\uff0c\u7528\u4e8e\u904d\u5386
         set lPagesIter [$lSchematic NewPagesIter $lStatus]
-        # 鑾峰彇绗竴椤?
+        # \u947e\u5cf0\u5f47\u7ed7\ue0ff\u7af4\u6924?
         set lPage [$lPagesIter NextPage $lStatus]
         set pageCount 0
         
@@ -1810,7 +1810,7 @@ proc ::capMenuUtil::HideUcomponent { pLib } {
             
             while { $lInst != $lNullObj } {
                 incr instCount
-                # 鑾峰彇鍣ㄤ欢浣嶅彿锛圧eference Designator锛?
+                # \u947e\u5cf0\u5f47\u9363\u3124\u6b22\u6d63\u5d85\u5f7f\u951b\u5727eference Designator\u951b?
                 set lRefDesNameCStr [DboTclHelper_sMakeCString "Reference"]
                 set lRefDesValueCStr [DboTclHelper_sMakeCString]
                 $lInst GetEffectivePropStringValue $lRefDesNameCStr $lRefDesValueCStr
@@ -1818,13 +1818,13 @@ proc ::capMenuUtil::HideUcomponent { pLib } {
                 
                 ::capMenuUtil::logDebug "  Checking component #$instCount : RefDes = $lRefDesString"
 
-                # 注释编码已统一为 GBK，原注释内容已清理。
+                # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                 if { [regexp -nocase {^U} $lRefDesString] } {
                     incr uInstCount
-                    # 将器件转换为PlacedInst对象
+                    # \u5c06\u5668\u4ef6\u8f6c\u6362\u4e3aPlacedInst\u5bf9\u8c61
                     set lPlacedInst [DboPartInstToDboPlacedInst $lInst]
                     if { $lPlacedInst != $lNullObj } {
-                        # 注释编码已统一为 GBK，原注释内容已清理。
+                        # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                         set lDisplayPropsIter [$lPlacedInst NewDisplayPropsIter $lStatus]
                         set propCount 0
                         set valueFound 0
@@ -1832,12 +1832,12 @@ proc ::capMenuUtil::HideUcomponent { pLib } {
                         
                         while { $lDProp != $lNullObj } {
                             incr propCount
-                            # 注释编码已统一为 GBK，原注释内容已清理。
+                            # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                             set lNameCStr [DboTclHelper_sMakeCString]
                             $lDProp GetName $lNameCStr
                             set lNameString [DboTclHelper_sGetConstCharPtr $lNameCStr]
                             ::capMenuUtil::logDebug " sx #$propCount: $lNameString"
-                            # 注释编码已统一为 GBK，原注释内容已清理。
+                            # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                             if {[string equal -nocase $lNameString "Value"]} {
                                 catch {
                                     $lDProp SetDisplayType 0
@@ -1846,13 +1846,13 @@ proc ::capMenuUtil::HideUcomponent { pLib } {
                                 if {$errMsg ne ""} {
                                     ::capMenuUtil::logDebug "    Warning: Failed to set Value visibility for $lRefDesString - $errMsg"
                                 }
-                                set valueFound 1 ;# 标记为已找到
+                                set valueFound 1 ;# \u6807\u8bb0\u4e3a\u5df2\u627e\u5230
                             }
                             
-                            # 释放CString内存
+                            # \u91ca\u653eCString\u5185\u5b58
                             DboTclHelper_sDeleteCString $lNameCStr
                             
-                            # 注释编码已统一为 GBK，原注释内容已清理。
+                            # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                             set lDProp [$lDisplayPropsIter NextProp $lStatus]
                         }
                         
@@ -1860,58 +1860,58 @@ proc ::capMenuUtil::HideUcomponent { pLib } {
                            puts "    Warning: 'Value' property not found for component $lRefDesString."
                         }
                         
-                        # 释放显示属性迭代器
+                        # \u91ca\u653e\u663e\u793a\u5c5e\u6027\u8fed\u4ee3\u5668
                         delete_DboDisplayPropsIter $lDisplayPropsIter
                     }
                 }
                 
-                # 释放CString内存
+                # \u91ca\u653eCString\u5185\u5b58
                 DboTclHelper_sDeleteCString $lRefDesNameCStr
                 DboTclHelper_sDeleteCString $lRefDesValueCStr
                 
-                # 注释编码已统一为 GBK，原注释内容已清理。
+                # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                 set lInst [$lPartInstsIter NextPartInst $lStatus] 
             }
             
-            # 注释编码已统一为 GBK，原注释内容已清理。
+            # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
             delete_DboPagePartInstsIter $lPartInstsIter
             
-            # 注释编码已统一为 GBK，原注释内容已清理。
+            # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
             set lPage [$lPagesIter NextPage $lStatus]
         }
         
-        # 閲婃斁椤甸潰杩唬鍣?
+        # \u95b2\u5a43\u6581\u6924\u7538\u6f70\u6769\ue15d\u552c\u9363?
         delete_DboSchematicPagesIter $lPagesIter
         
-        # 获取下一个原理图视图
+        # \u83b7\u53d6\u4e0b\u4e00\u4e2a\u539f\u7406\u56fe\u89c6\u56fe
         set lView [$lSchematicIter NextView $lStatus]
     }
     
-    # 释放原理图视图迭代器
+    # \u91ca\u653e\u539f\u7406\u56fe\u89c6\u56fe\u8fed\u4ee3\u5668
     delete_DboLibViewsIter $lSchematicIter
     
     puts "\nOperation completed."
 }
 proc ::capMenuUtil::HideALLcomponent { pLib } {
-    # 已生成的随机名称集合，确保唯一性
+    # \u5df2\u751f\u6210\u7684\u968f\u673a\u540d\u79f0\u96c6\u5408\uff0c\u786e\u4fdd\u552f\u4e00\u6027
     set lStatus [DboState]
 	
-    # 鑾峰彇鎵ц鐨勮璁″璞?
+    # \u947e\u5cf0\u5f47\u93b5\u0446\ue511\u9428\u52ee\ue195\u7481\u2033\ue1ee\u749e?
     set lDesign [GetActivePMDesign]
     
-    # 检查是否有活动设计
+    # \u68c0\u67e5\u662f\u5426\u6709\u6d3b\u52a8\u8bbe\u8ba1
     if {$lDesign eq "NULL" || $lDesign eq ""} {
-        tk_messageBox -icon error -message "未找到当前打开的设计！"
+        tk_messageBox -icon error -message "No active design is open."
         return
     }
-    # 注释编码已统一为 GBK，原注释内容已清理。
+    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
     if {[info exists ::IterDefs_SCHEMATICS]} {
         set lSchematicIter [$lDesign NewViewsIter $lStatus $::IterDefs_SCHEMATICS]
     } else {
         set lSchematicIter [$lDesign NewViewsIter $lStatus]
     }
     
-    # 获取第一个原理图视图
+    # \u83b7\u53d6\u7b2c\u4e00\u4e2a\u539f\u7406\u56fe\u89c6\u56fe
     set lView [$lSchematicIter NextView $lStatus]
     set SchNum 0
     set lNullObj NULL
@@ -1919,11 +1919,11 @@ proc ::capMenuUtil::HideALLcomponent { pLib } {
     while { $lView != $lNullObj } {
         incr SchNum
 		
-        # 从DboView转换为DboSchematic
+        # \u4eceDboView\u8f6c\u6362\u4e3aDboSchematic
         set lSchematic [DboViewToDboSchematic $lView]
-        # 新建页面迭代器，用于遍历
+        # \u65b0\u5efa\u9875\u9762\u8fed\u4ee3\u5668\uff0c\u7528\u4e8e\u904d\u5386
         set lPagesIter [$lSchematic NewPagesIter $lStatus]
-        # 鑾峰彇绗竴椤?
+        # \u947e\u5cf0\u5f47\u7ed7\ue0ff\u7af4\u6924?
         set lPage [$lPagesIter NextPage $lStatus]
         set pageCount 0
         
@@ -1938,7 +1938,7 @@ proc ::capMenuUtil::HideALLcomponent { pLib } {
             
             while { $lInst != $lNullObj } {
                 incr instCount
-                # 鑾峰彇鍣ㄤ欢浣嶅彿锛圧eference Designator锛?
+                # \u947e\u5cf0\u5f47\u9363\u3124\u6b22\u6d63\u5d85\u5f7f\u951b\u5727eference Designator\u951b?
                 set lRefDesNameCStr [DboTclHelper_sMakeCString "Reference"]
                 set lRefDesValueCStr [DboTclHelper_sMakeCString]
                 $lInst GetEffectivePropStringValue $lRefDesNameCStr $lRefDesValueCStr
@@ -1948,10 +1948,10 @@ proc ::capMenuUtil::HideALLcomponent { pLib } {
 
                 
                     incr uInstCount
-                    # 将器件转换为PlacedInst对象
+                    # \u5c06\u5668\u4ef6\u8f6c\u6362\u4e3aPlacedInst\u5bf9\u8c61
                     set lPlacedInst [DboPartInstToDboPlacedInst $lInst]
                     if { $lPlacedInst != $lNullObj } {
-                        # 注释编码已统一为 GBK，原注释内容已清理。
+                        # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                         set lDisplayPropsIter [$lPlacedInst NewDisplayPropsIter $lStatus]
                         set propCount 0
                         set valueFound 0
@@ -1959,12 +1959,12 @@ proc ::capMenuUtil::HideALLcomponent { pLib } {
                         
                         while { $lDProp != $lNullObj } {
                             incr propCount
-                            # 注释编码已统一为 GBK，原注释内容已清理。
+                            # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                             set lNameCStr [DboTclHelper_sMakeCString]
                             $lDProp GetName $lNameCStr
                             set lNameString [DboTclHelper_sGetConstCharPtr $lNameCStr]
                             
-                            # 注释编码已统一为 GBK，原注释内容已清理。
+                            # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                             if {[string equal -nocase $lNameString "Value"]} {
                                 catch {
                                     $lDProp SetDisplayType 0
@@ -1973,13 +1973,13 @@ proc ::capMenuUtil::HideALLcomponent { pLib } {
                                 if {$errMsg ne ""} {
                                     ::capMenuUtil::logDebug "    Warning: Failed to set Value visibility for $lRefDesString - $errMsg"
                                 }
-                                set valueFound 1 ;# 标记为已找到
+                                set valueFound 1 ;# \u6807\u8bb0\u4e3a\u5df2\u627e\u5230
                             }
                             
-                            # 释放CString内存
+                            # \u91ca\u653eCString\u5185\u5b58
                             DboTclHelper_sDeleteCString $lNameCStr
                             
-                            # 注释编码已统一为 GBK，原注释内容已清理。
+                            # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                             set lDProp [$lDisplayPropsIter NextProp $lStatus]
                         }
                         
@@ -1987,34 +1987,34 @@ proc ::capMenuUtil::HideALLcomponent { pLib } {
                            puts "    Warning: 'Value' property not found for component $lRefDesString."
                         }
                         
-                        # 释放显示属性迭代器
+                        # \u91ca\u653e\u663e\u793a\u5c5e\u6027\u8fed\u4ee3\u5668
                         delete_DboDisplayPropsIter $lDisplayPropsIter
                     }
                 
                 
-                # 释放CString内存
+                # \u91ca\u653eCString\u5185\u5b58
                 DboTclHelper_sDeleteCString $lRefDesNameCStr
                 DboTclHelper_sDeleteCString $lRefDesValueCStr
                 
-                # 注释编码已统一为 GBK，原注释内容已清理。
+                # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                 set lInst [$lPartInstsIter NextPartInst $lStatus] 
             }
             
-            # 注释编码已统一为 GBK，原注释内容已清理。
+            # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
             delete_DboPagePartInstsIter $lPartInstsIter
             
-            # 注释编码已统一为 GBK，原注释内容已清理。
+            # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
             set lPage [$lPagesIter NextPage $lStatus]
         }
         
-        # 閲婃斁椤甸潰杩唬鍣?
+        # \u95b2\u5a43\u6581\u6924\u7538\u6f70\u6769\ue15d\u552c\u9363?
         delete_DboSchematicPagesIter $lPagesIter
         
-        # 获取下一个原理图视图
+        # \u83b7\u53d6\u4e0b\u4e00\u4e2a\u539f\u7406\u56fe\u89c6\u56fe
         set lView [$lSchematicIter NextView $lStatus]
     }
     
-    # 释放原理图视图迭代器
+    # \u91ca\u653e\u539f\u7406\u56fe\u89c6\u56fe\u8fed\u4ee3\u5668
     delete_DboLibViewsIter $lSchematicIter
     
     puts "\nOperation completed."
@@ -2022,25 +2022,25 @@ proc ::capMenuUtil::HideALLcomponent { pLib } {
 
 
 proc ::capMenuUtil::DeleteTextTitleblocks { pLib } {
-    # 已生成的随机名称集合，确保唯一性
+    # \u5df2\u751f\u6210\u7684\u968f\u673a\u540d\u79f0\u96c6\u5408\uff0c\u786e\u4fdd\u552f\u4e00\u6027
     set lStatus [DboState]
 	
-    # 鑾峰彇鎵ц鐨勮璁″璞?
+    # \u947e\u5cf0\u5f47\u93b5\u0446\ue511\u9428\u52ee\ue195\u7481\u2033\ue1ee\u749e?
     set lDesign [GetActivePMDesign]
     
-    # 检查是否有活动设计
+    # \u68c0\u67e5\u662f\u5426\u6709\u6d3b\u52a8\u8bbe\u8ba1
     if {$lDesign eq "NULL" || $lDesign eq ""} {
-        tk_messageBox -icon error -message "未找到当前打开的设计！"
+        tk_messageBox -icon error -message "No active design is open."
         return
     }
-    # 注释编码已统一为 GBK，原注释内容已清理。
+    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
     if {[info exists ::IterDefs_SCHEMATICS]} {
         set lSchematicIter [$lDesign NewViewsIter $lStatus $::IterDefs_SCHEMATICS]
     } else {
         set lSchematicIter [$lDesign NewViewsIter $lStatus]
     }
     
-    # 获取第一个原理图视图
+    # \u83b7\u53d6\u7b2c\u4e00\u4e2a\u539f\u7406\u56fe\u89c6\u56fe
     set lView [$lSchematicIter NextView $lStatus]
     set SchNum 0
     set lNullObj NULL
@@ -2050,18 +2050,18 @@ proc ::capMenuUtil::DeleteTextTitleblocks { pLib } {
     while { $lView != $lNullObj } {
         incr SchNum
 		
-        # 从DboView转换为DboSchematic
+        # \u4eceDboView\u8f6c\u6362\u4e3aDboSchematic
         set lSchematic [DboViewToDboSchematic $lView]
-        # 新建页面迭代器，用于遍历
+        # \u65b0\u5efa\u9875\u9762\u8fed\u4ee3\u5668\uff0c\u7528\u4e8e\u904d\u5386
         set lPagesIter [$lSchematic NewPagesIter $lStatus]
-        # 鑾峰彇绗竴椤?
+        # \u947e\u5cf0\u5f47\u7ed7\ue0ff\u7af4\u6924?
         set lPage [$lPagesIter NextPage $lStatus]
         set pageCount 0
         
         while { $lPage != $lNullObj } {
             incr pageCount
             puts "\nHandling page #$pageCount..."
-            ##################开始删除Titleblocks#########################
+            ##################\u5f00\u59cb\u5220\u9664Titleblocks#########################
 			set lTitleBlocksIter [$lPage NewTitleBlocksIter $lStatus]
 			set lTitle [$lTitleBlocksIter NextTitleBlock $lStatus]
 			while {$lTitle != $lNullObj} {
@@ -2070,9 +2070,9 @@ proc ::capMenuUtil::DeleteTextTitleblocks { pLib } {
 			}
 			delete_DboPageTitleBlocksIter $lTitleBlocksIter
 			puts "\n Page $pageCount TitleBlocks has been deleted"
-			##################结束删除Titleblocks#########################
+			##################\u7ed3\u675f\u5220\u9664Titleblocks#########################
 			
-			##################开始删除Text#########################
+			##################\u5f00\u59cb\u5220\u9664Text#########################
 			set lGraphicsIter [$lPage NewCommentGraphicsIter $lStatus]
 			set lGraphic [$lGraphicsIter NextCommentGraphic $lStatus]
 			
@@ -2100,155 +2100,155 @@ proc ::capMenuUtil::DeleteTextTitleblocks { pLib } {
 			delete_DboPageCommentGraphicsIter $lGraphicsIter
 			puts "\n Page $pageCount Text has been deleted"
 			
-			##################结束删除Text#########################
+			##################\u7ed3\u675f\u5220\u9664Text#########################
 			
 			
 			
 			puts "\n page #$pageCount complete!"
-            # 注释编码已统一为 GBK，原注释内容已清理。
+            # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
             set lPage [$lPagesIter NextPage $lStatus]
         }
         
-        # 閲婃斁椤甸潰杩唬鍣?
+        # \u95b2\u5a43\u6581\u6924\u7538\u6f70\u6769\ue15d\u552c\u9363?
         delete_DboSchematicPagesIter $lPagesIter
         
-        # 获取下一个原理图视图
+        # \u83b7\u53d6\u4e0b\u4e00\u4e2a\u539f\u7406\u56fe\u89c6\u56fe
         set lView [$lSchematicIter NextView $lStatus]
     }
     
-    # 释放原理图视图迭代器
+    # \u91ca\u653e\u539f\u7406\u56fe\u89c6\u56fe\u8fed\u4ee3\u5668
     delete_DboLibViewsIter $lSchematicIter
     
 }
 
 
 # ////////////////////////////////////////////////////////////////////////////////
-# 注释编码已统一为 GBK，原注释内容已清理。
+# \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
 # ////////////////////////////////////////////////////////////////////////////////
 proc ::capMenuUtil::GrayedPartToNC { pLib } {
-    # 已生成的随机名称集合，确保唯一性
+    # \u5df2\u751f\u6210\u7684\u968f\u673a\u540d\u79f0\u96c6\u5408\uff0c\u786e\u4fdd\u552f\u4e00\u6027
     set lStatus [DboState]
     
-    # 鑾峰彇鎵ц鐨勮璁″璞?
+    # \u947e\u5cf0\u5f47\u93b5\u0446\ue511\u9428\u52ee\ue195\u7481\u2033\ue1ee\u749e?
     set lDesign [GetActivePMDesign]
     
-    # 检查是否有活动设计
+    # \u68c0\u67e5\u662f\u5426\u6709\u6d3b\u52a8\u8bbe\u8ba1
     if {$lDesign eq "NULL" || $lDesign eq ""} {
-        puts "Error: 未找到当前打开的设计！"
+        puts "Error: No active design is open."
         return
     }
     
-    # 注释编码已统一为 GBK，原注释内容已清理。
+    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
     if {[info exists ::IterDefs_SCHEMATICS]} {
         set lSchematicIter [$lDesign NewViewsIter $lStatus $::IterDefs_SCHEMATICS]
     } else {
         set lSchematicIter [$lDesign NewViewsIter $lStatus]
     }
     
-    # 获取第一个原理图视图
+    # \u83b7\u53d6\u7b2c\u4e00\u4e2a\u539f\u7406\u56fe\u89c6\u56fe
     set lView [$lSchematicIter NextView $lStatus]
     set SchNum 0
     set lNullObj NULL
-    set processedCount 0  ;# 缁熻澶勭悊鐨勫櫒浠舵暟閲?
+    set processedCount 0  ;# \u7f01\u71bb\ue178\u6fb6\u52ed\u608a\u9428\u52eb\u6ad2\u6d60\u8235\u669f\u95b2?
     
     while { $lView != $lNullObj } {
         incr SchNum
         
-        # 从DboView转换为DboSchematic
+        # \u4eceDboView\u8f6c\u6362\u4e3aDboSchematic
         set lSchematic [DboViewToDboSchematic $lView]
         
-        # 新建页面迭代器，用于遍历
+        # \u65b0\u5efa\u9875\u9762\u8fed\u4ee3\u5668\uff0c\u7528\u4e8e\u904d\u5386
         set lPagesIter [$lSchematic NewPagesIter $lStatus]
         
-        # 鑾峰彇绗竴椤?
+        # \u947e\u5cf0\u5f47\u7ed7\ue0ff\u7af4\u6924?
         set lPage [$lPagesIter NextPage $lStatus]
         set PageNum 0
         
         while { $lPage != $lNullObj } {
             incr PageNum
             
-            puts "\n处理中 Schematic $SchNum, Page $PageNum"
+            puts "\nProcessing Schematic $SchNum, Page $PageNum"
             
-            # 注释编码已统一为 GBK，原注释内容已清理。
+            # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
             
-            # 注释编码已统一为 GBK，原注释内容已清理。
+            # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
             set lPartInstsIter [$lPage NewPartInstsIter $lStatus]
             set lInst [$lPartInstsIter NextPartInst $lStatus]
             
             while { $lInst != $lNullObj } {
-                # 注释编码已统一为 GBK，原注释内容已清理。
+                # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                 set lPropNameCStr [DboTclHelper_sMakeCString "Value"]
                 set lPropValueCStr [DboTclHelper_sMakeCString]
                 $lInst GetEffectivePropStringValue $lPropNameCStr $lPropValueCStr
                 set lPropValueString [DboTclHelper_sGetConstCharPtr $lPropValueCStr]
                 
-                # 注释编码已统一为 GBK，原注释内容已清理。
+                # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                 set lPropPNNameCStr [DboTclHelper_sMakeCString "Part Number"]
                 set lPropPNCStr [DboTclHelper_sMakeCString]
                 $lInst GetEffectivePropStringValue $lPropPNNameCStr $lPropPNCStr
                 set lPropPNString [DboTclHelper_sGetConstCharPtr $lPropPNCStr]
                 
-                # 鑾峰彇鍣ㄤ欢浣嶅彿锛圧eference Designator锛?
+                # \u947e\u5cf0\u5f47\u9363\u3124\u6b22\u6d63\u5d85\u5f7f\u951b\u5727eference Designator\u951b?
                 set lRefDesNameCStr [DboTclHelper_sMakeCString "Reference"]
                 set lRefDesValueCStr [DboTclHelper_sMakeCString]
                 $lInst GetEffectivePropStringValue $lRefDesNameCStr $lRefDesValueCStr
                 set lRefDesString [DboTclHelper_sGetConstCharPtr $lRefDesValueCStr]
                 
-                # 判断是否含有NC字样（不区分大小写）
+                # \u5224\u65ad\u662f\u5426\u542b\u6709NC\u5b57\u6837\uff08\u4e0d\u533a\u5206\u5927\u5c0f\u5199\uff09
                 set hasNC 0
                 if { [regexp -nocase {NC} $lPropValueString] || 
                      [regexp -nocase {NC} $lPropPNString] } {
                     set hasNC 1
                 }
                 
-                # 如果含有NC字样，则进行处理
+                # \u5982\u679c\u542b\u6709NC\u5b57\u6837\uff0c\u5219\u8fdb\u884c\u5904\u7406
                 if { $hasNC } {
                     incr processedCount
                     
-                    # 注释编码已统一为 GBK，原注释内容已清理。
+                    # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                     set lNewValueCStr [DboTclHelper_sMakeCString "NC"]
                     $lInst SetEffectivePropStringValue $lPropNameCStr $lNewValueCStr
                     
-                    # 2. 设置元件颜色为灰色（可选，保持与NC Part Grayed一致）
+                    # 2. \u8bbe\u7f6e\u5143\u4ef6\u989c\u8272\u4e3a\u7070\u8272\uff08\u53ef\u9009\uff0c\u4fdd\u6301\u4e0eNC Part Grayed\u4e00\u81f4\uff09
                     set lColorPropNameCStr [DboTclHelper_sMakeCString "Color"]
                     set lColorPropValueCStr [DboTclHelper_sMakeCString "RGB(192,192,192)"]
                     $lInst SetEffectivePropStringValue $lColorPropNameCStr $lColorPropValueCStr
                     
-                    # 3. 设置属性显示为可见
+                    # 3. \u8bbe\u7f6e\u5c5e\u6027\u663e\u793a\u4e3a\u53ef\u89c1
                     set lPlacedInst [DboPartInstToDboPlacedInst $lInst]
                     if { $lPlacedInst != $lNullObj } {
-                        # 注释编码已统一为 GBK，原注释内容已清理。
+                        # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                         set lDisplayPropsIter [$lPlacedInst NewDisplayPropsIter $lStatus]
                         set lDProp [$lDisplayPropsIter NextProp $lStatus]
                         
                         while { $lDProp != $lNullObj } {
-                            # 注释编码已统一为 GBK，原注释内容已清理。
+                            # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                             set lNameCStr [DboTclHelper_sMakeCString]
                             $lDProp GetName $lNameCStr
                             set lNameString [DboTclHelper_sGetConstCharPtr $lNameCStr]
                             
-                            # 注释编码已统一为 GBK，原注释内容已清理。
+                            # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                             if { [string equal -nocase $lNameString "Value"] } {
                                 $lDProp SetDisplayType 1
                                 ::capMenuUtil::logDebug "  Component $lRefDesString: Value set to 'NC' and made visible"
                             }
                             
-                            # 注释编码已统一为 GBK，原注释内容已清理。
+                            # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                             $lDProp SetColor 45
                             
-                            # 释放CString内存
+                            # \u91ca\u653eCString\u5185\u5b58
                             DboTclHelper_sDeleteCString $lNameCStr
                             
-                            # 注释编码已统一为 GBK，原注释内容已清理。
+                            # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                             set lDProp [$lDisplayPropsIter NextProp $lStatus]
                         }
                         
-                        # 释放显示属性迭代器
+                        # \u91ca\u653e\u663e\u793a\u5c5e\u6027\u8fed\u4ee3\u5668
                         delete_DboDisplayPropsIter $lDisplayPropsIter
                     }
                 }
                 
-                # 释放CString内存
+                # \u91ca\u653eCString\u5185\u5b58
                 DboTclHelper_sDeleteCString $lPropNameCStr
                 DboTclHelper_sDeleteCString $lPropValueCStr
                 DboTclHelper_sDeleteCString $lPropPNNameCStr
@@ -2256,25 +2256,25 @@ proc ::capMenuUtil::GrayedPartToNC { pLib } {
                 DboTclHelper_sDeleteCString $lRefDesNameCStr
                 DboTclHelper_sDeleteCString $lRefDesValueCStr
                 
-                # 注释编码已统一为 GBK，原注释内容已清理。
+                # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
                 set lInst [$lPartInstsIter NextPartInst $lStatus]
             }
             
-            # 注释编码已统一为 GBK，原注释内容已清理。
+            # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
             delete_DboPagePartInstsIter $lPartInstsIter
             
-            # 注释编码已统一为 GBK，原注释内容已清理。
+            # \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
             set lPage [$lPagesIter NextPage $lStatus]
         }
         
-        # 閲婃斁椤甸潰杩唬鍣?
+        # \u95b2\u5a43\u6581\u6924\u7538\u6f70\u6769\ue15d\u552c\u9363?
         delete_DboSchematicPagesIter $lPagesIter
         
-        # 获取下一个原理图视图
+        # \u83b7\u53d6\u4e0b\u4e00\u4e2a\u539f\u7406\u56fe\u89c6\u56fe
         set lView [$lSchematicIter NextView $lStatus]
     }
     
-    # 释放原理图视图迭代器
+    # \u91ca\u653e\u539f\u7406\u56fe\u89c6\u56fe\u8fed\u4ee3\u5668
     delete_DboLibViewsIter $lSchematicIter
     
     puts "\nGrayedPartToNC completed! Processed $processedCount components with 'NC' value."
@@ -2282,35 +2282,35 @@ proc ::capMenuUtil::GrayedPartToNC { pLib } {
 
 
 # ////////////////////////////////////////////////////////////////////////////////
-# 注释编码已统一为 GBK，原注释内容已清理。
+# \u6ce8\u91ca\u7f16\u7801\u5df2\u7edf\u4e00\u4e3a GBK\uff0c\u539f\u6ce8\u91ca\u5185\u5bb9\u5df2\u6e05\u7406\u3002
 # ////////////////////////////////////////////////////////////////////////////////
 namespace eval ::capRequiredSanitize {
-    variable targetProperties [list "Value" "规格型号"]
+    variable targetProperties [list "Value" "\u89c4\u683c\u578b\u53f7"]
     variable sanitizedValue "0"
     variable restoreDirName "_required_sanitize_restore"
     variable lastBackupFileName "cap_required_sanitize_last_backup.txt"
 }
 
 proc ::capRequiredSanitize::sanitizeFromMenu {args} {
-    set confirm [tk_messageBox -icon question -message "将把所有器件的 Value 和 规格型号改为 0，并生成本地恢复文件。\n是否继续？" -type yesno]
+    set confirm [tk_messageBox -icon question -message "Set Value and model properties to 0 for all parts and create a local restore file.\nContinue?" -type yesno]
     if {$confirm ne "yes"} { return }
     if {[catch {set result [::capRequiredSanitize::sanitizeDesign]} err]} {
-        catch {tk_messageBox -icon error -message "按要求脱敏失败：\n$err"}
+        catch {tk_messageBox -icon error -message "Required sanitization failed:\n$err"}
         puts "\[capRequiredSanitize\] ERROR: $err"
         return
     }
-    catch {tk_messageBox -icon info -message "按要求脱敏完成。\n处理数量：$result"}
+    catch {tk_messageBox -icon info -message "Required sanitization completed.\nChanged properties: $result"}
 }
 
 proc ::capRequiredSanitize::restoreFromMenu {args} {
-    set confirm [tk_messageBox -icon question -message "将从最近一次本地恢复文件还原 Value 和 规格型号。\n是否继续？" -type yesno]
+    set confirm [tk_messageBox -icon question -message "Restore Value and model properties from the latest local restore file.\nContinue?" -type yesno]
     if {$confirm ne "yes"} { return }
     if {[catch {set result [::capRequiredSanitize::restoreDesign]} err]} {
-        catch {tk_messageBox -icon error -message "Restore Required Sanitization失败：\n$err"}
+        catch {tk_messageBox -icon error -message "Restore Required Sanitization failed:\n$err"}
         puts "\[capRequiredSanitize\] ERROR: $err"
         return
     }
-    catch {tk_messageBox -icon info -message "Restore Required Sanitization完成。\n恢复数量：$result"}
+    catch {tk_messageBox -icon info -message "Restore Required Sanitization completed.\nRestored properties: $result"}
 }
 
 proc ::capRequiredSanitize::sanitizeDesign {} {
@@ -2320,7 +2320,7 @@ proc ::capRequiredSanitize::sanitizeDesign {} {
     set lStatus [DboState]
     set lDesign [GetActivePMDesign]
     if {$lDesign eq "NULL" || $lDesign eq ""} {
-        error "未找到当前打开的设计！"
+        error "No active design is open."
     }
 
     set backupPath [::capRequiredSanitize::makeBackupPath]
@@ -2355,12 +2355,12 @@ proc ::capRequiredSanitize::sanitizeDesign {} {
 proc ::capRequiredSanitize::restoreDesign {} {
     set backupPath [::capRequiredSanitize::readLastBackupPath]
     if {$backupPath eq "" || ![file exists $backupPath]} {
-        error "未找到最近一次恢复文件。"
+        error "No recent restore file was found."
     }
 
     set records [::capRequiredSanitize::readBackupRecords $backupPath]
     if {[llength $records] == 0} {
-        error "恢复文件为空或格式不正确：$backupPath"
+        error "Restore file is empty or invalid: $backupPath"
     }
 
     array unset restoreMap
@@ -2375,7 +2375,7 @@ proc ::capRequiredSanitize::restoreDesign {} {
     set lStatus [DboState]
     set lDesign [GetActivePMDesign]
     if {$lDesign eq "NULL" || $lDesign eq ""} {
-        error "未找到当前打开的设计！"
+        error "No active design is open."
     }
 
     set restoredCount 0

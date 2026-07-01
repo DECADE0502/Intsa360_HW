@@ -1,4 +1,4 @@
-﻿# insta360_HW - Capture integration (GBK, no BOM)
+# insta360_HW - Capture integration (GBK, no BOM)
 set ::IAC_ROOT "{{TOOL_ROOT}}"
 set ::IAC_JUMP "$::IAC_ROOT/iac_jump.bat"
 set ::IAC_PY   "C:/Users/Administrator/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe"
@@ -8,13 +8,13 @@ namespace eval ::IAC {
     variable SHORTCUTS
     array set SHORTCUTS {}
     variable PROP_NAMES {
-        Color Designator Graphic ID Implementation {Implementation Path} {Implementation Type}
-        {Location X-Coordinate} {Location Y-Coordinate} Name {Part Number} {Part Reference}
-        {Part Type} {PCB Footprint} {PCB封装} {Power Pins Visible} Primitive Reference
-        {Source Library} {Source Package} {Source Part} SPLIT_INST SWAP_INFO Value
-        {等级} {规格型号} {器件描述（新整理）} {物料名称}
-        {内容} Description {物料优选等级} Manufacturer {制造商} Datasheet datasheet
-        {申请人} {时间} {Implementation Designator}
+        "Color" "Designator" "Graphic ID" "Implementation" "Implementation Path" "Implementation Type"
+        "Location X-Coordinate" "Location Y-Coordinate" "Name" "Part Number" "Part Reference" "Part Type"
+        "PCB Footprint" "PCB\u5c01\u88c5" "Power Pins Visible" "Primitive" "Reference" "Source Library" "Source Package"
+        "Source Part" "SPLIT_INST" "SWAP_INFO" "Value" "\u7b49\u7ea7" "\u89c4\u683c\u578b\u53f7"
+        "\u5668\u4ef6\u63cf\u8ff0\uff08\u65b0\u6574\u7406\uff09" "\u7269\u6599\u540d\u79f0" "\u5185\u5bb9" "Description"
+        "\u7269\u6599\u4f18\u9009\u7b49\u7ea7" "Manufacturer" "\u5236\u9020\u5546" "Datasheet" "datasheet"
+        "\u7533\u8bf7\u4eba" "\u65f6\u95f4" "Implementation Designator"
     }
 
     proc shouldProcess { args } { return 1 }
@@ -62,7 +62,7 @@ namespace eval ::IAC {
         }
     }
 
-    # ---- 启动工具 ----
+    # ---- \u542f\u52a8\u5de5\u5177 ----
     proc launch { {source ""} {name ""} } {
         set vbs "$::IAC_ROOT/launch_tool_suite_hidden.vbs"
         set ps1 "$::IAC_ROOT/launch_tool_suite.ps1"
@@ -94,7 +94,7 @@ namespace eval ::IAC {
         ::IAC::log "IAC: try 'iac' to open platform, 'iacx' to export and process BOM"
     }
 
-    # ---- 从设计读器件 ----
+    # ---- \u4ece\u8bbe\u8ba1\u8bfb\u5668\u4ef6 ----
     proc ReadParts { } {
         set parts [list]
         catch {
@@ -309,7 +309,7 @@ namespace eval ::IAC {
         lappend lines "\]"; return [join $lines "\n"]
     }
 
-    # ---- 导出 + 处理 ----
+    # ---- \u5bfc\u51fa + \u5904\u7406 ----
     proc ExportAndProcess { args } {
         set dsnRaw [::IAC::GetDsnName]
         set dsn [::IAC::CleanDesignName $dsnRaw]
@@ -319,7 +319,7 @@ namespace eval ::IAC {
         catch { file mkdir [file dirname $inbox] }
         set exported 0
 
-        # 1) Tcl 读取设计 → JSON → Python 转 xlsx
+        # 1) Tcl \u8bfb\u53d6\u8bbe\u8ba1 \u2192 JSON \u2192 Python \u8f6c xlsx
         if {[file exists $::IAC_CNV]} { catch {
             set parts [::IAC::ReadParts]
             ::IAC::log "IAC: ReadParts count = [llength $parts]"
@@ -340,14 +340,14 @@ namespace eval ::IAC {
             }}
         }
 
-        # 3) 复用已有 xlsx
+        # 3) \u590d\u7528\u5df2\u6709 xlsx
         if {!$exported} {
             foreach f [glob -nocomplain "$::IAC_ROOT/data/inbox/*.xlsx"] {
                 if {[file exists $f] && [file size $f] > 100 && $f ne $inbox} { set inbox $f; set exported 1; break }
             }
         }
 
-        # 兜底：如果 ReadParts 失败或 inbox 没有文件，取最近一个已有的 xlsx
+        # \u515c\u5e95\uff1a\u5982\u679c ReadParts \u5931\u8d25\u6216 inbox \u6ca1\u6709\u6587\u4ef6\uff0c\u53d6\u6700\u8fd1\u4e00\u4e2a\u5df2\u6709\u7684 xlsx
         if {!$exported || ![file exists $inbox] || [file size $inbox] <= 100} {
             set found ""
             foreach f [lsort -decreasing [glob -nocomplain "$::IAC_ROOT/data/inbox/*.xlsx"]] {
@@ -360,20 +360,20 @@ namespace eval ::IAC {
     }
 }
 
-# ---- 全局命令 ----
+# ---- \u5168\u5c40\u547d\u4ee4 ----
 proc iac  {} { ::IAC::launch }
 proc iacx {} { ::IAC::ExportAndProcess }
 proc iacdiag {} { ::IAC::Diagnose }
 
-# ---- 菜单 ----
+# ---- \u83dc\u5355 ----
 if {[catch {
     RegisterAction "iacOpen"   "::IAC::shouldProcess" "" "::IAC::OpenTool" ""
     RegisterAction "iacExport" "::IAC::shouldProcess" "" "::IAC::ExportAndProcess" ""
     RegisterAction "iacUpd"    "::IAC::shouldProcess" "" "::IAC::updatePro"    ""
     # {{CADENCE_SCRIPT_SHORTCUT_ITEMS}}
-    InsertXMLMenu [list [list "IACBOM"] "" "" [list "popup" "insta360_HW" "" "" "" "" ""] ""]
-    InsertXMLMenu [list [list "IACBOM" "Open"]   "" "" [list "action" "Open Platform" "0" "iacOpen"   "iacUpd" "" "Open Insta360 hardware platform"] ""]
-    InsertXMLMenu [list [list "IACBOM" "Export"] "" "" [list "action" "Export and Process BOM" "0" "iacExport" "iacUpd" "" "Export Capture BOM and open processing wizard"] ""]
+    InsertXMLMenu [list [list "insta360_HW"] "" "" [list "popup" "insta360_HW" "" "" "" "" ""] ""]
+    InsertXMLMenu [list [list "insta360_HW" "Open"]   "" "" [list "action" "Open Platform" "0" "iacOpen"   "iacUpd" "" "Open Insta360 hardware platform"] ""]
+    InsertXMLMenu [list [list "insta360_HW" "Export"] "" "" [list "action" "Export and Process BOM" "0" "iacExport" "iacUpd" "" "Export Capture BOM and open processing wizard"] ""]
 } err]} {
     ::IAC::log "IAC: top menu registration failed: $err"
 }

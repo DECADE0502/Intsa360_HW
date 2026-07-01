@@ -130,7 +130,7 @@ $autoLoadDirs = @()
 if ($CaptureAutoLoadDir) {
   $autoLoadDirs += $CaptureAutoLoadDir
 } else {
-  $autoLoadDirs += Find-CadenceAutoLoadDirs
+  $autoLoadDirs += Find-CadenceLoaderInstallDirs
 }
 
 Write-Host "__HWAGENT_UNINSTALL_PROGRESS__ 40 Removing Cadence integration"

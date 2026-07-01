@@ -241,6 +241,9 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/update/run":
             self._send_json(update_api.run_update(self.root))
             return
+        if parsed.path == "/api/cadence/install":
+            self._handle_cadence_install()
+            return
         if parsed.path == "/api/uninstall/run":
             try:
                 params = self._read_json_body()
@@ -301,7 +304,7 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
             return
         self._send_json({"status": "ok", "capability": capability, "redeployed": redeployed})
 
-    def _redeploy_cadence_loader(self) -> bool:
+    def _redeploy_cadence_loader(self) -> tuple[bool, list[str], str]:
         script = self.root / "scripts" / "redeploy_cadence_loader.ps1"
         if not script.exists():
             raise FileNotFoundError("未找到 Cadence 菜单重新部署脚本")
@@ -317,7 +320,32 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
         )
         if completed.returncode != 0:
             raise RuntimeError((completed.stderr or completed.stdout or "Cadence 菜单重新部署失败").strip())
-        return True
+        output = "\n".join(part for part in [completed.stdout, completed.stderr] if part)
+        installed = []
+        for line in output.splitlines():
+            if "iac_bom_tool.tcl" in line:
+                if "：" in line:
+                    installed.append(line.rsplit("：", 1)[-1].strip())
+                elif ": " in line:
+                    installed.append(line.rsplit(": ", 1)[-1].strip())
+        return True, installed, output
+
+    def _handle_cadence_install(self) -> None:
+        try:
+            redeployed, installed, output = self._redeploy_cadence_loader()
+        except Exception as exc:
+            self._send_json({"status": "error", "error": str(exc)}, 400 if self._is_user_input_error(exc) else 500)
+            return
+        self._send_json(
+            {
+                "status": "ok",
+                "redeployed": redeployed,
+                "installed": installed,
+                "output": output,
+                "message": "Cadence 集成已重新安装",
+                "hot_reload_command": 'source [file join $env(HOME) "cdssetup/OrCAD_Capture/tclscripts/capAutoLoad/iac_bom_tool.tcl"]',
+            }
+        )
 
     def _handle_plugin_menu_update(self, plugin_id: str) -> None:
         try:
@@ -325,7 +353,7 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
             show = bool(params.get("show_in_cadence"))
             redeploy = bool(params.get("redeploy", True))
             plugin = set_plugin_cadence_menu_visibility(self.root, plugin_id, show)
-            redeployed = self._redeploy_cadence_loader() if redeploy else False
+            redeployed = self._redeploy_cadence_loader()[0] if redeploy else False
         except Exception as exc:
             self._send_json({"status": "error", "error": str(exc)}, 400 if self._is_user_input_error(exc) else 500)
             return

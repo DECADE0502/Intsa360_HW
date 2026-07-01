@@ -20,7 +20,7 @@ $AutoLoadDirs = @()
 if ($CaptureAutoLoadDir) {
   $AutoLoadDirs += $CaptureAutoLoadDir
 } else {
-  $AutoLoadDirs += Find-CadenceAutoLoadDirs
+  $AutoLoadDirs += Find-CadenceLoaderInstallDirs
 }
 
 foreach ($autoLoadDir in $AutoLoadDirs) {

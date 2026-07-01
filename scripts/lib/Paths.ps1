@@ -55,13 +55,33 @@ function Find-CadenceAutoLoadDirs {
 
 function Find-CadenceVendorAutoLoadDirs {
   $dirs = New-Object System.Collections.Generic.List[string]
-  $known = @(
-    "D:\CADENCE\Cadence\SPB_17.4\tools\capture\tclscripts\capAutoLoad"
+  $roots = @(
+    "C:\Cadence",
+    "D:\Cadence",
+    "D:\CADENCE",
+    "C:\Cadence\Cadence",
+    "D:\Cadence\Cadence",
+    "D:\CADENCE\Cadence"
   )
-  foreach ($dir in $known) {
-    if ($dir -and (Test-Path -LiteralPath $dir) -and -not $dirs.Contains($dir)) {
-      $dirs.Add($dir) | Out-Null
+  foreach ($root in $roots) {
+    if (-not $root -or -not (Test-Path -LiteralPath $root)) { continue }
+    foreach ($spb in Get-ChildItem -LiteralPath $root -Directory -Filter "SPB_*" -ErrorAction SilentlyContinue) {
+      $dir = Join-Path $spb.FullName "tools\capture\tclscripts\capAutoLoad"
+      if ($dir -and (Test-Path -LiteralPath $dir) -and -not $dirs.Contains($dir)) {
+        $dirs.Add($dir) | Out-Null
+      }
     }
+  }
+  return $dirs.ToArray()
+}
+
+function Find-CadenceLoaderInstallDirs {
+  $dirs = New-Object System.Collections.Generic.List[string]
+  foreach ($dir in Find-CadenceAutoLoadDirs) {
+    if ($dir -and -not $dirs.Contains($dir)) { $dirs.Add($dir) | Out-Null }
+  }
+  foreach ($dir in Find-CadenceVendorAutoLoadDirs) {
+    if ($dir -and -not $dirs.Contains($dir)) { $dirs.Add($dir) | Out-Null }
   }
   return $dirs.ToArray()
 }

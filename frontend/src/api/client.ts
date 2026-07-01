@@ -96,6 +96,13 @@ export async function fetchTools(): Promise<ToolInfo[]> {
   return payload.tools || [];
 }
 
+export async function installCadenceIntegration() {
+  const res = await fetch("/api/cadence/install", { method: "POST" });
+  const payload = await res.json();
+  if (!res.ok || payload.status !== "ok") throw new Error(payload.error || "Cadence 集成安装失败");
+  return payload as { status: "ok"; redeployed: boolean; message: string; hot_reload_command: string };
+}
+
 export async function fetchCapabilities(): Promise<{ platform: { name: string; cadence_menu: string }; capabilities: Capability[] }> {
   const res = await fetch("/api/capabilities");
   if (!res.ok) throw new Error("平台能力加载失败");

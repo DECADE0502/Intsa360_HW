@@ -6,7 +6,7 @@ proc ::capMenuUtil::partColorActiveDesignOrWarn {} {
     set design ""
     catch {set design [GetActivePMDesign]}
     if {$design eq "NULL" || $design eq ""} {
-        catch {tk_messageBox -icon error -message "未找到当前打开的设计。"}
+        catch {tk_messageBox -icon error -message "No active design is open."}
         return "NULL"
     }
     return $design

@@ -47,6 +47,18 @@ function Get-HwAgentShortcutCleanupActionIds {
   return $ids.ToArray()
 }
 
+function Get-HwAgentCadenceMenuName {
+  param([Parameter(Mandatory=$true)]$Object)
+  if (Test-HwAgentProperty -Object $Object -Name "cadence_name") {
+    return [string]$Object.cadence_name
+  }
+  $name = [string]$Object.name
+  if ($name -cmatch "^[\x20-\x7E]+$") {
+    return $name
+  }
+  return [string]$Object.id
+}
+
 function Get-EnabledCadenceMenuItems {
   param([Parameter(Mandatory=$true)][string]$ToolRoot)
   $lines = @()
@@ -84,9 +96,9 @@ function Get-EnabledCadenceMenuItems {
       }
     }
     if ($item.show_in_cadence -ne $true) { continue }
-    $name = Escape-TclMenuText ([string]$item.name)
+    $name = Escape-TclMenuText (Get-HwAgentCadenceMenuName -Object $item)
     if (Test-HwAgentProperty -Object $item -Name "shortcut") {
-      $name = Escape-TclMenuText (([string]$item.name) + " (" + ([string]$item.shortcut) + ")")
+      $name = Escape-TclMenuText ((Get-HwAgentCadenceMenuName -Object $item) + " (" + ([string]$item.shortcut) + ")")
     }
     $command = Escape-TclMenuText ([string]$item.command)
     if ($item.module) {
