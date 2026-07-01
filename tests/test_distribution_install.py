@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -2439,6 +2440,89 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertIn("remove_cadence_loader.ps1", joined)
             self.assertNotIn("uninstall.ps1", joined)
             self.assertNotIn("Detach", cmd, f"Detach flag leaked into cadence_only: {cmd}")
+
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
+    def test_full_uninstall_clears_localappdata(self):
+        """Full mode uninstall must remove %LOCALAPPDATA%\\Insta360_HW\\.
+
+        Regression for Task 4.3: prior to this, Full uninstall only wiped the
+        install tree, leaving launcher.log, .ready marker, rollback backups,
+        and any keep_data\\ stashes behind under %LOCALAPPDATA%\\Insta360_HW\\.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            # Simulate an install root that Assert-SafeInstallRoot will accept.
+            install_dir = tmp / "install"
+            (install_dir / "app" / "backend").mkdir(parents=True)
+            (install_dir / "app" / "backend" / "suite_app.py").write_text("# dummy")
+            # Simulate LOCALAPPDATA presence with the sidecar tree that Full
+            # mode is supposed to clean up.
+            fake_localappdata = tmp / "AppData"
+            (fake_localappdata / "Insta360_HW").mkdir(parents=True)
+            (fake_localappdata / "Insta360_HW" / "launcher.log").write_text("test")
+
+            env = os.environ.copy()
+            env["LOCALAPPDATA"] = str(fake_localappdata)
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                 "-File", str(ROOT / "uninstall.ps1"),
+                 "-Mode", "Full", "-InstallDir", str(install_dir), "-Force"],
+                capture_output=True, text=True, env=env, timeout=60)
+            # After Full uninstall, LOCALAPPDATA subtree must be gone.
+            self.assertFalse((fake_localappdata / "Insta360_HW").exists(),
+                             f"LOCALAPPDATA\\Insta360_HW still exists after Full uninstall. "
+                             f"stdout={result.stdout} stderr={result.stderr}")
+
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
+    def test_uninstall_restores_disabled_custom_scripts(self):
+        """Uninstall must move _disabled_custom_scripts_*/*.tcl back into the autoload dir.
+
+        Regression for Task 4.3: install.ps1 stashes vendor scripts into
+        _disabled_custom_scripts_<date>\\ before dropping iac_bom_tool.tcl.
+        uninstall.ps1 previously deleted iac_bom_tool.tcl but never restored
+        the vendor scripts — silent data loss.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            install_dir = tmp / "install"
+            (install_dir / "app" / "backend").mkdir(parents=True)
+            (install_dir / "app" / "backend" / "suite_app.py").write_text("# dummy")
+
+            # Simulate a Cadence autoload dir with a _disabled_custom_scripts_* backup.
+            fake_home = tmp / "home"
+            auto_load = fake_home / "cdssetup" / "OrCAD_Capture" / "tclscripts" / "capAutoLoad"
+            auto_load.mkdir(parents=True)
+            backup_dir = auto_load / "_disabled_custom_scripts_20260701"
+            backup_dir.mkdir()
+            (backup_dir / "vendor_tool.tcl").write_text("# vendor tool")
+            # Also put iac_bom_tool.tcl to be removed.
+            (auto_load / "iac_bom_tool.tcl").write_text("# platform loader")
+
+            env = os.environ.copy()
+            env["HOME"] = str(fake_home)
+            env["USERPROFILE"] = str(fake_home)
+            env["LOCALAPPDATA"] = str(tmp / "AppData")
+            # Pass the autoload dir explicitly via -CaptureAutoLoadDir so we
+            # don't depend on Find-CadenceLoaderInstallDirs discovering our
+            # fake $HOME layout. Run Detach mode so we don't need to touch
+            # the install tree — it exercises Remove-CadenceLoader all the
+            # same, which is what Task 4.3 fixed.
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                 "-File", str(ROOT / "uninstall.ps1"),
+                 "-Mode", "Detach", "-InstallDir", str(install_dir),
+                 "-CaptureAutoLoadDir", str(auto_load), "-Force"],
+                capture_output=True, text=True, env=env, timeout=60)
+
+            # Cadence loader should be gone.
+            self.assertFalse((auto_load / "iac_bom_tool.tcl").exists(),
+                             f"iac_bom_tool.tcl remains after uninstall. stdout={result.stdout}")
+            # Vendor script must be restored to autoload dir.
+            self.assertTrue((auto_load / "vendor_tool.tcl").exists(),
+                            f"vendor_tool.tcl not restored. stdout={result.stdout} stderr={result.stderr}")
+            # Backup dir cleaned.
+            self.assertFalse(backup_dir.exists(),
+                             f"backup dir {backup_dir} still exists")
 
 
 if __name__ == "__main__":
