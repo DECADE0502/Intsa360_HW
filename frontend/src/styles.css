@@ -54,6 +54,11 @@ html, body, #root { margin: 0; height: 100%; }
   box-shadow: 0 0 6px rgba(34, 211, 163, 0.7);
 }
 
+.app-brand-dot--offline {
+  background: #ff4d4f;
+  box-shadow: 0 0 6px rgba(255, 77, 79, 0.7);
+}
+
 .app-menu {
   flex: 1;
   border-inline-end: none !important;
@@ -138,6 +143,7 @@ html, body, #root { margin: 0; height: 100%; }
 }
 
 .app-content { padding: 36px 48px; width: 100%; box-sizing: border-box; }
+.service-offline-alert { margin-bottom: 16px; }
 
 .process-grid {
   display: grid;

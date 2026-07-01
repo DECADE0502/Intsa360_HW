@@ -89,135 +89,135 @@ export type LifecyclePayload = {
   checks: LifecycleCheck[];
 };
 
+async function requestJson<T = any>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(input, init);
+  } catch (error) {
+    const err = error as Error;
+    if (err.name === "TypeError" || /fetch/i.test(err.message || "")) {
+      throw new Error("后端服务已断开，请重新启动平台或点击重新连接。");
+    }
+    throw err;
+  }
+  let payload: any = {};
+  try {
+    payload = await res.json();
+  } catch {
+    payload = {};
+  }
+  if (!res.ok) {
+    throw new Error(payload.error || payload.message || `请求失败 (${res.status})`);
+  }
+  return payload as T;
+}
+
 export async function fetchTools(): Promise<ToolInfo[]> {
-  const res = await fetch("/api/tools");
-  if (!res.ok) throw new Error("工具列表加载失败");
-  const payload = await res.json();
+  const payload = await requestJson<{ tools?: ToolInfo[] }>("/api/tools");
   return payload.tools || [];
 }
 
 export async function installCadenceIntegration() {
-  const res = await fetch("/api/cadence/install", { method: "POST" });
-  const payload = await res.json();
-  if (!res.ok || payload.status !== "ok") throw new Error(payload.error || "Cadence 集成安装失败");
+  const payload = await requestJson<any>("/api/cadence/install", { method: "POST" });
+  if (payload.status !== "ok") throw new Error(payload.error || "Cadence 集成安装失败");
   return payload as { status: "ok"; redeployed: boolean; message: string; hot_reload_command: string };
 }
 
 export async function fetchCapabilities(): Promise<{ platform: { name: string; cadence_menu: string }; capabilities: Capability[] }> {
-  const res = await fetch("/api/capabilities");
-  if (!res.ok) throw new Error("平台能力加载失败");
-  return await res.json();
+  return await requestJson("/api/capabilities");
 }
 
 export async function fetchPlugins(): Promise<PluginsPayload> {
-  const res = await fetch("/api/plugins");
-  const payload = await res.json();
-  if (!res.ok) throw new Error(payload.error || "插件列表加载失败");
+  const payload = await requestJson<any>("/api/plugins");
   return payload;
 }
 
 export async function fetchHistory(): Promise<HistoryRun[]> {
-  const res = await fetch("/api/history");
-  const payload = await res.json();
-  if (!res.ok) throw new Error(payload.error || "历史记录加载失败");
+  const payload = await requestJson<{ runs?: HistoryRun[] }>("/api/history");
   return payload.runs || [];
 }
 
 export async function fetchAssets(): Promise<AssetsPayload> {
-  const res = await fetch("/api/assets");
-  const payload = await res.json();
-  if (!res.ok || payload.status !== "ok") throw new Error(payload.error || "历史资产加载失败");
+  const payload = await requestJson<AssetsPayload>("/api/assets");
+  if (payload.status !== "ok") throw new Error(payload.error || "历史资产加载失败");
   return payload;
 }
 
 export async function fetchHistoryRun(id: string): Promise<Record<string, unknown>> {
-  const res = await fetch(`/api/history/${encodeURIComponent(id)}`);
-  const payload = await res.json();
-  if (!res.ok) throw new Error(payload.error || "历史详情加载失败");
+  const payload = await requestJson<any>(`/api/history/${encodeURIComponent(id)}`);
   return payload;
 }
 
 export async function deleteHistoryRun(id: string) {
-  const res = await fetch(`/api/history/${encodeURIComponent(id)}`, { method: "DELETE" });
-  const payload = await res.json();
-  if (!res.ok || payload.status !== "ok") throw new Error(payload.error || "删除记录失败");
+  const payload = await requestJson<any>(`/api/history/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (payload.status !== "ok") throw new Error(payload.error || "删除记录失败");
   return payload;
 }
 
 export async function clearHistory() {
-  const res = await fetch("/api/history", { method: "DELETE" });
-  const payload = await res.json();
-  if (!res.ok || payload.status !== "ok") throw new Error(payload.error || "清空历史失败");
+  const payload = await requestJson<any>("/api/history", { method: "DELETE" });
+  if (payload.status !== "ok") throw new Error(payload.error || "清空历史失败");
   return payload;
 }
 
 export async function fetchPlatformStatus() {
-  const res = await fetch("/api/platform/status");
-  const payload = await res.json();
-  if (!res.ok) throw new Error(payload.error || "平台状态加载失败");
+  const payload = await requestJson<any>("/api/platform/status");
   return payload;
 }
 
 export async function fetchLifecycleCheck(): Promise<LifecyclePayload> {
-  const res = await fetch("/api/lifecycle/check");
-  const payload = await res.json();
-  if (!res.ok || payload.status !== "ok") throw new Error(payload.error || "安装自检加载失败");
+  const payload = await requestJson<LifecyclePayload>("/api/lifecycle/check");
+  if (payload.status !== "ok") throw new Error(payload.error || "安装自检加载失败");
   return payload;
 }
 
 export async function setCadenceMenuVisibility(id: string, showInCadence: boolean) {
-  const res = await fetch(`/api/capabilities/${encodeURIComponent(id)}/cadence-menu`, {
+  const payload = await requestJson<any>(`/api/capabilities/${encodeURIComponent(id)}/cadence-menu`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ show_in_cadence: showInCadence, redeploy: true }),
   });
-  const payload = await res.json();
-  if (!res.ok || payload.status !== "ok") throw new Error(payload.error || "菜单状态更新失败");
+  if (payload.status !== "ok") throw new Error(payload.error || "菜单状态更新失败");
   return payload.capability as Capability;
 }
 
 export async function setPluginCadenceMenuVisibility(id: string, showInCadence: boolean) {
-  const res = await fetch(`/api/plugins/${encodeURIComponent(id)}/cadence-menu`, {
+  const payload = await requestJson<any>(`/api/plugins/${encodeURIComponent(id)}/cadence-menu`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ show_in_cadence: showInCadence, redeploy: true }),
   });
-  const payload = await res.json();
-  if (!res.ok || payload.status !== "ok") throw new Error(payload.error || "插件菜单状态更新失败");
+  if (payload.status !== "ok") throw new Error(payload.error || "插件菜单状态更新失败");
   return payload.plugin as PluginInfo;
 }
 
 export async function uploadFiles(files: File[]): Promise<{ files: Array<{ path: string; name: string }> }> {
   const form = new FormData();
   files.forEach((file) => form.append("files", file));
-  const res = await fetch("/api/upload", { method: "POST", body: form });
-  const payload = await res.json();
-  if (!res.ok || payload.status !== "ok") throw new Error(payload.error || "上传失败");
+  const payload = await requestJson<any>("/api/upload", { method: "POST", body: form });
+  if (payload.status !== "ok") throw new Error(payload.error || "上传失败");
   return payload;
 }
 
 export async function runTool(tool: string, params: Record<string, unknown>) {
-  const res = await fetch(`/api/tools/${tool}/run`, {
+  const payload = await requestJson<any>(`/api/tools/${tool}/run`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(params),
   });
-  const payload = await res.json();
-  if (!res.ok || payload.status === "error") throw new Error(payload.error || "运行失败");
+  if (payload.status === "error") throw new Error(payload.error || "运行失败");
   return payload;
 }
 
 export async function fetchVersion(): Promise<string> {
-  const res = await fetch("/api/version");
-  const payload = await res.json();
-  if (!res.ok || payload.status !== "ok") throw new Error(payload.error || "版本获取失败");
+  const payload = await requestJson<any>("/api/version");
+  if (payload.status !== "ok") throw new Error(payload.error || "版本获取失败");
   return payload.version;
 }
 
 export async function startUpdate() {
-  const res = await fetch("/api/update/run", { method: "POST" });
-  const payload = await res.json();
-  if (!res.ok || payload.status !== "ok") throw new Error(payload.error || "更新启动失败");
+  const payload = await requestJson<any>("/api/update/run", { method: "POST" });
+  if (payload.status !== "ok") throw new Error(payload.error || "更新启动失败");
   return payload;
 }
 
@@ -250,9 +250,8 @@ export type UpdateNotice = {
 };
 
 export async function checkUpdate(): Promise<UpdateCheck> {
-  const res = await fetch("/api/update/check");
-  const payload = await res.json();
-  if (!res.ok || payload.status !== "ok") throw new Error(payload.error || "更新检查失败");
+  const payload = await requestJson<any>("/api/update/check");
+  if (payload.status !== "ok") throw new Error(payload.error || "更新检查失败");
   return payload;
 }
 
@@ -267,9 +266,8 @@ export type UpdateStatusInfo = {
 };
 
 export async function fetchUpdateStatus(): Promise<UpdateStatusInfo> {
-  const res = await fetch("/api/update/status");
-  const payload = await res.json();
-  if (!res.ok || payload.status !== "ok") throw new Error(payload.error || "更新状态获取失败");
+  const payload = await requestJson<any>("/api/update/status");
+  if (payload.status !== "ok") throw new Error(payload.error || "更新状态获取失败");
   return payload;
 }
 
@@ -280,19 +278,17 @@ export type UninstallCheck = {
 };
 
 export async function checkUninstall(): Promise<UninstallCheck> {
-  const res = await fetch("/api/uninstall/check");
-  const payload = await res.json();
-  if (!res.ok || payload.status !== "ok") throw new Error(payload.error || "卸载检查失败");
+  const payload = await requestJson<any>("/api/uninstall/check");
+  if (payload.status !== "ok") throw new Error(payload.error || "卸载检查失败");
   return payload;
 }
 
 export async function runUninstall(mode: "detach") {
-  const res = await fetch("/api/uninstall/run", {
+  const payload = await requestJson<any>("/api/uninstall/run", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ mode }),
   });
-  const payload = await res.json();
-  if (!res.ok || payload.status !== "ok") throw new Error(payload.error || "卸载启动失败");
+  if (payload.status !== "ok") throw new Error(payload.error || "卸载启动失败");
   return payload;
 }

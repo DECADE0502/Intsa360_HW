@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { ConfigProvider, Layout, Menu, Spin, Typography } from "antd";
+import { Alert, Button, ConfigProvider, Layout, Menu, Spin, Typography } from "antd";
 import zhCN from "antd/locale/zh_CN";
 import {
   fetchCapabilities,
@@ -31,6 +31,8 @@ export default function App() {
   const [plugins, setPlugins] = useState<PluginGroups>({ system: [], platform: [], user: [] });
   const [historyRuns, setHistoryRuns] = useState<HistoryRun[]>([]);
   const [status, setStatus] = useState<any>(null);
+  const [serviceOnline, setServiceOnline] = useState(true);
+  const [serviceError, setServiceError] = useState("");
   const [active, setActive] = useState("__home");
   const [loading, setLoading] = useState(true);
 
@@ -38,6 +40,20 @@ export default function App() {
     const payload = await fetchPlugins();
     setPlugins({ system: [], platform: [], user: [], ...(payload.groups || {}) });
     return payload;
+  }
+
+  async function refreshRuntimeStatus() {
+    try {
+      const [st, version] = await Promise.all([fetchPlatformStatus(), fetchVersion()]);
+      setStatus((prev: any) => ({ ...(prev || {}), ...st, version: version || st?.version || prev?.version }));
+      setServiceOnline(true);
+      setServiceError("");
+      return true;
+    } catch (err: any) {
+      setServiceOnline(false);
+      setServiceError(err?.message || "后端服务已断开，请重新启动平台或点击重新连接。");
+      return false;
+    }
   }
 
   useEffect(() => {
@@ -70,12 +86,25 @@ export default function App() {
         setPlugins({ system: [], platform: [], user: [], ...(pl.groups || {}) });
         setHistoryRuns(historyResult.status === "fulfilled" ? historyResult.value : []);
         setStatus({ ...st, version: version || st?.version });
+        setServiceOnline(statusResult.status === "fulfilled" && versionResult.status === "fulfilled");
+        setServiceError(
+          statusResult.status === "rejected" || versionResult.status === "rejected"
+            ? "后端服务已断开，请重新启动平台或点击重新连接。"
+            : "",
+        );
         let requested = new URLSearchParams(window.location.search).get("tool") || "";
         if (requested && !tls.some((tool) => tool.id === requested)) requested = "";
         setActive(requested || "__home");
       })
       .catch(() => {})
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      refreshRuntimeStatus();
+    }, 5000);
+    return () => window.clearInterval(timer);
   }, []);
 
   const bom = tools.filter((t) => ["bom_process", "bom_compare", "bom_risk_check"].includes(t.id));
@@ -118,7 +147,8 @@ export default function App() {
             <div className="app-brand-copy">
               <Typography.Text className="app-brand-title">硬件提效平台</Typography.Text>
               <div className="app-brand-meta">
-                <span className="app-brand-dot" />v{status?.version || "-"} · 运行中
+                <span className={`app-brand-dot ${serviceOnline ? "" : "app-brand-dot--offline"}`} />
+                v{status?.version || "-"} · {serviceOnline ? "运行中" : "服务离线"}
               </div>
             </div>
           </div>
@@ -143,6 +173,20 @@ export default function App() {
           </div>
         </Sider>
         <Content className="app-content" style={{ overflow: "auto" }}>
+          {!serviceOnline ? (
+            <Alert
+              type="error"
+              showIcon
+              className="service-offline-alert"
+              message="后端服务已断开"
+              description={serviceError || "当前页面仍在浏览器中，但本地服务不可用，工具操作会失败。请重新启动平台或点击重新连接。"}
+              action={
+                <Button size="small" danger onClick={refreshRuntimeStatus}>
+                  重新连接
+                </Button>
+              }
+            />
+          ) : null}
           {active === "__home" ? <PlatformHome caps={caps} tools={tools} plugins={plugins} /> : null}
           {active === "__scripts" ? <ScriptManager plugins={plugins} onPluginChange={updatePlugin} onRefresh={refreshPlugins} /> : null}
           {active === "__history" ? <HistoryView runs={historyRuns} onChange={setHistoryRuns} /> : null}

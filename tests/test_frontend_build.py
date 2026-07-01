@@ -120,6 +120,18 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn("查看更新公告", text)
         self.assertIn("本次更新要点", text)
 
+    def test_frontend_marks_backend_offline_when_health_check_fails(self) -> None:
+        app = (ROOT / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
+        client = (ROOT / "frontend" / "src" / "api" / "client.ts").read_text(encoding="utf-8")
+
+        self.assertIn("serviceOnline", app)
+        self.assertIn("refreshRuntimeStatus", app)
+        self.assertIn("window.setInterval", app)
+        self.assertIn("服务离线", app)
+        self.assertIn("重新连接", app)
+        self.assertIn("后端服务已断开", client)
+        self.assertIn("requestJson", client)
+
     def test_platform_page_removes_full_uninstall_flow(self) -> None:
         text = (ROOT / "frontend" / "src" / "components" / "UpdateStatus.tsx").read_text(encoding="utf-8")
 
