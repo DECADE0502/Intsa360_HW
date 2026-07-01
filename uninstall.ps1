@@ -43,29 +43,6 @@ function Remove-IfExists {
   }
 }
 
-function Stop-HwAgentServices {
-  param([int[]]$Ports = (8765..8775))
-  $stopped = @()
-  foreach ($port in $Ports) {
-    $conns = netstat -ano 2>$null | Select-String ":$port\s+.*LISTENING"
-    foreach ($conn in $conns) {
-      $parts = $conn.ToString() -split '\s+'
-      $procId = $parts[-1].Trim()
-      if ($procId -notmatch '^\d+$' -or $stopped -contains $procId) { continue }
-      $proc = Get-Process -Id $procId -ErrorAction SilentlyContinue
-      if ($proc -and $proc.ProcessName -like 'python*') {
-        if ($DryRun) {
-          Write-Host ("DRYRUN stop service PID " + $procId + " on port " + $port)
-        } else {
-          Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
-        }
-        $stopped += $procId
-      }
-    }
-  }
-  return $stopped
-}
-
 function Remove-CadenceLoader {
   param([string[]]$AutoLoadDirs)
   $removed = @()
@@ -103,6 +80,7 @@ function Mark-UninstallProgress {
 
 $ScriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $ScriptRoot "scripts\lib\Paths.ps1")
+. (Join-Path $ScriptRoot "scripts\lib\Service.ps1")
 
 Write-Host "__HWAGENT_UNINSTALL_PROGRESS__ 10 Resolving install directory"
 $Root = if ($InstallDir) { $InstallDir } else { Get-HwAgentRoot -StartPath $ScriptRoot }
@@ -121,7 +99,7 @@ if (-not $Force -and -not $DryRun) {
 Write-Host ("Uninstall mode: " + $Mode)
 
 Mark-UninstallProgress 25 "Stopping platform services"
-$stopped = Stop-HwAgentServices
+$stopped = Stop-HwAgentServicesByPort -DryRun:$DryRun
 if ($stopped.Count -gt 0) {
   Write-Host ("Stopped HWAgent service processes: " + ($stopped -join ", "))
 }

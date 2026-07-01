@@ -13,6 +13,8 @@ $ErrorLogFile = Join-Path $LogDir "tool_suite_server_error_$Stamp.log"
 $LauncherLogFile = Join-Path $LogDir "launcher_latest.log"
 $PortRange = 8765..8775
 $Required = @("bom_process", "bom_compare", "bom_risk_check", "netlist_compare", "smt_package_check", "single_network_check")
+$BackendScript = Join-Path $Root "app\backend\suite_app.py"
+$BackendScriptResolved = (Resolve-Path -LiteralPath $BackendScript).Path
 
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 Set-Location $Root
@@ -109,7 +111,7 @@ if (-not $Restart) {
 
 # 1) -Restart 或服务不可用时：杀掉所有旧进程再全新启动。
 Get-CimInstance Win32_Process |
-  Where-Object { $_.Name -like "python*" -and $_.CommandLine -and $_.CommandLine.Contains("suite_app.py") } |
+  Where-Object { $_.Name -like "python*" -and $_.CommandLine -and ($_.CommandLine -like "*$BackendScriptResolved*") } |
   ForEach-Object {
     if ($_.ProcessId -ne $PID) {
       Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue

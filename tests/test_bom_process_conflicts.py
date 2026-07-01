@@ -253,6 +253,48 @@ class BomProcessConflictTests(unittest.TestCase):
             nc_rows = list(nc_wb.active.iter_rows(values_only=True))
             self.assertEqual(len(nc_rows), 1)
 
+    def test_nc_prefix_is_case_insensitive_but_not_nc_dash(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            source = tmp_path / "source.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["Item", "Quantity", "Reference", "Part Number", "Value", "Model", "Description", "Name"])
+            ws.append([1, 1, "R1", "P-NC-LOWER", "nc/not-mounted", "M1", "lower nc", "Resistor"])
+            ws.append([2, 1, "R2", "P-NC-MIXED", "Nc/not-mounted", "M2", "mixed nc", "Resistor"])
+            ws.append([3, 1, "R3", "P-NC-DASH", "NC-keep", "M3", "dash should stay", "Resistor"])
+            ws.append([4, 1, "R4", "P-NC-EXACT", "NC", "M4", "exact nc", "Resistor"])
+            wb.save(source)
+
+            result = bom_process.process(
+                source,
+                ["plm"],
+                "203010100819",
+                "",
+                "TEST",
+                [],
+                tmp_path,
+                "STAMP",
+                None,
+            )
+
+            codes = {record["code"] for record in result["records"]}
+            self.assertNotIn("P-NC-LOWER", codes)
+            self.assertNotIn("P-NC-MIXED", codes)
+            self.assertNotIn("P-NC-EXACT", codes)
+            self.assertIn("P-NC-DASH", codes)
+
+            nc_wb = load_workbook(result["nc_summary"], data_only=True)
+            try:
+                nc_rows = list(nc_wb.active.iter_rows(values_only=True))
+            finally:
+                nc_wb.close()
+            excluded_codes = {row[2] for row in nc_rows[1:]}
+            self.assertIn("P-NC-LOWER", excluded_codes)
+            self.assertIn("P-NC-MIXED", excluded_codes)
+            self.assertIn("P-NC-EXACT", excluded_codes)
+            self.assertNotIn("P-NC-DASH", excluded_codes)
+
 
 if __name__ == "__main__":
     unittest.main()

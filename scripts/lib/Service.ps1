@@ -34,3 +34,33 @@ function Start-HwAgentService {
   Write-Host (Get-HwAgentText "5q2j5Zyo5ZCv5Yqo5pyN5Yqh77yM6K+356iN5YCZLi4u")
   return $false
 }
+
+function Stop-HwAgentServicesByPort {
+  param(
+    [int[]]$Ports = (8765..8775),
+    [switch]$DryRun
+  )
+  $stopped = @()
+  foreach ($port in $Ports) {
+    $connections = @()
+    try {
+      $connections = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+    } catch {
+      $connections = @()
+    }
+    foreach ($conn in $connections) {
+      $procId = [string]$conn.OwningProcess
+      if ($procId -notmatch '^\d+$' -or $stopped -contains $procId) { continue }
+      $proc = Get-Process -Id ([int]$procId) -ErrorAction SilentlyContinue
+      if ($proc -and $proc.ProcessName -like 'python*') {
+        if ($DryRun) {
+          Write-Host ("DRYRUN stop service PID " + $procId + " on port " + $port)
+        } else {
+          Stop-Process -Id ([int]$procId) -Force -ErrorAction SilentlyContinue
+        }
+        $stopped += $procId
+      }
+    }
+  }
+  return $stopped
+}

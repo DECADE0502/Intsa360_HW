@@ -62,9 +62,6 @@ Filename: "powershell.exe"; \
     WorkingDir: "{app}"; \
     Flags: runhidden; RunOnceId: "StopService"
 
-[UninstallDelete]
-Type: filesandordirs; Name: "{app}"
-
 [Code]
 var
   AlreadyInstalled: Boolean;

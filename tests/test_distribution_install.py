@@ -105,6 +105,8 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("Find-Python", text)
         self.assertIn("Python lookup failed", text)
         self.assertIn("Skipping Cadence loader deployment", text)
+        self.assertIn("ConvertTo-Json -InputObject $InstallRoot", text)
+        self.assertNotIn('"install_dir": "$($InstallRoot -replace', text)
         self.assertIn("Find-CadenceLoaderInstallDirs", text)
         self.assertIn("Find-CadenceVendorAutoLoadDirs", text)
         self.assertIn("Disable-HwAgentVendorAutoLoadScripts", text)
@@ -1167,6 +1169,23 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("__HWAGENT_UNINSTALL_PROGRESS__ 100", text)
         self.assertIn("__HWAGENT_UNINSTALL_DONE__", text)
 
+    def test_uninstall_uses_localized_safe_service_stop_helper(self) -> None:
+        uninstall = (ROOT / "uninstall.ps1").read_text(encoding="utf-8")
+        service = (ROOT / "scripts" / "lib" / "Service.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("scripts\\lib\\Service.ps1", uninstall)
+        self.assertIn("Stop-HwAgentServicesByPort", uninstall)
+        self.assertNotIn("netstat", uninstall)
+        self.assertIn("Get-NetTCPConnection", service)
+
+    def test_launcher_only_stops_backend_from_current_install_root(self) -> None:
+        text = (ROOT / "launch_tool_suite.ps1").read_text(encoding="utf-8")
+
+        self.assertIn('$BackendScript = Join-Path $Root "app\\backend\\suite_app.py"', text)
+        self.assertIn("Resolve-Path -LiteralPath $BackendScript", text)
+        self.assertIn("CommandLine -like", text)
+        self.assertNotIn('.CommandLine.Contains("suite_app.py")', text)
+
     def test_uninstall_status_parses_progress_markers_from_log(self) -> None:
         import sys
 
@@ -1372,8 +1391,7 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("[InstallDelete]", text)
         for stale_dir in ["app", "cadence", "scripts", "tools"]:
             self.assertIn(f'Type: filesandordirs; Name: "{{app}}\\{stale_dir}"', text)
-        self.assertIn("[UninstallDelete]", text)
-        self.assertIn('Type: filesandordirs; Name: "{app}"', text)
+        self.assertNotIn('Type: filesandordirs; Name: "{app}"', text)
         self.assertIn('uninstall.ps1"" -Mode Detach', text)
 
 

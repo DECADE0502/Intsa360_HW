@@ -50,11 +50,8 @@ New-Item -ItemType Directory -Force -Path (Join-Path $InstallRoot "plugins\syste
 New-Item -ItemType Directory -Force -Path (Join-Path $InstallRoot "plugins\user\scripts") | Out-Null
 $LocalConfig = Join-Path $InstallRoot "config\local.json"
 if (-not (Test-Path -LiteralPath $LocalConfig)) {
-  @"
-{
-  "install_dir": "$($InstallRoot -replace '\\', '\\')"
-}
-"@ | Set-Content -LiteralPath $LocalConfig -Encoding UTF8
+  $installDirJson = ConvertTo-Json -InputObject $InstallRoot -Compress
+  "{`n  `"install_dir`": $installDirJson`n}" | Set-Content -LiteralPath $LocalConfig -Encoding UTF8
   Write-Host ((Get-Text "5bey5Yib5bu65pys5py66YWN572u77ya") + $LocalConfig)
 } else {
   Write-Host ((Get-Text "5L+d55WZ5bey5pyJ5pys5py66YWN572u77ya") + $LocalConfig)

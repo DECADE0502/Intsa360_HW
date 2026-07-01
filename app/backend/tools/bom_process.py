@@ -122,7 +122,8 @@ def exclusion_reason(row: dict[str, str], refs: list[str], include_shields: bool
             return None
         return "屏蔽支架 SH*"
     value = row.get("value", "")
-    if value == "NC" or value.startswith("NC/") or value.upper() == "DNP":
+    upper_value = value.upper()
+    if upper_value == "NC" or upper_value.startswith("NC/") or upper_value == "DNP":
         return "NC/未贴"
     upper = [r.upper() for r in refs]
     if any(r.startswith("JP") for r in upper):
