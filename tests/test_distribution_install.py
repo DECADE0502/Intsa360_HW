@@ -606,6 +606,70 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertEqual(result["status"], "ok")
             self.assertTrue(result["already_running"])
 
+    def test_update_scripts_guard_against_downgrade_unless_explicitly_allowed(self) -> None:
+        update_text = (ROOT / "update.ps1").read_text(encoding="utf-8")
+        lib_text = (ROOT / "scripts" / "lib" / "Update.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("[switch]$AllowDowngrade", update_text)
+        self.assertIn("-AllowDowngrade:$AllowDowngrade", update_text)
+        self.assertIn("function Assert-VersionMonotonic", lib_text)
+        self.assertIn("Compare-HwAgentVersion", lib_text)
+        self.assertIn("Refuse to install", lib_text)
+
+    def test_update_library_refuses_downgrade_without_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            update_lib = Path(tmp) / "Update.ps1"
+            shutil.copyfile(FS_ROOT / "scripts" / "lib" / "Update.ps1", update_lib)
+            ps = (
+                "$ErrorActionPreference='Stop'; "
+                f". '{update_lib}'; "
+                "Assert-VersionMonotonic -Current '0.2.16' -Remote '0.2.15'"
+            )
+            encoded = base64.b64encode(ps.encode("utf-16le")).decode("ascii")
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=20,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Refuse to install", result.stderr + result.stdout)
+
+    def test_update_library_accepts_downgrade_with_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            update_lib = Path(tmp) / "Update.ps1"
+            shutil.copyfile(FS_ROOT / "scripts" / "lib" / "Update.ps1", update_lib)
+            ps = (
+                "$ErrorActionPreference='Stop'; "
+                f". '{update_lib}'; "
+                "Assert-VersionMonotonic -Current '0.2.16' -Remote '0.2.15' -AllowDowngrade; "
+                "Write-Host ok"
+            )
+            encoded = base64.b64encode(ps.encode("utf-16le")).decode("ascii")
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=20,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("ok", result.stdout)
+
+    def test_git_pull_update_is_wrapped_in_rollback_transaction(self) -> None:
+        text = (ROOT / "scripts" / "lib" / "Update.ps1").read_text(encoding="utf-8")
+        git_start = text.index("function Invoke-HwAgentGitUpdate")
+        git_block = text[git_start:text.index("function Invoke-HwAgentUpdate", git_start)]
+        pull_index = git_block.index("git pull --ff-only")
+        rollback_index = git_block.index("Invoke-HwAgentWithRollback")
+
+        self.assertLess(rollback_index, pull_index)
+        self.assertIn("OriginalGitHead", git_block)
+        self.assertIn("git reset --hard", git_block)
+
     def test_update_script_defaults_to_zip_and_skips_user_machine_frontend_build(self) -> None:
         update_text = (ROOT / "update.ps1").read_text(encoding="utf-8")
 

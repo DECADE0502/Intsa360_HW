@@ -286,20 +286,54 @@ def _remote_repo_path(root: Path) -> str:
 
 
 def _parse_version(text: str) -> tuple:
-    """Best-effort semantic-version tuple for comparison. Non-numeric suffixes
-    like '-dev' are stripped so 0.2.0-dev compares as 0.2.0."""
-    nums = []
-    for part in text.strip().split("."):
-        digits = ""
-        for ch in part:
-            if ch.isdigit():
-                digits += ch
-            else:
-                break
-        nums.append(int(digits) if digits else 0)
-    while len(nums) < 3:
-        nums.append(0)
-    return tuple(nums[:3])
+    """Return numeric major/minor/patch for legacy callers."""
+    core, _pre = _parse_semver(text)
+    return core
+
+
+def _parse_semver(text: str) -> tuple[tuple[int, int, int], list[object]]:
+    import re
+
+    value = (text or "").strip()
+    value = value[1:] if value.startswith("v") else value
+    value = value.split("+", 1)[0]
+    match = re.match(r"^(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:-([0-9A-Za-z.-]+))?$", value)
+    if not match:
+        raise ValueError(f"invalid version: {text!r}")
+    core = tuple(int(match.group(i) or 0) for i in range(1, 4))
+    prerelease = []
+    if match.group(4):
+        for part in match.group(4).split("."):
+            prerelease.append(int(part) if part.isdigit() else part.lower())
+    return core, prerelease
+
+
+def _compare_prerelease(left: list[object], right: list[object]) -> int:
+    if not left and not right:
+        return 0
+    if not left:
+        return 1
+    if not right:
+        return -1
+    for a, b in zip(left, right):
+        if a == b:
+            continue
+        if isinstance(a, int) and isinstance(b, str):
+            return -1
+        if isinstance(a, str) and isinstance(b, int):
+            return 1
+        return -1 if a < b else 1
+    if len(left) == len(right):
+        return 0
+    return -1 if len(left) < len(right) else 1
+
+
+def _compare_versions(left: str, right: str) -> int:
+    left_core, left_pre = _parse_semver(left)
+    right_core, right_pre = _parse_semver(right)
+    if left_core != right_core:
+        return -1 if left_core < right_core else 1
+    return _compare_prerelease(left_pre, right_pre)
 
 
 def _is_revision_ancestor(root: Path, ancestor: str, descendant: str) -> bool:
@@ -347,7 +381,7 @@ def _fetch_remote_version(root: Path) -> tuple[str, str]:
             zip_body, zip_status = _fetch_file_from_codeload_zip(repo, "VERSION")
             if zip_status == "ok_zip":
                 zip_version = zip_body.decode("utf-8-sig", errors="replace").strip()
-                if zip_version and _parse_version(zip_version) > _parse_version(body):
+                if zip_version and _compare_versions(zip_version, body) > 0:
                     return zip_version, zip_status
             return body, "ok_raw" if body else "empty_remote_version"
         except Exception as raw_exc:  # noqa: BLE001
@@ -456,7 +490,7 @@ def _fetch_remote_update_notice(root: Path) -> tuple[dict[str, object], str]:
                 if isinstance(zip_raw, dict):
                     raw_version = str(raw.get("version") or "") if isinstance(raw, dict) else ""
                     zip_version = str(zip_raw.get("version") or "")
-                    if _parse_version(zip_version) > _parse_version(raw_version):
+                    if _compare_versions(zip_version, raw_version) > 0:
                         return _normalize_update_notice(zip_raw), zip_status
             if not isinstance(raw, dict):
                 return {}, "invalid_notice"
@@ -480,14 +514,13 @@ def check_update(root: Path) -> dict[str, object]:
     remote_notice, notice_status = _fetch_remote_update_notice(root)
     has_update = False
     update_reason = ""
-    local_tuple = _parse_version(local_version)
     if remote_status in _REMOTE_VERSION_OK_STATUSES and remote_version:
-        remote_tuple = _parse_version(remote_version)
-        if remote_tuple > local_tuple:
+        remote_cmp = _compare_versions(remote_version, local_version)
+        if remote_cmp > 0:
             has_update = True
             update_reason = "version"
         elif (
-            remote_tuple == local_tuple
+            remote_cmp == 0
             and remote_revision_status == "ok"
             and remote_revision
             and local_revision
@@ -498,8 +531,7 @@ def check_update(root: Path) -> dict[str, object]:
             update_reason = "revision"
     notice_version = str(remote_notice.get("version") or "").strip() if remote_notice else ""
     if not has_update and notice_status in _REMOTE_VERSION_OK_STATUSES and notice_version:
-        notice_tuple = _parse_version(notice_version)
-        if notice_tuple > local_tuple:
+        if _compare_versions(notice_version, local_version) > 0:
             remote_version = notice_version
             remote_status = "ok_notice_version"
             has_update = True

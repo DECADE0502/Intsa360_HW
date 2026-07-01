@@ -271,6 +271,96 @@ function Resolve-HwAgentRemoteRevision {
   }
 }
 
+function ConvertTo-HwAgentVersionParts {
+  param([Parameter(Mandatory=$true)][string]$Version)
+  $value = $Version.Trim()
+  if ($value.StartsWith("v")) { $value = $value.Substring(1) }
+  $value = ($value -split "\+", 2)[0]
+  $match = [regex]::Match($value, '^(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:-([0-9A-Za-z.-]+))?$')
+  if (-not $match.Success) { throw "invalid version: $Version" }
+  $core = @(
+    [int]$match.Groups[1].Value,
+    $(if ($match.Groups[2].Success) { [int]$match.Groups[2].Value } else { 0 }),
+    $(if ($match.Groups[3].Success) { [int]$match.Groups[3].Value } else { 0 })
+  )
+  $pre = @()
+  if ($match.Groups[4].Success) {
+    foreach ($part in $match.Groups[4].Value.Split(".")) {
+      if ($part -match '^\d+$') { $pre += [int]$part } else { $pre += $part.ToLowerInvariant() }
+    }
+  }
+  return @{ Core = $core; Pre = $pre }
+}
+
+function Compare-HwAgentPrerelease {
+  param([object[]]$Left, [object[]]$Right)
+  if ($Left.Count -eq 0 -and $Right.Count -eq 0) { return 0 }
+  if ($Left.Count -eq 0) { return 1 }
+  if ($Right.Count -eq 0) { return -1 }
+  $count = [Math]::Min($Left.Count, $Right.Count)
+  for ($i = 0; $i -lt $count; $i++) {
+    $a = $Left[$i]
+    $b = $Right[$i]
+    if ($a -eq $b) { continue }
+    if (($a -is [int]) -and ($b -isnot [int])) { return -1 }
+    if (($a -isnot [int]) -and ($b -is [int])) { return 1 }
+    if ($a -lt $b) { return -1 }
+    return 1
+  }
+  if ($Left.Count -eq $Right.Count) { return 0 }
+  if ($Left.Count -lt $Right.Count) { return -1 }
+  return 1
+}
+
+function Compare-HwAgentVersion {
+  param(
+    [Parameter(Mandatory=$true)][string]$Left,
+    [Parameter(Mandatory=$true)][string]$Right
+  )
+  $a = ConvertTo-HwAgentVersionParts -Version $Left
+  $b = ConvertTo-HwAgentVersionParts -Version $Right
+  for ($i = 0; $i -lt 3; $i++) {
+    if ($a.Core[$i] -lt $b.Core[$i]) { return -1 }
+    if ($a.Core[$i] -gt $b.Core[$i]) { return 1 }
+  }
+  return Compare-HwAgentPrerelease -Left $a.Pre -Right $b.Pre
+}
+
+function Assert-VersionMonotonic {
+  param(
+    [Parameter(Mandatory=$true)][string]$Current,
+    [Parameter(Mandatory=$true)][string]$Remote,
+    [switch]$AllowDowngrade
+  )
+  if ([string]::IsNullOrWhiteSpace($Current) -or [string]::IsNullOrWhiteSpace($Remote)) { return }
+  $cmp = Compare-HwAgentVersion -Left $Remote -Right $Current
+  if ($cmp -lt 0 -and -not $AllowDowngrade) {
+    throw "Refuse to install v$Remote (current v$Current); use -AllowDowngrade to override"
+  }
+}
+
+function Resolve-HwAgentRemoteVersion {
+  param(
+    [Parameter(Mandatory=$true)][string]$Repo,
+    [string]$Branch = "main"
+  )
+  $repoPath = ConvertTo-HwAgentRepoPath -Repo $Repo
+  $rawUrl = "https://raw.githubusercontent.com/$repoPath/$Branch/VERSION"
+  try {
+    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+    $client = New-Object System.Net.WebClient
+    $client.Headers.Add("User-Agent", "HWAgent-Updater")
+    try {
+      return ($client.DownloadString($rawUrl)).Trim()
+    } finally {
+      $client.Dispose()
+    }
+  } catch {
+    Write-Host ("Remote version lookup failed; skip downgrade guard: " + $_.Exception.Message)
+    return ""
+  }
+}
+
 function Resolve-HwAgentReleaseAssetUrl {
   param(
     [Parameter(Mandatory=$true)][string]$Repo,
@@ -480,16 +570,27 @@ function Invoke-HwAgentGitUpdate {
   Push-Location $Root
   try {
     if (Test-Path -LiteralPath (Join-Path $Root ".git")) {
-      $remote = (& git remote get-url origin 2>$null)
-      if ($LASTEXITCODE -ne 0) {
-        & git remote add origin $Repo
-        if ($LASTEXITCODE -ne 0) { throw "git remote add failed" }
-      } elseif ($remote -ne $Repo) {
-        & git remote set-url origin $Repo
-        if ($LASTEXITCODE -ne 0) { throw "git remote set-url failed" }
+      $OriginalGitHead = (& git rev-parse HEAD 2>$null)
+      if ($LASTEXITCODE -ne 0) { $OriginalGitHead = "" }
+      Invoke-HwAgentWithRollback -Root $Root -Operation {
+        try {
+          $remote = (& git remote get-url origin 2>$null)
+          if ($LASTEXITCODE -ne 0) {
+            & git remote add origin $Repo
+            if ($LASTEXITCODE -ne 0) { throw "git remote add failed" }
+          } elseif ($remote -ne $Repo) {
+            & git remote set-url origin $Repo
+            if ($LASTEXITCODE -ne 0) { throw "git remote set-url failed" }
+          }
+          & git pull --ff-only
+          if ($LASTEXITCODE -ne 0) { throw "git pull failed" }
+        } catch {
+          if (-not [string]::IsNullOrWhiteSpace($OriginalGitHead)) {
+            & git reset --hard $OriginalGitHead | Out-Null
+          }
+          throw
+        }
       }
-      & git pull --ff-only
-      if ($LASTEXITCODE -ne 0) { throw "git pull failed" }
     } else {
       $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("insta360_hw_update_" + [System.Guid]::NewGuid().ToString("N"))
       $cloneRoot = Join-Path $tempRoot "repo"
@@ -525,8 +626,15 @@ function Invoke-HwAgentUpdate {
     [string]$Repo = "",
     [string]$Branch = "main",
     [ValidateSet("zip", "git")]
-    [string]$Method = "zip"
+    [string]$Method = "zip",
+    [switch]$AllowDowngrade
   )
+  if (-not [string]::IsNullOrWhiteSpace($Repo)) {
+    $currentVersionPath = Join-Path $Root "VERSION"
+    $currentVersion = if (Test-Path -LiteralPath $currentVersionPath) { (Get-Content -LiteralPath $currentVersionPath -Raw -Encoding UTF8).Trim() } else { "" }
+    $remoteVersion = Resolve-HwAgentRemoteVersion -Repo $Repo -Branch $Branch
+    Assert-VersionMonotonic -Current $currentVersion -Remote $remoteVersion -AllowDowngrade:$AllowDowngrade
+  }
   if ($Method -eq "git") {
     return Invoke-HwAgentGitUpdate -Root $Root -Repo $Repo -Branch $Branch
   }

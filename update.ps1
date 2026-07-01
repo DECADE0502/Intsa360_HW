@@ -3,7 +3,8 @@ param(
   [string]$Branch = "main",
   [ValidateSet("zip", "git")]
   [string]$Method = "zip",
-  [switch]$BuildFrontend
+  [switch]$BuildFrontend,
+  [switch]$AllowDowngrade
 )
 
 $ErrorActionPreference = "Stop"
@@ -37,7 +38,7 @@ try {
   }
 
   Restore-HwAgentInterruptedUpdate -Root $Root | Out-Null
-  Invoke-HwAgentUpdate -Root $Root -Repo $Repo -Branch $Branch -Method $UpdateMethod | Out-Null
+  Invoke-HwAgentUpdate -Root $Root -Repo $Repo -Branch $Branch -Method $UpdateMethod -AllowDowngrade:$AllowDowngrade | Out-Null
 
   if ($BuildFrontend -and (Test-Path -LiteralPath (Join-Path $Root "frontend\package.json"))) {
     Write-Host "__HWAGENT_PROGRESS__ 96 building frontend"

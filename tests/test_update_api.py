@@ -23,6 +23,31 @@ class UpdateApiTests(unittest.TestCase):
         self.assertIn("版本", text)
         self.assertIn("更新", text)
 
+    def test_compare_versions_handles_prerelease_and_build_metadata(self) -> None:
+        import sys
+        sys.path.insert(0, str(ROOT))
+        try:
+            from app.backend import update_api
+        finally:
+            sys.path.pop(0)
+
+        cases = [
+            ("0.2.15", "0.2.16", -1),
+            ("0.2.15", "0.2.15", 0),
+            ("0.2.16", "0.2.15", 1),
+            ("0.2.15-rc1", "0.2.15", -1),
+            ("0.2.15", "0.2.15-rc1", 1),
+            ("0.2.15-rc1", "0.2.15-rc2", -1),
+            ("0.2.15+build.1", "0.2.15", 0),
+            ("1.0.0", "0.9.9", 1),
+        ]
+        for left, right, expected in cases:
+            with self.subTest(left=left, right=right):
+                self.assertEqual(update_api._compare_versions(left, right), expected)
+
+        with self.assertRaises(ValueError):
+            update_api._compare_versions("not-a-version", "0.2.15")
+
 
 if __name__ == "__main__":
     unittest.main()
