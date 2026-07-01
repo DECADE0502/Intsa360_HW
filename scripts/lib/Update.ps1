@@ -321,11 +321,15 @@ function Compare-HwAgentVersion {
 
 function Assert-VersionMonotonic {
   param(
-    [Parameter(Mandatory=$true)][string]$Current,
-    [Parameter(Mandatory=$true)][string]$Remote,
+    [Parameter(Mandatory=$true)][AllowEmptyString()][string]$Current,
+    [Parameter(Mandatory=$true)][AllowEmptyString()][string]$Remote,
     [switch]$AllowDowngrade
   )
-  if ([string]::IsNullOrWhiteSpace($Current) -or [string]::IsNullOrWhiteSpace($Remote)) { return }
+  if ([string]::IsNullOrWhiteSpace($Remote)) {
+    if ($AllowDowngrade) { return }
+    throw "Cannot determine remote version; refuse to proceed without -AllowDowngrade"
+  }
+  if ([string]::IsNullOrWhiteSpace($Current)) { return }
   $cmp = Compare-HwAgentVersion -Left $Remote -Right $Current
   if ($cmp -lt 0 -and -not $AllowDowngrade) {
     throw "Refuse to install v$Remote (current v$Current); use -AllowDowngrade to override"

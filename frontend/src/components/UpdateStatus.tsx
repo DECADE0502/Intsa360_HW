@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Badge, Button, Modal, Progress, Typography, message } from "antd";
+import { Alert, Badge, Button, Modal, Progress, Typography, message } from "antd";
 import {
   CheckCircleOutlined,
   DisconnectOutlined,
@@ -26,6 +26,7 @@ export function UpdateStatus({ version }: { version: string }) {
   const [remoteVersion, setRemoteVersion] = useState<string>("");
   const [checkedUpdate, setCheckedUpdate] = useState(false);
   const [updateNotice, setUpdateNotice] = useState<UpdateNotice | null>(null);
+  const [integrityVerified, setIntegrityVerified] = useState<boolean | undefined>(undefined);
   const [noticeOpen, setNoticeOpen] = useState(false);
 
   const [progressOpen, setProgressOpen] = useState(false);
@@ -40,6 +41,7 @@ export function UpdateStatus({ version }: { version: string }) {
         setHasUpdate(Boolean(info.has_update));
         setRemoteVersion(info.display_remote || info.remote_version || "");
         setUpdateNotice(info.update_notice && Object.keys(info.update_notice).length ? info.update_notice : null);
+        setIntegrityVerified(info.integrity_verified);
         if (info.has_update && info.update_notice && Object.keys(info.update_notice).length) setNoticeOpen(true);
         setCheckedUpdate(true);
       })
@@ -73,6 +75,7 @@ export function UpdateStatus({ version }: { version: string }) {
       setHasUpdate(Boolean(info.has_update));
       setRemoteVersion(info.display_remote || info.remote_version || "");
       setUpdateNotice(info.update_notice && Object.keys(info.update_notice).length ? info.update_notice : null);
+      setIntegrityVerified(info.integrity_verified);
       setCheckedUpdate(true);
       if (info.has_update) {
         if (info.update_notice && Object.keys(info.update_notice).length) setNoticeOpen(true);
@@ -176,6 +179,7 @@ export function UpdateStatus({ version }: { version: string }) {
         open={noticeOpen}
         notice={updateNotice}
         remoteVersion={remoteVersion}
+        integrityVerified={integrityVerified}
         onClose={() => setNoticeOpen(false)}
         onUpdate={onUpdate}
       />
@@ -234,12 +238,14 @@ function UpdateNoticeModal({
   open,
   notice,
   remoteVersion,
+  integrityVerified,
   onClose,
   onUpdate,
 }: {
   open: boolean;
   notice: UpdateNotice | null;
   remoteVersion: string;
+  integrityVerified?: boolean;
   onClose: () => void;
   onUpdate: () => void;
 }) {
@@ -262,6 +268,15 @@ function UpdateNoticeModal({
         {notice.date ? <Text>发布日期：{notice.date}</Text> : null}
       </div>
       {notice.summary ? <Paragraph>{notice.summary}</Paragraph> : null}
+      {integrityVerified === false && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="此更新包未经 SHA256 校验"
+          description="服务端未提供完整性元数据,下载文件可能被篡改。建议手工核对发布来源后再点立即更新。"
+        />
+      )}
       {highlights.length ? (
         <>
           <Text strong>本次更新要点</Text>

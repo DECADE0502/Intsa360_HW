@@ -597,6 +597,13 @@ def check_update(root: Path) -> dict[str, object]:
         if isinstance(asset, dict) and asset.get("kind") == "release_zip":
             expected_sha256 = str(asset.get("sha256") or "")
             break
+    integrity_verified = False
+    notice_assets = (remote_notice or {}).get("assets", []) if remote_notice else []
+    if notice_assets:
+        integrity_verified = any(
+            isinstance(a, dict) and a.get("sha256") and len(str(a.get("sha256", ""))) == 64
+            for a in notice_assets
+        )
     if has_update:
         message = "发现新版本，可一键更新"
     elif remote_status in _REMOTE_VERSION_OK_STATUSES:
@@ -611,6 +618,7 @@ def check_update(root: Path) -> dict[str, object]:
         "remote_revision": remote_revision,
         "update_notice": remote_notice if has_update else {},
         "expected_sha256": expected_sha256 if has_update else "",
+        "integrity_verified": integrity_verified if has_update else False,
         "notice_status": notice_status,
         "has_update": has_update,
         "update_reason": update_reason,

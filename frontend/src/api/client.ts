@@ -234,6 +234,8 @@ export type UpdateCheck = {
   update_reason: string;
   remote_status: string;
   remote_revision_status: string;
+  expected_sha256?: string;
+  integrity_verified?: boolean;
   message: string;
 };
 

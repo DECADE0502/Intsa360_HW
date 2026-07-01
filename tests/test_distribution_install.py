@@ -790,6 +790,15 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("ok", result.stdout)
 
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
+    def test_update_refuses_when_remote_version_unreachable(self):
+        r = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             ". scripts/lib/Update.ps1; try { Assert-VersionMonotonic -Current '0.2.17' -Remote '' } catch { Write-Host $_.Exception.Message }"],
+            capture_output=True, text=True, cwd=str(ROOT), timeout=15)
+        self.assertIn("refuse to proceed", r.stdout,
+                      f"expected fail-closed message, got: {r.stdout} / {r.stderr}")
+
     def test_git_pull_update_is_wrapped_in_rollback_transaction(self) -> None:
         text = (ROOT / "scripts" / "lib" / "Update.ps1").read_text(encoding="utf-8")
         git_start = text.index("function Invoke-HwAgentGitUpdate")
