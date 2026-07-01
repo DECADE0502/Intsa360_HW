@@ -1,20 +1,20 @@
 ﻿{
-    "version":  "0.2.17",
-    "revision":  "d07e9e5fedb0c08aa4eff6d7c7ba9cb2665aa85c",
+    "version":  "0.2.18-dev",
+    "revision":  "991e55cb4e4619d10b37e4ad90b85add36145487",
     "date":  "2026-07-01",
-    "title":  "0.2.17 release readiness hardening",
-    "summary":  "This update continues release readiness work: embedded Python packaging and verified OTA metadata generation.",
+    "title":  "0.2.18-dev install reliability preview",
+    "summary":  "This preview improves overwrite install reliability and first-run feedback before the full 0.2.18 Stage 2 release.",
     "highlights":  [
-                       "Release builds now include an embedded Python 3.11 runtime with openpyxl, so new machines do not depend on a user-installed Python.",
-                       "The release pipeline writes SHA256, size, and URL metadata into UPDATE_NOTICE.json for the runtime zip.",
-                       "Install-time Python checks now fail fast if the bundled runtime cannot import openpyxl."
+                       "Overwrite setup now stops running Insta360_HW services before replacing files, reducing file-lock failures.",
+                       "Downgrade installs warn when a newer version is already registered.",
+                       "First run stores the readiness marker under LOCALAPPDATA and opens a waiting page while initialization runs."
                    ],
     "assets":  [
                    {
                        "kind":  "release_zip",
-                       "url":  "https://github.com/DECADE0502/Intsa360_HW/releases/download/v0.2.17/Insta360_HW_v0.2.17.zip",
-                       "sha256":  "d800d80ddff94f65d72a34990ca6f78ee842c7955c02b43082ef926b8bd8070f",
-                       "size_bytes":  12773794
+                       "url":  "https://github.com/DECADE0502/Intsa360_HW/releases/download/v0.2.18-dev/Insta360_HW_v0.2.18-dev.zip",
+                       "sha256":  "d0651b2a9592220abfbf0a9b32ffbf5c664f54789e1e69b9d9990e3813599183",
+                       "size_bytes":  12774438
                    }
                ],
     "compatibility":  "No data migration is required. Existing history, user plugins and local config are preserved.",
