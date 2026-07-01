@@ -1,6 +1,6 @@
 ﻿{
     "version":  "0.2.16",
-    "revision":  "19e0d069068cb65fe3692e9f87b88dd23eb39e03",
+    "revision":  "434e3a076eb97f6139f289ad4ae0bd341562d372",
     "date":  "2026-07-01",
     "title":  "0.2.16 release readiness hardening",
     "summary":  "This update continues release readiness work: embedded Python packaging and verified OTA metadata generation.",
@@ -13,7 +13,7 @@
                    {
                        "kind":  "release_zip",
                        "url":  "https://github.com/DECADE0502/Intsa360_HW/releases/download/v0.2.16/Insta360_HW_v0.2.16.zip",
-                       "sha256":  "ac1c8ddd9a6e144d8ce222d43dd3d6114c15419937549ca22a81e4ddd3738e0d",
+                       "sha256":  "d8ef268f2ae41eff972ba462eb9a86b77b58ce5cbb95ad3ef14ef738203cd1b1",
                        "size_bytes":  12771928
                    }
                ],
