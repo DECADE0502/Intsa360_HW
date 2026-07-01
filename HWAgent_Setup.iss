@@ -1,5 +1,5 @@
 #define MyAppName "Insta360_HW"
-#define MyAppVersion "0.2.18-dev"
+#define MyAppVersion "0.2.18"
 #define MyAppPublisher "Insta360"
 #define ReleaseDir "..\HWAgent_release"
 #define IconFile "..\HWAgent_release\app\frontend\assets\insta360_icon.ico"

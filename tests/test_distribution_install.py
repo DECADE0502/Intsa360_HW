@@ -1694,8 +1694,9 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("cadence_present", lifecycle)
         self.assertIn("cadence_present", system_status)
         self.assertIn("Cadence", system_status)
-        self.assertIn("no duplicate browser tab opened", launcher)
-        self.assertIn("platform is not ready, opening platform URL", launcher)
+        self.assertIn("Second instance detected", launcher)
+        self.assertIn("Platform already ready, skipping browser open", launcher)
+        self.assertIn("Platform not ready after wait, opening browser as usual", launcher)
 
     def test_launcher_build_script_embeds_icon_and_targets_winexe(self) -> None:
         text = (ROOT / "launcher" / "build.ps1").read_text(encoding="utf-8")

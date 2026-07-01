@@ -1,9 +1,9 @@
 ﻿{
-    "version":  "0.2.18-dev",
-    "revision":  "991e55cb4e4619d10b37e4ad90b85add36145487",
+    "version":  "0.2.18",
+    "revision":  "6d64d83467a6ef73bc002456017ae23d64452c82",
     "date":  "2026-07-01",
-    "title":  "0.2.18-dev install reliability preview",
-    "summary":  "This preview improves overwrite install reliability and first-run feedback before the full 0.2.18 Stage 2 release.",
+    "title":  "0.2.18 install reliability update",
+    "summary":  "This update improves overwrite install reliability, first-run feedback, launcher VersionInfo, and Cadence integration visibility.",
     "highlights":  [
                        "Overwrite setup now stops running Insta360_HW services before replacing files, reducing file-lock failures.",
                        "Downgrade installs warn when a newer version is already registered.",
@@ -12,9 +12,9 @@
     "assets":  [
                    {
                        "kind":  "release_zip",
-                       "url":  "https://github.com/DECADE0502/Intsa360_HW/releases/download/v0.2.18-dev/Insta360_HW_v0.2.18-dev.zip",
-                       "sha256":  "1b411ac38b71225e1c61a0ad7694f21490f7f7704de854c749eaca65ca70e407",
-                       "size_bytes":  12774820
+                       "url":  "https://github.com/DECADE0502/Intsa360_HW/releases/download/v0.2.18/Insta360_HW_v0.2.18.zip",
+                       "sha256":  "e5584a8ffd9bb2b95881cb19b7c06c41755443d5603d83b054b129621bbd3f2a",
+                       "size_bytes":  12775160
                    }
                ],
     "compatibility":  "No data migration is required. Existing history, user plugins and local config are preserved.",
