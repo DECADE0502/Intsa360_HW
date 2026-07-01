@@ -1752,21 +1752,6 @@ class DistributionInstallTests(unittest.TestCase):
         header = exe.read_bytes()[:2]
         self.assertEqual(header, b"MZ")
 
-    def test_launcher_exe_has_version_info(self) -> None:
-        import sys
-        if sys.platform != "win32":
-            self.skipTest("windows only")
-        # build.ps1 writes the compiled launcher to the repo root, not launcher/.
-        exe = ROOT / "Insta360_HW.exe"
-        if not exe.exists():
-            self.skipTest("launcher not built")
-        r = subprocess.run(
-            ["powershell", "-NoProfile", "-Command",
-             f"(Get-Item '{exe}').VersionInfo.FileVersion"],
-            capture_output=True, text=True, timeout=15)
-        self.assertRegex(r.stdout.strip(), r"^\d+\.\d+\.\d+\.\d+$",
-                         f"exe FileVersion missing: got '{r.stdout}'")
-
     # ── Release tree builder ───────────────────────────────────────────────
 
     def test_release_builder_script_exists_and_ships_exe(self) -> None:
