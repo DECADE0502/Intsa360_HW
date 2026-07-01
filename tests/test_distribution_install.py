@@ -806,9 +806,78 @@ class DistributionInstallTests(unittest.TestCase):
         pull_index = git_block.index("git pull --ff-only")
         rollback_index = git_block.index("Invoke-HwAgentWithRollback")
 
+        # Rollback wrapper must enclose the git pull call.
         self.assertLess(rollback_index, pull_index)
-        self.assertIn("OriginalGitHead", git_block)
-        self.assertIn("git reset --hard", git_block)
+        # Single-transaction contract: no inner manual reset — restoration is
+        # delegated entirely to Invoke-HwAgentWithRollback so HEAD and working
+        # tree cannot diverge on partial-pull failure.
+        self.assertNotIn(
+            "git reset --hard", git_block,
+            "Invoke-HwAgentGitUpdate must not do a manual git reset --hard; "
+            "let Invoke-HwAgentWithRollback restore the tree.",
+        )
+        self.assertNotIn("OriginalGitHead", git_block)
+
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
+    def test_git_pull_failure_restores_previous_head(self) -> None:
+        """When git pull fails mid-way, working tree returns to previous state."""
+        git_exe = shutil.which("git")
+        if not git_exe:
+            self.skipTest("git.exe not available on PATH")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            # Construct a minimal git repo with one commit that also looks like
+            # a HWAgent install root (so the rollback backup + restore succeeds).
+            subprocess.run(["git", "init", "-b", "main"], cwd=tmp_path, check=True, capture_output=True)
+            subprocess.run(["git", "-C", str(tmp_path), "config", "user.email", "test@test"], check=True, capture_output=True)
+            subprocess.run(["git", "-C", str(tmp_path), "config", "user.name", "test"], check=True, capture_output=True)
+            (tmp_path / "app" / "backend").mkdir(parents=True)
+            (tmp_path / "app" / "backend" / "suite_app.py").write_text("# initial", encoding="utf-8")
+            subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, capture_output=True)
+            subprocess.run(
+                ["git", "-C", str(tmp_path), "commit", "-m", "initial"],
+                check=True, capture_output=True,
+            )
+            original_head = subprocess.check_output(
+                ["git", "-C", str(tmp_path), "rev-parse", "HEAD"], text=True,
+            ).strip()
+
+            # Point at a nonexistent remote so `git pull --ff-only` must fail;
+            # Invoke-HwAgentGitUpdate should raise, and the rollback wrapper
+            # should restore working-tree state.
+            update_ps1 = (ROOT / "scripts" / "lib" / "Update.ps1").as_posix()
+            root_arg = str(tmp_path).replace("'", "''")
+            ps_command = (
+                f". '{update_ps1}'; "
+                f"try {{ Invoke-HwAgentGitUpdate -Root '{root_arg}' "
+                f"-Repo 'https://example.invalid/nonexistent/nonexistent.git' "
+                f"-Branch 'main' }} "
+                f"catch {{ Write-Host 'ROLLBACK_TRIGGERED' }}"
+            )
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", ps_command],
+                capture_output=True, text=True, timeout=120,
+            )
+
+            combined = (result.stdout or "") + (result.stderr or "")
+            self.assertIn(
+                "ROLLBACK_TRIGGERED", combined,
+                f"expected rollback path; stdout={result.stdout!r} stderr={result.stderr!r}",
+            )
+            # HEAD must be unchanged after rollback.
+            head_after = subprocess.check_output(
+                ["git", "-C", str(tmp_path), "rev-parse", "HEAD"], text=True,
+            ).strip()
+            self.assertEqual(
+                original_head, head_after,
+                f"HEAD moved despite rollback (before={original_head} after={head_after})",
+            )
+            # Working tree file untouched.
+            self.assertEqual(
+                (tmp_path / "app" / "backend" / "suite_app.py").read_text(encoding="utf-8"),
+                "# initial",
+            )
 
     def test_update_script_defaults_to_zip_and_skips_user_machine_frontend_build(self) -> None:
         update_text = (ROOT / "update.ps1").read_text(encoding="utf-8")
