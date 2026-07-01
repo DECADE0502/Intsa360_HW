@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -53,6 +54,10 @@ def _has_git() -> bool:
 
 def _update_log_path(root: Path) -> Path:
     return root / "data" / "reports" / "runtime" / "update_latest.log"
+
+
+def _update_pid_path(root: Path) -> Path:
+    return root / "data" / "reports" / "runtime" / "update_latest.pid"
 
 
 def _uninstall_log_path(root: Path) -> Path:
@@ -114,6 +119,19 @@ def _is_update_running(root: Path) -> bool:
     """True if an update.ps1 process is currently running. Used to distinguish
     'update finished' from 'update crashed' — if the process is gone but the
     log lacks a done marker, it failed."""
+    pid_path = _update_pid_path(root)
+    if pid_path.exists():
+        try:
+            pid = int(pid_path.read_text(encoding="utf-8").strip())
+        except (OSError, ValueError):
+            return False
+        if pid <= 0 or pid == os.getpid():
+            return False
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        return True
     return _is_powershell_script_running("update.ps1")
 
 
@@ -123,10 +141,13 @@ def _is_uninstall_running(root: Path) -> bool:
 
 def _is_powershell_script_running(script_name: str) -> bool:
     try:
+        safe_script_name = script_name.replace("'", "''")
         command = (
+            f"$scriptName = '{safe_script_name}'; "
             "Get-CimInstance Win32_Process | "
-            "Where-Object { $_.CommandLine -like '*powershell*' -and "
-            f"$_.CommandLine -like '*{script_name}*' }} | "
+            "Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -like '*powershell*' -and "
+            "$_.CommandLine -match '(?i)(^|\\s)-File(\\s|$)' -and "
+            "$_.CommandLine -like ('*' + $scriptName + '*') } | "
             "Select-Object -First 1 -ExpandProperty ProcessId"
         )
         out = subprocess.run(
@@ -162,6 +183,8 @@ def update_status(root: Path) -> dict[str, object]:
 
     running = _is_update_running(root)
     done = "__HWAGENT_DONE__" in log_text
+    if done:
+        running = False
     failed_marker = ""
     for line in log_text.splitlines():
         if line.startswith("__HWAGENT_FAILED__"):
@@ -624,13 +647,17 @@ def run_update(root: Path) -> dict[str, object]:
     except OSError:
         log_out = None  # fall back to DEVNULL if the log can't be opened
 
-    subprocess.Popen(
+    process = subprocess.Popen(
         ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script)],
         cwd=str(root),
         stdout=log_out if log_out else subprocess.DEVNULL,
         stderr=subprocess.STDOUT if log_out else subprocess.DEVNULL,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
+    try:
+        _update_pid_path(root).write_text(str(process.pid), encoding="utf-8")
+    except OSError:
+        pass
     if log_out:
         log_out.close()
     return {"status": "ok", "message": "更新已在后台启动，完成后服务会自动重启。可在「系统状态」查看更新日志。", "version": read_version(root)}

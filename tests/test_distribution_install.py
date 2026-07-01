@@ -485,6 +485,94 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertNotIn('"wmic"', text)
         self.assertIn("Get-CimInstance Win32_Process", text)
 
+    def test_update_running_probe_ignores_its_own_query_process(self) -> None:
+        import sys
+        sys.path.insert(0, str(ROOT))
+        try:
+            from app.backend import update_api
+        finally:
+            sys.path.pop(0)
+
+        original_run = update_api.subprocess.run
+        try:
+            class Completed:
+                returncode = 0
+                stdout = "12345\r\n"
+
+            seen = {}
+
+            def fake_run(cmd, **kwargs):
+                seen["command"] = cmd[-1]
+                if "$_.ProcessId -ne $PID" in cmd[-1] and "-File" in cmd[-1]:
+                    completed = Completed()
+                    completed.stdout = ""
+                    return completed
+                return Completed()
+
+            update_api.subprocess.run = fake_run
+            self.assertFalse(update_api._is_powershell_script_running("update.ps1"))
+            self.assertIn("$PID", seen["command"])
+        finally:
+            update_api.subprocess.run = original_run
+
+    def test_update_status_done_marker_is_not_running(self) -> None:
+        import sys
+        sys.path.insert(0, str(ROOT))
+        try:
+            from app.backend import update_api
+        finally:
+            sys.path.pop(0)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "install"
+            log_dir = root / "data" / "reports" / "runtime"
+            log_dir.mkdir(parents=True)
+            (log_dir / "update_latest.log").write_text(
+                "__HWAGENT_PROGRESS__ 100 update complete; restarting service\n"
+                "__HWAGENT_DONE__\n",
+                encoding="utf-8",
+            )
+            original_running = update_api._is_update_running
+            try:
+                update_api._is_update_running = lambda _root: True
+                status = update_api.update_status(root)
+            finally:
+                update_api._is_update_running = original_running
+
+            self.assertTrue(status["done"])
+            self.assertFalse(status["running"])
+
+    def test_run_update_writes_pid_file_for_status_tracking(self) -> None:
+        import sys
+        sys.path.insert(0, str(ROOT))
+        try:
+            from app.backend import update_api
+        finally:
+            sys.path.pop(0)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "install"
+            root.mkdir()
+            log_dir = root / "data" / "reports" / "runtime"
+            (root / "update.ps1").write_text("Write-Host hi\n", encoding="utf-8")
+
+            original_running = update_api._is_update_running
+            original_popen = update_api.subprocess.Popen
+            try:
+                update_api._is_update_running = lambda _root: False
+
+                class FakeProcess:
+                    pid = 24680
+
+                update_api.subprocess.Popen = lambda *args, **kwargs: FakeProcess()
+                result = update_api.run_update(root)
+            finally:
+                update_api._is_update_running = original_running
+                update_api.subprocess.Popen = original_popen
+
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual((log_dir / "update_latest.pid").read_text(encoding="utf-8").strip(), "24680")
+
     def test_update_api_compares_remote_version(self) -> None:
         import sys
         sys.path.insert(0, str(ROOT))
