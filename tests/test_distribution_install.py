@@ -441,6 +441,84 @@ class DistributionInstallTests(unittest.TestCase):
         )
         self.assertIn('config\\local.json', content, "expected path-scoped config\\local.json in Update.ps1")
 
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
+    def test_rollback_backup_excludes_config_local_json_scoped(self) -> None:
+        """Backup must exclude config/local.json but NOT plugins/user/*/local.json.
+
+        Regression: bare relative "config\\local.json" was passed to robocopy /XF,
+        which is a NO-OP; the file leaked into the rollback backup.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            root = tmp_path / "root"
+            backup = tmp_path / "backup"
+            (root / "config").mkdir(parents=True)
+            (root / "config" / "local.json").write_text('{"user_config": true}')
+            (root / "plugins" / "user" / "custom").mkdir(parents=True)
+            (root / "plugins" / "user" / "custom" / "local.json").write_text('{"user_content": true}')
+            (root / "app").mkdir()
+            (root / "app" / "code.py").write_text("code")
+
+            ps = (
+                f". '{ROOT / 'scripts' / 'lib' / 'Update.ps1'}'; "
+                f"Copy-HwAgentTreeForRollback -Root '{root}' -BackupRoot '{backup}'"
+            )
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
+                capture_output=True, text=True, timeout=60,
+            )
+            self.assertEqual(result.returncode, 0, f"stderr={result.stderr} stdout={result.stdout}")
+            # config/local.json must NOT be in the backup (user data, /XF-excluded)
+            self.assertFalse(
+                (backup / "config" / "local.json").exists(),
+                "config/local.json leaked into rollback backup",
+            )
+            # plugins/user is excluded via /XD - not present in backup at all
+            # app/code.py should be present
+            self.assertTrue((backup / "app" / "code.py").exists())
+
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
+    def test_rollback_restore_preserves_user_config_local_json(self) -> None:
+        """Restore from rollback must NOT overwrite user's live config/local.json.
+
+        Regression: bare relative "config\\local.json" was passed to robocopy /XF,
+        which is a NO-OP; if a stale copy sat in the backup tree, restore would
+        clobber the user's live file.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            root = tmp_path / "root"
+            backup = tmp_path / "backup"
+            # Backup has an old local.json (artificial: simulates a stale copy from
+            # before the backup exclude was fixed).
+            (backup / "config").mkdir(parents=True)
+            (backup / "config" / "local.json").write_text('{"old": true}')
+            (backup / "app").mkdir()
+            (backup / "app" / "code.py").write_text("old code")
+            # Live root has user's NEW local.json
+            (root / "config").mkdir(parents=True)
+            (root / "config" / "local.json").write_text('{"live_user": true}')
+            (root / "app").mkdir()
+            (root / "app" / "code.py").write_text("bad code")  # reverted by restore
+
+            ps = (
+                f". '{ROOT / 'scripts' / 'lib' / 'Update.ps1'}'; "
+                f"Restore-HwAgentTreeFromRollback -Root '{root}' -BackupRoot '{backup}'"
+            )
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
+                capture_output=True, text=True, timeout=60,
+            )
+            self.assertEqual(result.returncode, 0, f"stderr={result.stderr} stdout={result.stdout}")
+            # User's live local.json preserved (not overwritten)
+            self.assertEqual(
+                (root / "config" / "local.json").read_text(),
+                '{"live_user": true}',
+                "user's local.json overwritten by rollback restore",
+            )
+            # Other files properly restored
+            self.assertEqual((root / "app" / "code.py").read_text(), "old code")
+
     def test_update_library_rejects_sha256_mismatch_and_removes_bad_zip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             update_lib = Path(tmp) / "Update.ps1"

@@ -11,6 +11,26 @@ $script:HwAgentExcludeDirs = @(".git", "data", "plugins\user", "BOM*", "node_mod
 $script:HwAgentRootExcludeDirs = @("frontend", "tests", "docs", "launcher")
 $script:HwAgentExcludeFiles = @("config\local.json", ".gitignore", "HWAgent_Setup.iss", "Insta360_HW_Setup.exe")
 
+function Resolve-HwAgentExcludeFileArgs {
+  param(
+    [Parameter(Mandatory=$true)][string]$Root,
+    [Parameter(Mandatory=$true)][AllowEmptyCollection()][string[]]$Files
+  )
+  # For robocopy /XF: subdir-scoped entries (containing a path separator) must
+  # be absolute paths anchored at the SOURCE root - bare relative paths like
+  # "config\local.json" are silently treated as NO-OP by robocopy. Bare filenames
+  # (no separator) stay as-is and match anywhere under the source tree.
+  $result = @()
+  foreach ($f in $Files) {
+    if ($f -match '[\\/]') {
+      $result += (Join-Path $Root $f)
+    } else {
+      $result += $f
+    }
+  }
+  return $result
+}
+
 function Get-HwAgentUpdateStateDir {
   param([Parameter(Mandatory=$true)][string]$Root)
   return (Join-Path $Root "data\reports\runtime")
@@ -163,19 +183,9 @@ function Sync-HwAgentTree {
     }
     $excludeDirs = $script:HwAgentExcludeDirs + $rootExcludePaths
     Write-Host ("MIR: keep excluded dirs=" + ($excludeDirs -join ","))
-    # robocopy /XF matches a full absolute path when the pattern contains a
-    # directory separator; a bare filename matches ANY file with that name
-    # anywhere under the source root. Resolve subdir-scoped entries against
-    # SourceRoot so e.g. "config\local.json" only excludes <src>\config\local.json
-    # and does not silently drop plugins\user\*\local.json.
-    $excludeFiles = @()
-    foreach ($file in $script:HwAgentExcludeFiles) {
-      if ($file -match '[\\/]') {
-        $excludeFiles += (Join-Path $SourceRoot $file)
-      } else {
-        $excludeFiles += $file
-      }
-    }
+    # See Resolve-HwAgentExcludeFileArgs: subdir-scoped /XF entries must be
+    # absolute paths anchored at SourceRoot; bare names remain filename globs.
+    $excludeFiles = Resolve-HwAgentExcludeFileArgs -Root $SourceRoot -Files $script:HwAgentExcludeFiles
     $args = @($SourceRoot, $TargetRoot, "/MIR", "/R:2", "/W:1", "/XD") + $excludeDirs + @("/XF") + $excludeFiles
     & robocopy @args | Out-Null
     if ($LASTEXITCODE -ge 8) {
@@ -201,7 +211,9 @@ function Copy-HwAgentTreeForRollback {
     [Parameter(Mandatory=$true)][string]$BackupRoot
   )
   New-Item -ItemType Directory -Force -Path $BackupRoot | Out-Null
-  $args = @($Root, $BackupRoot, "/MIR", "/R:2", "/W:1", "/XD", "data", "plugins\user", ".git", "node_modules", "/XF", "config\local.json")
+  # Source = $Root, so subdir-scoped /XF entries must be absolute paths under $Root.
+  $excludeFiles = Resolve-HwAgentExcludeFileArgs -Root $Root -Files @("config\local.json")
+  $args = @($Root, $BackupRoot, "/MIR", "/R:2", "/W:1", "/XD", "data", "plugins\user", ".git", "node_modules", "/XF") + $excludeFiles
   & robocopy @args | Out-Null
   if ($LASTEXITCODE -ge 8) {
     throw ("rollback backup failed: " + $LASTEXITCODE)
@@ -214,7 +226,11 @@ function Restore-HwAgentTreeFromRollback {
     [Parameter(Mandatory=$true)][string]$Root
   )
   if (-not (Test-Path -LiteralPath $BackupRoot)) { return }
-  $args = @($BackupRoot, $Root, "/MIR", "/R:2", "/W:1", "/XD", "data", "plugins\user", ".git", "node_modules", "/XF", "config\local.json")
+  # Source = $BackupRoot, so subdir-scoped /XF entries must be absolute paths under $BackupRoot.
+  # This ensures the user's live config/local.json is preserved even if a stale copy
+  # somehow ended up in the backup tree.
+  $excludeFiles = Resolve-HwAgentExcludeFileArgs -Root $BackupRoot -Files @("config\local.json")
+  $args = @($BackupRoot, $Root, "/MIR", "/R:2", "/W:1", "/XD", "data", "plugins\user", ".git", "node_modules", "/XF") + $excludeFiles
   & robocopy @args | Out-Null
   if ($LASTEXITCODE -ge 8) {
     throw ("rollback restore failed: " + $LASTEXITCODE)
