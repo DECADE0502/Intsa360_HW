@@ -73,14 +73,24 @@ internal static class Program
 
             if (!createdNew)
             {
-                if (IsPlatformReady())
+                // The first instance owns the mutex and is either already
+                // serving or still coming up. Give it a brief grace period
+                // before deciding whether to open a browser tab, since
+                // repeated ShellExecute of the same URL can spawn extra tabs
+                // on browsers that don't dedupe (e.g. Firefox).
+                WriteLog("Second instance detected");
+                if (!IsPlatformReady())
                 {
-                    WriteLog("Existing instance detected; platform is ready, no duplicate browser tab opened.");
+                    Thread.Sleep(2000);
+                }
+                if (!IsPlatformReady())
+                {
+                    WriteLog("Platform not ready after wait, opening browser as usual");
+                    OpenPlatformUrl();
                 }
                 else
                 {
-                    WriteLog("Existing instance detected; platform is not ready, opening platform URL.");
-                    OpenPlatformUrl();
+                    WriteLog("Platform already ready, skipping browser open");
                 }
                 return 0;
             }
