@@ -302,6 +302,25 @@ def _parse_version(text: str) -> tuple:
     return tuple(nums[:3])
 
 
+def _is_revision_ancestor(root: Path, ancestor: str, descendant: str) -> bool:
+    ancestor = (ancestor or "").strip()
+    descendant = (descendant or "").strip()
+    if not ancestor or not descendant:
+        return False
+    try:
+        out = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", ancestor, descendant],
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            timeout=5,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        return out.returncode == 0
+    except Exception:  # noqa: BLE001
+        return False
+
+
 _REMOTE_VERSION_OK_STATUSES = {"ok", "ok_raw", "ok_zip", "ok_notice_version"}
 
 
@@ -452,7 +471,14 @@ def check_update(root: Path) -> dict[str, object]:
         if remote_tuple > local_tuple:
             has_update = True
             update_reason = "version"
-        elif remote_tuple == local_tuple and remote_revision_status == "ok" and remote_revision and local_revision and remote_revision != local_revision:
+        elif (
+            remote_tuple == local_tuple
+            and remote_revision_status == "ok"
+            and remote_revision
+            and local_revision
+            and remote_revision != local_revision
+            and _is_revision_ancestor(root, local_revision, remote_revision)
+        ):
             has_update = True
             update_reason = "revision"
     notice_version = str(remote_notice.get("version") or "").strip() if remote_notice else ""

@@ -1,16 +1,16 @@
 {
-  "version": "0.2.13",
+  "version": "0.2.14",
   "revision": "",
-  "date": "2026-06-30",
-  "title": "0.2.13 BOM finish flow polish",
-  "summary": "This update improves the BOM processing finish step. Processed BOM files are broadcast to history pickers immediately, and the finish page now has a clear action to close the current BOM workflow and start a fresh one.",
+  "date": "2026-07-01",
+  "title": "0.2.14 OTA and Cadence integration recovery",
+  "summary": "This update fixes the OTA version judgment that could incorrectly offer an older same-version revision, restores the Cadence integration repair entry, and improves launcher diagnostics.",
   "highlights": [
-    "The BOM processing deliver page now includes a Finish and start new BOM action.",
-    "Clicking finish refreshes reusable history BOM data immediately, so BOM Compare and SMT Package Check can select the newly processed BOM without a manual page refresh.",
-    "Finishing a BOM clears the saved BOM processing workspace and returns the wizard to the first source step.",
-    "The finish action removes stale Cadence source/name URL parameters, so browser refresh no longer jumps back into the completed BOM."
+    "OTA no longer treats an older same-version revision as a new update.",
+    "The platform keeps the Repair Cadence Integration action after updating.",
+    "Insta360_HW.exe now uses a single instance and writes launcher logs to LOCALAPPDATA.",
+    "Update package verification and rollback were hardened to reduce broken-update risk."
   ],
-  "compatibility": "No data migration is required. Existing processed BOM history remains available.",
+  "compatibility": "No data migration is required. Existing history, user plugins and local config are preserved.",
   "trace": {
     "repo": "DECADE0502/Intsa360_HW",
     "branch": "main"

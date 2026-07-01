@@ -566,19 +566,60 @@ class DistributionInstallTests(unittest.TestCase):
 
             original_fetch_version = update_api._fetch_remote_version
             original_fetch_revision = update_api._fetch_remote_revision
+            original_fetch_notice = update_api._fetch_remote_update_notice
+            original_is_ancestor = update_api._is_revision_ancestor
             try:
                 update_api._fetch_remote_version = lambda _root: ("0.2.1", "ok")
                 update_api._fetch_remote_revision = lambda _root: ("2222222222222222222222222222222222222222", "ok")
+                update_api._fetch_remote_update_notice = lambda _root: ({}, "missing_notice")
+                update_api._is_revision_ancestor = lambda _root, ancestor, descendant: ancestor.startswith("1111111") and descendant.startswith("2222222")
 
                 result = update_api.check_update(root)
             finally:
                 update_api._fetch_remote_version = original_fetch_version
                 update_api._fetch_remote_revision = original_fetch_revision
+                update_api._fetch_remote_update_notice = original_fetch_notice
+                update_api._is_revision_ancestor = original_is_ancestor
 
             self.assertTrue(result["has_update"])
             self.assertEqual(result["revision"], "1111111111111111111111111111111111111111")
             self.assertEqual(result["remote_revision"], "2222222222222222222222222222222222222222")
             self.assertEqual(result["update_reason"], "revision")
+
+    def test_update_api_does_not_treat_same_version_older_remote_revision_as_update(self) -> None:
+        import sys
+        sys.path.insert(0, str(ROOT))
+        try:
+            from app.backend import update_api
+        finally:
+            sys.path.pop(0)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "install"
+            root.mkdir()
+            (root / "VERSION").write_text("0.2.13\n", encoding="utf-8")
+            (root / "REVISION").write_text("508e5dbe4df3db7195363e21cd749d88426c07ba\n", encoding="utf-8")
+            (root / "update.ps1").write_text("echo hi\n", encoding="utf-8")
+
+            original_fetch_version = update_api._fetch_remote_version
+            original_fetch_revision = update_api._fetch_remote_revision
+            original_fetch_notice = update_api._fetch_remote_update_notice
+            original_is_ancestor = update_api._is_revision_ancestor
+            try:
+                update_api._fetch_remote_version = lambda _root: ("0.2.13", "ok")
+                update_api._fetch_remote_revision = lambda _root: ("76f3406ed0a163f3ea3740fb7a642e4328ad06af", "ok")
+                update_api._fetch_remote_update_notice = lambda _root: ({}, "missing_notice")
+                update_api._is_revision_ancestor = lambda _root, ancestor, descendant: ancestor.startswith("76f3406") and descendant.startswith("508e5db")
+                result = update_api.check_update(root)
+            finally:
+                update_api._fetch_remote_version = original_fetch_version
+                update_api._fetch_remote_revision = original_fetch_revision
+                update_api._fetch_remote_update_notice = original_fetch_notice
+                update_api._is_revision_ancestor = original_is_ancestor
+
+            self.assertFalse(result["has_update"])
+            self.assertEqual(result["update_reason"], "")
+            self.assertEqual(result["remote_revision"], "76f3406ed0a163f3ea3740fb7a642e4328ad06af")
 
     def test_update_api_returns_remote_update_notice_for_new_versions(self) -> None:
         import sys
