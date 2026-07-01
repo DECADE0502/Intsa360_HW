@@ -331,7 +331,7 @@ export async function checkUninstall(): Promise<UninstallCheck> {
   return payload;
 }
 
-export async function runUninstall(mode: "detach") {
+export async function runUninstall(mode: "cadence_only" | "detach") {
   const payload = await requestJson<any>("/api/uninstall/run", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

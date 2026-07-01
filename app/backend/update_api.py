@@ -671,31 +671,46 @@ def check_uninstall(root: Path) -> dict[str, object]:
     The web platform only supports detaching Cadence integration. Full product
     removal must be owned by Windows Apps / Insta360_HW_Setup.exe so Inno keeps
     registry and install-directory cleanup consistent.
+
+    Preferred detach path is now ``cadence_only`` — a standalone script that
+    only removes the Cadence loader without stopping platform services. The
+    legacy ``detach`` mode (via uninstall.ps1) is retained for compatibility
+    but should not be used from the running platform, because uninstall.ps1
+    calls Stop-HwAgentServicesByPort which would kill the very service that
+    spawned it.
     """
-    script = root / "uninstall.ps1"
+    cadence_script = root / "scripts" / "remove_cadence_loader.ps1"
+    legacy_script = root / "uninstall.ps1"
+    modes: list[str] = []
+    if cadence_script.exists():
+        modes.append("cadence_only")
+    if legacy_script.exists():
+        modes.append("detach")
     return {
         "status": "ok",
-        "can_uninstall": script.exists(),
-        "modes": ["detach"] if script.exists() else [],
+        "can_uninstall": bool(modes),
+        "modes": modes,
         "install_dir": str(root),
         "message": "卸载检查完成",
     }
 
 
-def run_uninstall(root: Path, mode: str = "detach") -> dict[str, object]:
+def run_uninstall(root: Path, mode: str = "cadence_only") -> dict[str, object]:
     """Run the safe platform-side detach action.
 
     Full uninstall from the web UI is intentionally disabled. The supported
     full removal path is Windows Apps or running Insta360_HW_Setup.exe, which
     uses the installer/uninstaller lifecycle instead of deleting the running
     service from inside its own web page.
-    """
-    if mode != "detach":
-        return {"status": "error", "error": "请通过 Windows 设置或 Insta360_HW_Setup.exe 卸载平台"}
 
-    script = root / "uninstall.ps1"
-    if not script.exists():
-        return {"status": "error", "error": "未找到卸载脚本"}
+    ``cadence_only`` is the mode the running platform must use. It invokes
+    ``scripts/remove_cadence_loader.ps1``, which only removes the Cadence
+    loader files and does NOT call Stop-HwAgentServicesByPort. Calling the
+    legacy ``detach`` mode from inside the running service would race the
+    service against its own shutdown and drop the response mid-flight.
+    """
+    if mode not in {"cadence_only", "detach"}:
+        return {"status": "error", "error": "请通过 Windows 设置或 Insta360_HW_Setup.exe 卸载平台"}
 
     log_file = _uninstall_log_path(root)
     log_file.parent.mkdir(parents=True, exist_ok=True)
@@ -704,16 +719,29 @@ def run_uninstall(root: Path, mode: str = "detach") -> dict[str, object]:
     except OSError:
         pass
 
-    cmd = [
-        "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
-        "-File", str(script),
-        "-Mode", "Detach",
-        "-InstallDir", str(root),
-        "-Force",
-    ]
+    if mode == "cadence_only":
+        script = root / "scripts" / "remove_cadence_loader.ps1"
+        if not script.exists():
+            return {"status": "error", "error": "未找到 remove_cadence_loader.ps1"}
+        cmd = [
+            "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+            "-File", str(script),
+            "-InstallDir", str(root),
+        ]
+    else:  # legacy "detach" — uninstall.ps1 stops platform services
+        script = root / "uninstall.ps1"
+        if not script.exists():
+            return {"status": "error", "error": "未找到卸载脚本"}
+        cmd = [
+            "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+            "-File", str(script),
+            "-Mode", "Detach",
+            "-InstallDir", str(root),
+            "-Force",
+        ]
 
-    # Detach is safe to run while the service is up; it only touches the
-    # Cadence autoload dirs, not the install root.
+    # cadence_only is safe to run while the service is up; it only touches the
+    # Cadence autoload dirs and never invokes Stop-HwAgentServicesByPort.
     try:
         log_out = open(log_file, "a", encoding="utf-8")
     except OSError:
@@ -727,7 +755,7 @@ def run_uninstall(root: Path, mode: str = "detach") -> dict[str, object]:
     )
     if log_out:
         log_out.close()
-    return {"status": "ok", "message": "已开始移除 Cadence 集成", "mode": "detach"}
+    return {"status": "ok", "message": "已开始移除 Cadence 集成", "mode": mode}
 
 
 def _get_temp_path() -> Path:

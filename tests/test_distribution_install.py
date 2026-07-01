@@ -80,6 +80,7 @@ class DistributionInstallTests(unittest.TestCase):
             "scripts/publish_release.ps1",
             "scripts/verify_all.ps1",
             "scripts/redeploy_cadence_loader.ps1",
+            "scripts/remove_cadence_loader.ps1",
             "scripts/diagnose_platform.ps1",
             "scripts/verify_capture_runtime.ps1",
         ]
@@ -2314,6 +2315,130 @@ class DistributionInstallTests(unittest.TestCase):
             iss,
             "success MsgBox should use mbInformation severity",
         )
+
+    def test_cadence_only_uninstall_does_not_stop_platform_services(self) -> None:
+        """cadence_only mode must NOT invoke Stop-HwAgentServicesByPort.
+
+        The web UI's "移除 Cadence 集成" button runs inside the platform
+        service on port 8765; killing python on 8765 would kill the very
+        service that spawned this script, dropping the response mid-flight
+        and leaving the browser stuck on a spinner.
+        """
+        script = ROOT / "scripts" / "remove_cadence_loader.ps1"
+        self.assertTrue(script.exists(), "remove_cadence_loader.ps1 should exist")
+        text = script.read_text(encoding="utf-8")
+        self.assertNotIn(
+            "Stop-HwAgentServicesByPort",
+            text,
+            "cadence_only script must not stop platform services",
+        )
+        self.assertNotIn(
+            "Stop-HwAgentServices",
+            text,
+            "cadence_only script must not touch platform services",
+        )
+        self.assertIn(
+            "__HWAGENT_CADENCE_REMOVE_DONE__",
+            text,
+            "must emit completion sentinel for backend to detect",
+        )
+        # Must reuse the existing TclScripts helper so vendor scripts stashed
+        # by install.ps1 are restored on detach.
+        self.assertIn(
+            "Restore-HwAgentAutoLoadBackupDirs",
+            text,
+            "cadence_only script should restore vendor scripts install.ps1 disabled",
+        )
+
+    def test_frontend_cadence_removal_uses_cadence_only_mode(self) -> None:
+        tsx = (ROOT / "frontend" / "src" / "components" / "UpdateStatus.tsx").read_text(encoding="utf-8")
+        self.assertIn(
+            "cadence_only",
+            tsx,
+            'UpdateStatus.tsx should use "cadence_only" mode for Cadence removal button',
+        )
+
+    def test_update_api_supports_cadence_only_uninstall_mode(self) -> None:
+        text = (ROOT / "app" / "backend" / "update_api.py").read_text(encoding="utf-8")
+        self.assertIn("cadence_only", text)
+        self.assertIn("remove_cadence_loader.ps1", text)
+
+    def test_tcl_script_library_exposes_restore_backup_helper(self) -> None:
+        text = (ROOT / "scripts" / "lib" / "TclScripts.ps1").read_text(encoding="utf-8")
+        self.assertIn("function Restore-HwAgentAutoLoadBackupDirs", text)
+        # Must match both patterns install.ps1 uses to stash prior files.
+        self.assertIn("_disabled_hwagent_loader_", text)
+        self.assertIn("_disabled_custom_scripts_", text)
+
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
+    def test_restore_backup_helper_moves_disabled_files_back_into_autoload_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            autoload = Path(tmp) / "capAutoLoad"
+            autoload.mkdir()
+            backup = autoload / "_disabled_custom_scripts_20260701"
+            backup.mkdir()
+            (backup / "orCAD_Enhanced_Tools_V1.8.tcl").write_text("vendor script", encoding="utf-8")
+
+            command = (
+                "$ErrorActionPreference='Stop'; "
+                f". '{ROOT / 'scripts' / 'lib' / 'TclScripts.ps1'}'; "
+                f"$restored = Restore-HwAgentAutoLoadBackupDirs -Dir '{autoload}'; "
+                "$restored"
+            )
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=20,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            # File was moved back into the autoload dir.
+            self.assertTrue((autoload / "orCAD_Enhanced_Tools_V1.8.tcl").exists())
+            # Backup dir was cleaned up.
+            self.assertFalse(backup.exists())
+            # Function returned a count >= 1.
+            self.assertIn("1", result.stdout)
+
+    def test_run_uninstall_cadence_only_invokes_standalone_script_not_uninstall_ps1(self) -> None:
+        import sys
+        sys.path.insert(0, str(ROOT))
+        try:
+            from app.backend import update_api
+        finally:
+            sys.path.pop(0)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "install"
+            (root / "scripts").mkdir(parents=True)
+            (root / "scripts" / "remove_cadence_loader.ps1").write_text(
+                "param([string]$InstallDir)\nWrite-Host hi\n", encoding="utf-8",
+            )
+
+            captured: dict[str, object] = {}
+            original_popen = update_api.subprocess.Popen
+            try:
+                class FakeProcess:
+                    pid = 13579
+
+                def fake_popen(cmd, *args, **kwargs):
+                    captured["cmd"] = list(cmd)
+                    return FakeProcess()
+
+                update_api.subprocess.Popen = fake_popen
+                result = update_api.run_uninstall(root, "cadence_only")
+            finally:
+                update_api.subprocess.Popen = original_popen
+
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(result["mode"], "cadence_only")
+            cmd = captured.get("cmd") or []
+            joined = " ".join(str(x) for x in cmd)
+            # Must invoke the standalone script, not uninstall.ps1.
+            self.assertIn("remove_cadence_loader.ps1", joined)
+            self.assertNotIn("uninstall.ps1", joined)
+            self.assertNotIn("Detach", cmd, f"Detach flag leaked into cadence_only: {cmd}")
 
 
 if __name__ == "__main__":

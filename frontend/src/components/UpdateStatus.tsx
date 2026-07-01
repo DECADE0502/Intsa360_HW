@@ -112,11 +112,15 @@ export function UpdateStatus({ version }: { version: string }) {
     setDetaching(true);
     try {
       const check = await checkUninstall();
-      if (!check.can_uninstall) {
+      // cadence_only invokes a standalone script that does NOT stop the
+      // platform's own python.exe on 8765 — the legacy "detach" mode called
+      // uninstall.ps1 which killed the very service that spawned it.
+      const supportsCadenceOnly = check.modes?.includes("cadence_only");
+      if (!check.can_uninstall || !supportsCadenceOnly) {
         message.error("未找到卸载脚本，无法移除集成");
         return;
       }
-      await runUninstall("detach");
+      await runUninstall("cadence_only");
       message.success("已开始移除 Cadence 集成");
     } catch (e) {
       message.error((e as Error).message || "移除失败");
