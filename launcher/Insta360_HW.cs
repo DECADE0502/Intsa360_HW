@@ -243,7 +243,7 @@ internal static class Program
                 try
                 {
                     MessageBox.Show(
-                        "Insta360_HW 正在初始化，请稍候 30-60 秒...\n\n第一次运行需要部署 Python 运行时和 OrCAD 集成。",
+                        "Insta360_HW is initializing. Please wait 30-60 seconds.\n\nFirst run deploys the runtime and OrCAD integration.",
                         "Insta360 HW",
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Information);

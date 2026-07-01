@@ -1642,6 +1642,16 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn(".ready", text)
         self.assertIn("ProcessWindowStyle.Hidden", text)
 
+    def test_launcher_ready_marker_uses_localappdata_and_opens_waiting_page_first(self) -> None:
+        text = (ROOT / "launcher" / "Insta360_HW.cs").read_text(encoding="utf-8")
+
+        self.assertIn("Environment.SpecialFolder.LocalApplicationData", text)
+        self.assertIn('"Insta360_HW", ".ready"', text)
+        self.assertNotIn('Path.Combine(root, "data", ".ready")', text)
+        self.assertIn("OpenWaitingPage", text)
+        self.assertIn("waiting.html", text)
+        self.assertLess(text.index("OpenWaitingPage(root)"), text.index("EnsureFirstRunReady(root, installScript, readyMarker)"))
+
     def test_launcher_has_single_instance_logging_and_user_visible_errors(self) -> None:
         text = (ROOT / "launcher" / "Insta360_HW.cs").read_text(encoding="utf-8")
         build = (ROOT / "launcher" / "build.ps1").read_text(encoding="utf-8")
