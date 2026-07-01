@@ -186,6 +186,52 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
 
         self.assertFalse(stale_loader.exists())
 
+    def test_root_does_not_keep_unrendered_tool_root_directory(self) -> None:
+        self.assertFalse((ROOT / "{{TOOL_ROOT}}").exists())
+
+    def test_loader_template_aborts_when_placeholders_are_unrendered(self) -> None:
+        template = (ROOT / "cadence" / "iac_bom_tool.tcl").read_text(encoding="utf-8")
+        header = "\n".join(template.splitlines()[:12])
+
+        self.assertIn('set ::IAC_ROOT "{{TOOL_ROOT}}"', header)
+        self.assertIn('set ::IAC_PY   "{{PYTHON_PATH}}"', header)
+        self.assertRegex(header, r'string match "\*\\\{\\\{\*\\\}\\\}\*" \$::IAC_ROOT')
+        self.assertIn("unrendered template", header)
+        self.assertIn("return", header)
+
+    def test_write_cadence_loader_rejects_leftover_placeholders(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            root = tmp_path / "tool"
+            (root / "cadence").mkdir(parents=True)
+            (root / "config").mkdir()
+            (root / "cadence" / "iac_bom_tool.tcl").write_text(
+                '\n'.join(
+                    [
+                        'set ::IAC_ROOT "{{TOOL_ROOT}}"',
+                        'set ::IAC_PY   "{{PYTHON_PATH}}"',
+                        'set ::IAC_BAD "{{UNKNOWN_PLACEHOLDER}}"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (root / "config" / "capabilities.json").write_text('{"capabilities":[]}', encoding="utf-8")
+            out = tmp_path / "iac_bom_tool.tcl"
+            command = (
+                "$ErrorActionPreference='Stop'; "
+                f". '{ROOT / 'scripts' / 'lib' / 'Cadence.ps1'}'; "
+                f"Write-CadenceLoader -ToolRoot '{root}' -PythonPath 'C:/Python/python.exe' -OutputPath '{out}' | Out-Null"
+            )
+
+            result = subprocess.run(
+                [POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+                text=True,
+                capture_output=True,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Unrendered placeholder", result.stderr + result.stdout)
+
     def test_generated_loader_is_gbk_encodable_and_uses_hidden_launcher(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "iac_bom_tool.tcl"
@@ -205,6 +251,9 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
             raw = out.read_bytes()
             self.assertNotEqual(raw[:3], b"\xef\xbb\xbf")
             decoded = raw.decode("gbk")
+            self.assertNotRegex(decoded, r"\{\{[A-Z_]+\}\}")
+            self.assertNotIn("codex-runtimes", decoded)
+            self.assertIn('set ::IAC_PY   "C:/Python/python.exe"', decoded)
             self.assertIn('InsertXMLMenu [list [list "insta360_HW"]', decoded)
             self.assertNotIn('InsertXMLMenu [list [list "IACBOM"', decoded)
             self.assertIn('"insta360_HW"', decoded)

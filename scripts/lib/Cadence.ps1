@@ -192,12 +192,15 @@ function Write-CadenceLoader {
     throw ((Get-HwAgentText "5pyq5om+5YiwIENhZGVuY2UgVGNsIOaooeadv++8mg==") + $templatePath)
   }
   $template = Get-Content -LiteralPath $templatePath -Raw -Encoding UTF8
-  $template = $template -replace 'set ::IAC_ROOT ".*"', ('set ::IAC_ROOT "' + $root + '"')
-  $template = $template -replace 'set ::IAC_PY\s+".*"', ('set ::IAC_PY   "' + $python + '"')
+  $template = $template.Replace('{{TOOL_ROOT}}', $root)
+  $template = $template.Replace('{{PYTHON_PATH}}', $python)
   $menuItems = Get-EnabledCadenceMenuItems -ToolRoot $ToolRoot
   $shortcutItems = Get-EnabledCadenceShortcutItems -ToolRoot $ToolRoot
   $template = $template -replace '(?m)^\s*# \{\{CADENCE_SCRIPT_MENU_ITEMS\}\}', $menuItems
   $template = $template -replace '(?m)^\s*# \{\{CADENCE_SCRIPT_SHORTCUT_ITEMS\}\}', $shortcutItems
+  if ($template -match '\{\{[A-Z_]+\}\}') {
+    throw ("Unrendered placeholder in Cadence loader: " + $Matches[0])
+  }
   $encoding = [System.Text.Encoding]::GetEncoding(936)
   [System.IO.File]::WriteAllText($OutputPath, $template, $encoding)
   return $OutputPath

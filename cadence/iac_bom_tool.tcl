@@ -1,7 +1,12 @@
 # insta360_HW - Capture integration (GBK, no BOM)
 set ::IAC_ROOT "{{TOOL_ROOT}}"
+if {[string match "*\{\{*\}\}*" $::IAC_ROOT]} {
+    puts "iac_bom_tool.tcl: unrendered template, aborting. Use install.ps1 to render."
+    return
+}
 set ::IAC_JUMP "$::IAC_ROOT/iac_jump.bat"
-set ::IAC_PY   "C:/Users/Administrator/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe"
+set ::IAC_PY   "{{PYTHON_PATH}}"
+if {[string match "*\{\{*\}\}*" $::IAC_PY]} { set ::IAC_PY "python" }
 set ::IAC_CNV  "$::IAC_ROOT/tools/bom/convert_cadence_bom.py"
 
 namespace eval ::IAC {
