@@ -71,6 +71,13 @@ var
   // When True, the wizard closes itself silently (no "Exit Setup?" prompt).
   // Set right before WizardForm.Close for programmatic exits.
   ForceSilentClose: Boolean;
+  // Set by InitializeUninstall when the user chooses to keep user data. When
+  // True, StashUserDataForKeepMode moves data\, config\local.json and
+  // plugins\user out of {app} into %LOCALAPPDATA%\Insta360_HW\keep_data\ BEFORE
+  // Inno starts deleting the install tree. Inno's [UninstallDelete] is
+  // additive-only (it can add more deletions, not carve out exclusions), so
+  // moving the data out of {app} is the only reliable way to preserve it.
+  UninstallKeepData: Boolean;
 
 const
   // Index into ActionPage.Values for the three radio options. Kept as named
@@ -337,6 +344,57 @@ begin
   // Reinstall: fall through to the normal install flow.
 end;
 
+
+// Move user-editable state (data\, config\local.json, plugins\user) out of the
+// install tree and into %LOCALAPPDATA%\Insta360_HW\keep_data\ BEFORE Inno
+// starts deleting {app}. Inno runs [UninstallDelete] after its own file removal
+// and that list is additive (adds more deletions), so an "exclude" isn't
+// possible — we have to physically relocate the data. Called from
+// InitializeUninstall, which fires before [UninstallRun] and before file
+// deletion, giving us a clean window to stash. Defined before its caller
+// because Inno's Pascal doesn't do forward declarations gracefully.
+procedure StashUserDataForKeepMode();
+var
+  ResultCode: Integer;
+  StashCmd: String;
+begin
+  StashCmd :=
+    '-NoProfile -ExecutionPolicy Bypass -Command "'
+    + '$ErrorActionPreference = ''Continue''; '
+    + '$src = ''' + ExpandConstant('{app}') + '''; '
+    + '$dst = Join-Path $env:LOCALAPPDATA ''Insta360_HW\keep_data''; '
+    + 'New-Item -ItemType Directory -Force -Path $dst | Out-Null; '
+    + 'foreach ($p in @(''data'', ''config\local.json'', ''plugins\user'')) { '
+    + '  $s = Join-Path $src $p; '
+    + '  if (Test-Path -LiteralPath $s) { '
+    + '    $d = Join-Path $dst $p; '
+    + '    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $d) | Out-Null; '
+    + '    Move-Item -Force -LiteralPath $s -Destination $d '
+    + '  } '
+    + '}"';
+  Exec('powershell.exe', StashCmd, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
+// Ask the user whether to preserve local data before uninstalling. Answering
+// Yes stashes data\, config\local.json and plugins\user to
+// %LOCALAPPDATA%\Insta360_HW\keep_data\ RIGHT NOW — before [UninstallRun] or
+// any Inno-side file deletion runs — so a subsequent reinstall / another user
+// can copy the files back manually. Answering No leaves the tree untouched
+// and Inno wipes {app} completely.
+function InitializeUninstall(): Boolean;
+begin
+  Result := True;
+  UninstallKeepData := (MsgBox(
+    '是否保留用户数据?' + #13#10 + #13#10 +
+    '  是 (Yes) = 保留 data\、config\local.json、plugins\user' + #13#10 +
+    '            (备份到 %LOCALAPPDATA%\Insta360_HW\keep_data\)' + #13#10 +
+    '  否 (No)  = 完全清除',
+    mbConfirmation, MB_YESNO) = IDYES);
+
+  if UninstallKeepData then begin
+    StashUserDataForKeepMode();
+  end;
+end;
 
 // After the uninstaller has removed its own files, also delete the now-empty
 // publisher parent directory ({app} = ...\Insta360\HWAgent, so its parent is

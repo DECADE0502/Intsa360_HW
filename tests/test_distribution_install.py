@@ -2214,6 +2214,24 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("CompareSemver", text)
         self.assertIn("A newer version", text)
 
+    def test_iss_source_declares_initialize_uninstall_with_keep_prompt(self):
+        """v0.3.0 uninstall must prompt for keep-data and stash to LOCALAPPDATA.
+
+        Inno's [UninstallDelete] section is additive-only (it adds more paths to
+        the delete list; it cannot exclude anything), so preserving user data
+        during uninstall requires physically moving it out of {app} BEFORE Inno
+        starts deleting. This test locks in that InitializeUninstall runs the
+        keep-data prompt and stashes to %LOCALAPPDATA%\\Insta360_HW\\keep_data\\.
+        """
+        iss = (ROOT / "HWAgent_Setup.iss").read_text(encoding="utf-8-sig")
+        self.assertIn("InitializeUninstall", iss, "InitializeUninstall procedure missing")
+        self.assertIn("UninstallKeepData", iss, "UninstallKeepData variable missing")
+        self.assertIn("keep_data", iss, "keep_data destination not referenced")
+        self.assertIn("LOCALAPPDATA", iss, "LOCALAPPDATA not referenced in stash path")
+        # Ensure MsgBox prompts user
+        self.assertIn("mbConfirmation", iss, "confirmation prompt missing")
+        self.assertIn("MB_YESNO", iss, "yes/no choice missing")
+
 
 if __name__ == "__main__":
     unittest.main()
