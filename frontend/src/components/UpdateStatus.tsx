@@ -274,7 +274,7 @@ function UpdateNoticeModal({
           showIcon
           style={{ marginBottom: 12 }}
           message="此更新包未经 SHA256 校验"
-          description="服务端未提供完整性元数据,下载文件可能被篡改。建议手工核对发布来源后再点立即更新。"
+          description="服务端未提供完整性元数据，下载文件可能被篡改。建议手工核对发布来源后再点立即更新。"
         />
       )}
       {highlights.length ? (
