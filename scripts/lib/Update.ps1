@@ -91,6 +91,57 @@ function Sync-HwAgentTree {
   }
 }
 
+function Copy-HwAgentTreeForRollback {
+  param(
+    [Parameter(Mandatory=$true)][string]$Root,
+    [Parameter(Mandatory=$true)][string]$BackupRoot
+  )
+  New-Item -ItemType Directory -Force -Path $BackupRoot | Out-Null
+  $args = @($Root, $BackupRoot, "/MIR", "/XD", "data", "plugins\user", ".git", "node_modules", "/XF", "config\local.json")
+  & robocopy @args | Out-Null
+  if ($LASTEXITCODE -ge 8) {
+    throw ("rollback backup failed: " + $LASTEXITCODE)
+  }
+}
+
+function Restore-HwAgentTreeFromRollback {
+  param(
+    [Parameter(Mandatory=$true)][string]$BackupRoot,
+    [Parameter(Mandatory=$true)][string]$Root
+  )
+  if (-not (Test-Path -LiteralPath $BackupRoot)) { return }
+  $args = @($BackupRoot, $Root, "/MIR", "/XD", "data", "plugins\user", ".git", "node_modules", "/XF", "config\local.json")
+  & robocopy @args | Out-Null
+  if ($LASTEXITCODE -ge 8) {
+    throw ("rollback restore failed: " + $LASTEXITCODE)
+  }
+}
+
+function Invoke-HwAgentWithRollback {
+  param(
+    [Parameter(Mandatory=$true)][string]$Root,
+    [Parameter(Mandatory=$true)][scriptblock]$Operation
+  )
+  $rollbackRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("insta360_hw_rollback_" + [System.Guid]::NewGuid().ToString("N"))
+  try {
+    Copy-HwAgentTreeForRollback -Root $Root -BackupRoot $rollbackRoot
+    & $Operation
+  } catch {
+    Write-Host "__HWAGENT_PROGRESS__ 90 rolling back failed update"
+    try {
+      Restore-HwAgentTreeFromRollback -BackupRoot $rollbackRoot -Root $Root
+      Write-Host "Update failed; restored previous runtime files."
+    } catch {
+      Write-Host ("Rollback failed: " + $_.Exception.Message)
+    }
+    throw
+  } finally {
+    if (Test-Path -LiteralPath $rollbackRoot) {
+      Remove-Item -LiteralPath $rollbackRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+  }
+}
+
 function ConvertTo-HwAgentRepoPath {
   param([Parameter(Mandatory=$true)][string]$Repo)
   $repoPath = $Repo
@@ -98,6 +149,27 @@ function ConvertTo-HwAgentRepoPath {
     $repoPath = $Matches[1]
   }
   return $repoPath.Trim("/")
+}
+
+function Resolve-HwAgentRemoteRevision {
+  param(
+    [Parameter(Mandatory=$true)][string]$Repo,
+    [string]$Branch = "main"
+  )
+  $repoPath = ConvertTo-HwAgentRepoPath -Repo $Repo
+  $apiUrl = "https://api.github.com/repos/$repoPath/commits/$Branch"
+  try {
+    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+    $headers = @{
+      "User-Agent" = "HWAgent-Updater"
+      "Accept" = "application/vnd.github+json"
+    }
+    $commit = Invoke-RestMethod -Method Get -Uri $apiUrl -Headers $headers -TimeoutSec 15
+    return [string]$commit.sha
+  } catch {
+    Write-Host ("Remote revision lookup failed: " + $_.Exception.Message)
+    return ""
+  }
 }
 
 function Resolve-HwAgentReleaseAssetUrl {
@@ -136,27 +208,6 @@ function Resolve-HwAgentReleaseAssetUrl {
     Write-Host ("Release lookup failed; falling back to source ZIP: " + $_.Exception.Message)
   }
   return $null
-}
-
-function Resolve-HwAgentRemoteRevision {
-  param(
-    [Parameter(Mandatory=$true)][string]$Repo,
-    [string]$Branch = "main"
-  )
-  $repoPath = ConvertTo-HwAgentRepoPath -Repo $Repo
-  $apiUrl = "https://api.github.com/repos/$repoPath/commits/$Branch"
-  try {
-    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
-    $headers = @{
-      "User-Agent" = "HWAgent-Updater"
-      "Accept" = "application/vnd.github+json"
-    }
-    $commit = Invoke-RestMethod -Method Get -Uri $apiUrl -Headers $headers -TimeoutSec 15
-    return [string]$commit.sha
-  } catch {
-    Write-Host ("Remote revision lookup failed: " + $_.Exception.Message)
-    return ""
-  }
 }
 
 function Write-HwAgentRevision {
@@ -203,10 +254,27 @@ function Find-HwAgentUpdatePayloadRoot {
   throw "Update package does not contain a usable HWAgent runtime payload."
 }
 
+function Assert-HwAgentFileHash {
+  param(
+    [Parameter(Mandatory=$true)][string]$Path,
+    [string]$ExpectedSha256 = ""
+  )
+  if ([string]::IsNullOrWhiteSpace($ExpectedSha256)) { return }
+  if (-not (Test-Path -LiteralPath $Path)) { throw "Downloaded file is missing." }
+
+  $actual = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+  $expected = $ExpectedSha256.Trim().ToLowerInvariant()
+  if ($actual -ne $expected) {
+    Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+    throw ("SHA256 mismatch for update package. expected=" + $expected + " actual=" + $actual)
+  }
+}
+
 function Download-HwAgentFile {
   param(
     [Parameter(Mandatory=$true)][string]$Url,
-    [Parameter(Mandatory=$true)][string]$Target
+    [Parameter(Mandatory=$true)][string]$Target,
+    [string]$ExpectedSha256 = ""
   )
   $client = New-Object System.Net.WebClient
   $client.Headers.Add("User-Agent", "HWAgent-Updater")
@@ -215,6 +283,7 @@ function Download-HwAgentFile {
   } finally {
     $client.Dispose()
   }
+  Assert-HwAgentFileHash -Path $Target -ExpectedSha256 $ExpectedSha256
 }
 
 function Invoke-HwAgentZipUpdate {
@@ -259,15 +328,17 @@ function Invoke-HwAgentZipUpdate {
     Expand-Archive -LiteralPath $zipPath -DestinationPath $extractRoot -Force
     $payloadRoot = Find-HwAgentUpdatePayloadRoot -ExtractRoot $extractRoot
 
-    Write-Host "__HWAGENT_PROGRESS__ 55 backing up user data"
-    Copy-HwAgentProtectedItems -Root $Root -BackupRoot $backupRoot
+    Invoke-HwAgentWithRollback -Root $Root -Operation {
+      Write-Host "__HWAGENT_PROGRESS__ 55 backing up user data"
+      Copy-HwAgentProtectedItems -Root $Root -BackupRoot $backupRoot
 
-    Write-Host "__HWAGENT_PROGRESS__ 70 applying update files"
-    Sync-HwAgentTree -SourceRoot $payloadRoot -TargetRoot $Root
+      Write-Host "__HWAGENT_PROGRESS__ 70 applying update files"
+      Sync-HwAgentTree -SourceRoot $payloadRoot -TargetRoot $Root
 
-    Write-Host "__HWAGENT_PROGRESS__ 85 restoring user data"
-    Restore-HwAgentProtectedItems -Root $Root -BackupRoot $backupRoot
-    Write-HwAgentRevision -Root $Root -Revision $remoteRevision
+      Write-Host "__HWAGENT_PROGRESS__ 85 restoring user data"
+      Restore-HwAgentProtectedItems -Root $Root -BackupRoot $backupRoot
+      Write-HwAgentRevision -Root $Root -Revision $remoteRevision
+    }
   } finally {
     if (Test-Path -LiteralPath $tempRoot) {
       Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
@@ -318,10 +389,12 @@ function Invoke-HwAgentGitUpdate {
         & git clone --depth 1 --branch $Branch $Repo $cloneRoot
         if ($LASTEXITCODE -ne 0) { throw "git clone failed" }
 
-        Copy-HwAgentProtectedItems -Root $Root -BackupRoot $backupRoot
-        Sync-HwAgentTree -SourceRoot $cloneRoot -TargetRoot $Root
-        Restore-HwAgentProtectedItems -Root $Root -BackupRoot $backupRoot
-        Write-HwAgentRevision -Root $Root -Revision $remoteRevision
+        Invoke-HwAgentWithRollback -Root $Root -Operation {
+          Copy-HwAgentProtectedItems -Root $Root -BackupRoot $backupRoot
+          Sync-HwAgentTree -SourceRoot $cloneRoot -TargetRoot $Root
+          Restore-HwAgentProtectedItems -Root $Root -BackupRoot $backupRoot
+          Write-HwAgentRevision -Root $Root -Revision $remoteRevision
+        }
       } finally {
         if (Test-Path -LiteralPath $tempRoot) {
           Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue

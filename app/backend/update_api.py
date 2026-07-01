@@ -114,31 +114,29 @@ def _is_update_running(root: Path) -> bool:
     """True if an update.ps1 process is currently running. Used to distinguish
     'update finished' from 'update crashed' — if the process is gone but the
     log lacks a done marker, it failed."""
-    try:
-        import subprocess
-        # tasklist filters for powershell running update.ps1 by command line.
-        out = subprocess.run(
-            ["wmic", "process", "where",
-             "name='powershell.exe'", "get", "commandline"],
-            capture_output=True, text=True, timeout=5,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-        return "update.ps1" in (out.stdout or "")
-    except Exception:  # noqa: BLE001
-        return False
+    return _is_powershell_script_running("update.ps1")
 
 
 def _is_uninstall_running(root: Path) -> bool:
+    return _is_powershell_script_running("uninstall.ps1")
+
+
+def _is_powershell_script_running(script_name: str) -> bool:
     try:
+        command = (
+            "Get-CimInstance Win32_Process | "
+            "Where-Object { $_.CommandLine -like '*powershell*' -and "
+            f"$_.CommandLine -like '*{script_name}*' }} | "
+            "Select-Object -First 1 -ExpandProperty ProcessId"
+        )
         out = subprocess.run(
-            ["wmic", "process", "where", "name='powershell.exe'", "get", "commandline"],
+            ["powershell", "-NoProfile", "-Command", command],
             capture_output=True,
             text=True,
             timeout=5,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
-        text = out.stdout or ""
-        return "uninstall.ps1" in text
+        return out.returncode == 0 and bool((out.stdout or "").strip())
     except Exception:  # noqa: BLE001
         return False
 

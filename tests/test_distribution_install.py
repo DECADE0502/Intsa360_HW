@@ -5,10 +5,12 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import base64
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+FS_ROOT = ROOT if ROOT.exists() else Path.cwd()
 
 
 def _decode_base64_labels(text: str) -> str:
@@ -332,6 +334,78 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertFalse((target / ".gitignore").exists())
             self.assertFalse((target / "launcher").exists())
             self.assertTrue((target / "app" / "frontend" / "index.html").exists())
+
+    def test_update_library_rejects_sha256_mismatch_and_removes_bad_zip(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            update_lib = Path(tmp) / "Update.ps1"
+            shutil.copyfile(FS_ROOT / "scripts" / "lib" / "Update.ps1", update_lib)
+            bad_zip = Path(tmp) / "update.zip"
+            bad_zip.write_bytes(b"not the expected package")
+            wrong_hash = "0" * 64
+
+            ps = (
+                "$ErrorActionPreference='Stop'; "
+                f". '{update_lib}'; "
+                f"Assert-HwAgentFileHash -Path '{bad_zip}' -ExpectedSha256 '{wrong_hash}'"
+            )
+            encoded = base64.b64encode(ps.encode("utf-16le")).decode("ascii")
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=20,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(bad_zip.exists())
+            self.assertIn("SHA256 mismatch", result.stderr + result.stdout)
+
+    def test_update_rollback_restores_install_tree_after_apply_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            update_lib = Path(tmp) / "Update.ps1"
+            shutil.copyfile(FS_ROOT / "scripts" / "lib" / "Update.ps1", update_lib)
+            target = Path(tmp) / "install"
+            target.mkdir()
+            (target / "VERSION").write_text("0.2.13", encoding="utf-8")
+            (target / "old.txt").write_text("keep me", encoding="utf-8")
+            (target / "app").mkdir()
+            (target / "app" / "stable.txt").write_text("stable", encoding="utf-8")
+
+            ps = (
+                "$ErrorActionPreference='Stop'; "
+                f". '{update_lib}'; "
+                f"$root = '{target}'; "
+                "try { "
+                "  Invoke-HwAgentWithRollback -Root $root -Operation { "
+                "    Set-Content -LiteralPath (Join-Path $root 'VERSION') -Value 'broken' -Encoding UTF8; "
+                "    Remove-Item -LiteralPath (Join-Path $root 'old.txt') -Force; "
+                "    New-Item -ItemType File -Force -Path (Join-Path $root 'new.txt') | Out-Null; "
+                "    throw 'simulated apply failure'; "
+                "  } "
+                "} catch { Write-Host $_.Exception.Message; exit 23 }"
+            )
+            encoded = base64.b64encode(ps.encode("utf-16le")).decode("ascii")
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=30,
+            )
+
+            self.assertEqual(result.returncode, 23, result.stderr)
+            self.assertIn("simulated apply failure", result.stdout + result.stderr)
+            self.assertEqual((target / "VERSION").read_text(encoding="utf-8").strip(), "0.2.13")
+            self.assertEqual((target / "old.txt").read_text(encoding="utf-8"), "keep me")
+            self.assertEqual((target / "app" / "stable.txt").read_text(encoding="utf-8"), "stable")
+            self.assertFalse((target / "new.txt").exists())
+
+    def test_update_status_detection_does_not_depend_on_wmic(self) -> None:
+        text = (ROOT / "app" / "backend" / "update_api.py").read_text(encoding="utf-8")
+
+        self.assertNotIn('"wmic"', text)
+        self.assertIn("Get-CimInstance Win32_Process", text)
 
     def test_update_api_compares_remote_version(self) -> None:
         import sys
@@ -1073,6 +1147,19 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("-Silent", text)
         self.assertIn(".ready", text)
         self.assertIn("ProcessWindowStyle.Hidden", text)
+
+    def test_launcher_has_single_instance_logging_and_user_visible_errors(self) -> None:
+        text = (ROOT / "launcher" / "Insta360_HW.cs").read_text(encoding="utf-8")
+        build = (ROOT / "launcher" / "build.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("Mutex", text)
+        self.assertIn("Global\\\\Insta360_HW.exe", text)
+        self.assertIn("launcher.log", text)
+        self.assertIn("WriteLog", text)
+        self.assertIn("MessageBox.Show", text)
+        self.assertIn("OpenPlatformUrl", text)
+        self.assertIn("http://127.0.0.1:8765", text)
+        self.assertIn("System.Windows.Forms.dll", build)
 
     def test_launcher_repairs_cadence_loader_on_every_start(self) -> None:
         text = (ROOT / "launcher" / "Insta360_HW.cs").read_text(encoding="utf-8")
