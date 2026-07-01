@@ -8,7 +8,13 @@ param(
   # Tag / version to publish. Defaults to the VERSION file content.
   [string]$Tag = "",
   # Build the release zip and update UPDATE_NOTICE.json, but do not call GitHub.
-  [switch]$DryRun
+  [switch]$DryRun,
+  # Update UPDATE_NOTICE.json from an existing zip and skip GitHub calls.
+  [switch]$LocalOnly,
+  # Optional existing release zip. When omitted, the script builds one.
+  [string]$ZipPath = "",
+  # Optional notice path for tests or alternate release trees.
+  [string]$NoticePath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -17,44 +23,7 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Root = Split-Path -Parent $ScriptDir
 $Workspace = Split-Path -Parent $Root
-
-function Update-HwAgentNoticeAssets {
-  param(
-    [Parameter(Mandatory=$true)][string]$NoticePath,
-    [Parameter(Mandatory=$true)][string]$Version,
-    [Parameter(Mandatory=$true)][string]$Repo,
-    [Parameter(Mandatory=$true)][string]$TagName,
-    [Parameter(Mandatory=$true)][string]$ZipPath
-  )
-  if (-not (Test-Path -LiteralPath $NoticePath)) {
-    throw "UPDATE_NOTICE.json not found: $NoticePath"
-  }
-  $notice = Get-Content -LiteralPath $NoticePath -Raw -Encoding UTF8 | ConvertFrom-Json
-  if ($notice.assets) {
-    foreach ($asset in @($notice.assets)) {
-      if ($asset.sha256 -and ([string]$asset.sha256).Length -eq 64) {
-        throw "UPDATE_NOTICE.json already contains sha256 assets; refuse to overwrite."
-      }
-    }
-  }
-
-  $sha256 = (Get-FileHash -LiteralPath $ZipPath -Algorithm SHA256).Hash.ToLowerInvariant()
-  $sizeBytes = (Get-Item -LiteralPath $ZipPath).Length
-  $fileName = [System.IO.Path]::GetFileName($ZipPath)
-  $releaseUrl = "https://github.com/$($Repo)/releases/download/$($TagName)/$($fileName)"
-
-  $notice.version = $Version
-  $notice.assets = @(
-    [pscustomobject]@{
-      kind = "release_zip"
-      url = $releaseUrl
-      sha256 = $sha256
-      size_bytes = $sizeBytes
-    }
-  )
-  $notice | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $NoticePath -Encoding UTF8
-  return @{ sha256 = $sha256; size_bytes = $sizeBytes; url = $releaseUrl }
-}
+. (Join-Path $Root "scripts\lib\ReleaseNotice.ps1")
 
 # 1. Determine version / tag.
 if (-not $Tag) {
@@ -63,26 +32,29 @@ if (-not $Tag) {
 }
 if (-not $Tag) { throw "VERSION is empty and no -Tag given." }
 $tagName = if ($Tag.StartsWith("v")) { $Tag } else { "v$Tag" }
+$noticeVersion = if ($Tag.StartsWith("v")) { $Tag.Substring(1) } else { $Tag }
 Write-Host "Publishing release $tagName for $Repo" -ForegroundColor Cyan
 
-# 2. Ensure the release tree is built (exe + frontend + runtime), then pack it
-#    into a zip. This zip is what the in-platform updater downloads.
-& (Join-Path $Root "scripts\build_release.ps1")
-$Release = Join-Path $Workspace "HWAgent_release"
-if (-not (Test-Path -LiteralPath $Release)) { throw "Release tree missing: $Release" }
+if (-not $ZipPath) {
+  # 2. Ensure the release tree is built (exe + frontend + runtime), then pack it
+  #    into a zip. This zip is what the in-platform updater downloads.
+  & (Join-Path $Root "scripts\build_release.ps1")
+  $Release = Join-Path $Workspace "HWAgent_release"
+  if (-not (Test-Path -LiteralPath $Release)) { throw "Release tree missing: $Release" }
 
-$ZipPath = Join-Path $Workspace ("Insta360_HW_$tagName.zip")
-if (Test-Path -LiteralPath $ZipPath) { Remove-Item -LiteralPath $ZipPath -Force }
-Compress-Archive -Path (Join-Path $Release "*") -DestinationPath $ZipPath -Force
+  $ZipPath = Join-Path $Workspace ("Insta360_HW_$tagName.zip")
+  if (Test-Path -LiteralPath $ZipPath) { Remove-Item -LiteralPath $ZipPath -Force }
+  Compress-Archive -Path (Join-Path $Release "*") -DestinationPath $ZipPath -Force
+}
 $zipSize = (Get-Item -LiteralPath $ZipPath).Length
 Write-Host ("Packed release zip: {0} ({1:N1} MB)" -f $ZipPath, ($zipSize / 1MB))
 
-$noticePath = Join-Path $Root "UPDATE_NOTICE.json"
-$assetInfo = Update-HwAgentNoticeAssets -NoticePath $noticePath -Version $Tag -Repo $Repo -TagName $tagName -ZipPath $ZipPath
+$noticePath = if ($NoticePath) { $NoticePath } else { Join-Path $Root "UPDATE_NOTICE.json" }
+$assetInfo = Update-HwAgentNoticeAssets -NoticePath $noticePath -Version $noticeVersion -Repo $Repo -TagName $tagName -ZipPath $ZipPath
 Write-Host ("Wrote UPDATE_NOTICE assets: sha256={0} size_bytes={1}" -f $assetInfo.sha256, $assetInfo.size_bytes)
 
-if ($DryRun) {
-  Write-Host "Dry run complete. No GitHub release was created." -ForegroundColor Green
+if ($DryRun -or $LocalOnly) {
+  Write-Host "Local release metadata complete. No GitHub release was created." -ForegroundColor Green
   exit 0
 }
 

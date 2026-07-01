@@ -43,6 +43,7 @@ class DistributionInstallTests(unittest.TestCase):
             "scripts/lib/Paths.ps1",
             "scripts/lib/Cadence.ps1",
             "scripts/lib/EmbeddedPython.ps1",
+            "scripts/lib/ReleaseNotice.ps1",
             "scripts/lib/Service.ps1",
             "scripts/lib/Update.ps1",
             "scripts/lib/TclScripts.ps1",
@@ -67,6 +68,7 @@ class DistributionInstallTests(unittest.TestCase):
             "scripts/lib/Paths.ps1",
             "scripts/lib/Cadence.ps1",
             "scripts/lib/EmbeddedPython.ps1",
+            "scripts/lib/ReleaseNotice.ps1",
             "scripts/lib/Service.ps1",
             "scripts/lib/Update.ps1",
             "scripts/lib/TclScripts.ps1",
@@ -979,12 +981,61 @@ class DistributionInstallTests(unittest.TestCase):
 
     def test_publish_release_supports_dry_run_and_writes_sha256_notice_assets(self) -> None:
         text = (ROOT / "scripts" / "publish_release.ps1").read_text(encoding="utf-8")
+        notice_lib = (ROOT / "scripts" / "lib" / "ReleaseNotice.ps1").read_text(encoding="utf-8")
 
         self.assertIn("[switch]$DryRun", text)
+        self.assertIn("[switch]$LocalOnly", text)
+        self.assertIn("[string]$ZipPath", text)
+        self.assertIn("[string]$NoticePath", text)
         self.assertIn("Update-HwAgentNoticeAssets", text)
-        self.assertIn("Get-FileHash", text)
-        self.assertIn("size_bytes", text)
-        self.assertIn("sha256", text)
+        self.assertIn("Get-FileHash", notice_lib)
+        self.assertIn("size_bytes", notice_lib)
+        self.assertIn("sha256", notice_lib)
+
+    def test_publish_release_local_only_produces_valid_sha256_notice_assets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            zip_path = tmp_path / "fixture.zip"
+            zip_path.write_bytes(b"PK\x05\x06" + b"\x00" * 18)
+            notice_path = tmp_path / "UPDATE_NOTICE.json"
+            notice_path.write_text(
+                json.dumps({"version": "0.0.0", "revision": "", "assets": []}),
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [
+                    "powershell",
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    str(ROOT / "scripts" / "publish_release.ps1"),
+                    "-LocalOnly",
+                    "-Tag",
+                    "v0.0.1",
+                    "-ZipPath",
+                    str(zip_path),
+                    "-NoticePath",
+                    str(notice_path),
+                ],
+                cwd=ROOT,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=60,
+            )
+
+            stderr = result.stderr.decode("utf-8", errors="replace")
+            self.assertEqual(result.returncode, 0, stderr)
+            notice = json.loads(notice_path.read_text(encoding="utf-8-sig"))
+
+        self.assertEqual(notice["version"], "0.0.1")
+        self.assertEqual(len(notice["assets"]), 1)
+        asset = notice["assets"][0]
+        self.assertEqual(asset["kind"], "release_zip")
+        self.assertRegex(asset["sha256"], r"^[a-f0-9]{64}$")
+        self.assertEqual(asset["size_bytes"], zip_path.stat().st_size if zip_path.exists() else 22)
+        self.assertIn("/releases/download/v0.0.1/", asset["url"])
 
     def test_update_api_uses_notice_version_when_version_endpoint_is_stale(self) -> None:
         import sys
