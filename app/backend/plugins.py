@@ -173,7 +173,12 @@ def _find_user_manifest(root: Path, plugin_id: str) -> tuple[Path, dict[str, Any
     directory = root / "plugins" / "user"
     if directory.exists():
         for path in sorted(directory.glob("*.json")):
-            data = json.loads(path.read_text(encoding="utf-8"))
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                continue
+            if not isinstance(data, dict):
+                continue
             if str(data.get("id")) == plugin_id:
                 return path, data
     raise KeyError(f"未找到插件: {plugin_id}")

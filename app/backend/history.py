@@ -26,6 +26,13 @@ def _index_path(root: Path) -> Path:
     return root / "data" / "history" / "index.json"
 
 
+def _sanitize_run_id(run_id: str) -> str:
+    safe = "".join(ch for ch in str(run_id or "") if ch.isalnum() or ch == "_")
+    if not safe or safe != run_id:
+        raise ValueError(f"invalid run_id: {run_id!r}")
+    return safe
+
+
 def _input_names(params: dict[str, object]) -> list[str]:
     names: list[str] = []
     for key in INPUT_KEYS:
@@ -53,6 +60,44 @@ def _extract_output_names(result: dict[str, object]) -> list[str]:
                 + ([nested["summary"]] if nested.get("summary") else [])
             )
     return [Path(str(path)).name for path in outputs]
+
+
+def _entry_from_payload(payload: dict[str, object]) -> dict[str, object] | None:
+    meta = payload.get("_meta")
+    if not isinstance(meta, dict) or not meta.get("id"):
+        return None
+    return {
+        **meta,
+        "summary": _extract_summary(payload),
+        "outputs": _extract_output_names(payload),
+    }
+
+
+def _rebuild_index_from_runs(root: Path) -> list[dict[str, object]]:
+    _, runs = _dirs(root)
+    entries: list[dict[str, object]] = []
+    for path in sorted(runs.glob("*.json")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            continue
+        if isinstance(payload, dict):
+            entry = _entry_from_payload(payload)
+            if entry is not None:
+                entries.append(entry)
+    entries.sort(key=lambda item: str(item.get("time", "")), reverse=True)
+    del entries[_MAX_INDEX:]
+    _index_path(root).write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
+    return entries
+
+
+def _read_index(root: Path) -> list[dict[str, object]]:
+    path = _index_path(root)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else _rebuild_index_from_runs(root)
+    except (FileNotFoundError, ValueError, OSError):
+        return _rebuild_index_from_runs(root)
 
 
 def record(
@@ -100,29 +145,24 @@ def record(
 
 
 def list_runs(root: Path) -> list[dict[str, object]]:
-    path = _index_path(root)
-    if not path.exists():
-        return []
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (ValueError, OSError):
-        return []
+    return _read_index(root)
 
 
 def remove_run(root: Path, run_id: str) -> bool:
+    safe_id = _sanitize_run_id(run_id)
     path = _index_path(root)
     runs_ok = False
     with _LOCK:
         if path.exists():
             try:
-                index = json.loads(path.read_text(encoding="utf-8"))
-                index = [e for e in index if e.get("id") != run_id]
+                index = _read_index(root)
+                index = [e for e in index if e.get("id") != safe_id]
                 path.write_text(json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8")
                 runs_ok = True
             except (ValueError, OSError):
                 pass
     _, runs = _dirs(root)
-    entry = runs / f"{run_id}.json"
+    entry = runs / f"{safe_id}.json"
     if entry.exists():
         entry.unlink()
     return runs_ok
@@ -145,8 +185,8 @@ def clear_runs(root: Path) -> bool:
 
 
 def get_run(root: Path, run_id: str) -> dict[str, object] | None:
+    safe = _sanitize_run_id(run_id)
     _, runs = _dirs(root)
-    safe = "".join(ch for ch in run_id if ch.isalnum() or ch == "_")
     path = runs / f"{safe}.json"
     if not path.is_file():
         return None

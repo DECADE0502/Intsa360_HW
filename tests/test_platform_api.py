@@ -166,6 +166,46 @@ class PlatformApiTests(unittest.TestCase):
         finally:
             shutil.rmtree(root, ignore_errors=True)
 
+    def test_user_plugin_menu_endpoint_survives_bad_user_manifest(self) -> None:
+        root = _make_temp_root()
+        try:
+            (root / "plugins" / "user" / "bad.json").write_text("{bad json", encoding="utf-8")
+            (root / "plugins" / "user" / "scripts" / "demo.tcl").write_text("proc ::Demo::Run {} {}\n", encoding="utf-8")
+            (root / "plugins" / "user" / "demo.json").write_text(
+                json.dumps(
+                    {
+                        "id": "user.demo",
+                        "name": "Demo Script",
+                        "type": "cadence_tcl",
+                        "command": "::Demo::Run",
+                        "script": "scripts/demo.tcl",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            server = create_server(root, port=0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                host, port = server.server_address
+                body = json.dumps({"show_in_cadence": True, "redeploy": False}).encode("utf-8")
+                request = Request(
+                    f"http://{host}:{port}/api/plugins/user.demo/cadence-menu",
+                    data=body,
+                    method="POST",
+                    headers={"Content-Type": "application/json"},
+                )
+                with urlopen(request, timeout=5) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+            finally:
+                server.shutdown()
+                server.server_close()
+
+            self.assertEqual(payload["status"], "ok")
+            self.assertTrue(payload["plugin"]["show_in_cadence"])
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
     def test_plugin_menu_endpoint_can_update_platform_scripts(self) -> None:
         root = _make_temp_root()
         try:
@@ -265,6 +305,49 @@ class PlatformApiTests(unittest.TestCase):
             self.assertEqual(deleted["status"], "ok")
             self.assertEqual(cleared["status"], "ok")
             self.assertEqual(history.list_runs(root), [])
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+    def test_delete_history_rejects_path_traversal_run_id(self) -> None:
+        root = _make_temp_root()
+        try:
+            server = create_server(root, port=0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                host, port = server.server_address
+                request = Request(f"http://{host}:{port}/api/history/../foo", method="DELETE")
+                with self.assertRaises(HTTPError) as ctx:
+                    urlopen(request, timeout=5)
+            finally:
+                server.shutdown()
+                server.server_close()
+
+            self.assertEqual(ctx.exception.code, 400)
+            payload = json.loads(ctx.exception.read().decode("utf-8"))
+            self.assertEqual(payload["status"], "error")
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+    def test_history_index_rebuilds_from_runs_when_corrupt(self) -> None:
+        root = _make_temp_root()
+        try:
+            run_id = history.record(
+                root,
+                "bom_process",
+                "BOM 处理",
+                {"source_bom": str(root / "source.xlsx")},
+                {"status": "ok", "summary": {"records": 1}, "outputs": []},
+            )
+            self.assertIsNotNone(run_id)
+            index_path = root / "data" / "history" / "index.json"
+            index_path.write_text("{bad json", encoding="utf-8")
+
+            runs = history.list_runs(root)
+
+            self.assertEqual(runs[0]["id"], run_id)
+            repaired = json.loads(index_path.read_text(encoding="utf-8"))
+            self.assertEqual(repaired[0]["id"], run_id)
         finally:
             shutil.rmtree(root, ignore_errors=True)
 

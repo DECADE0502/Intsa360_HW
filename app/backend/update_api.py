@@ -271,9 +271,40 @@ def uninstall_status(root: Path) -> dict[str, object]:
 
 
 def _remote_repo_path(root: Path) -> str:
-    """owner/repo extracted from the update.ps1 default Repo param, so the
-    remote VERSION URL stays in sync with whatever the updater targets."""
+    """Resolve owner/repo for remote update checks.
+
+    Priority: local override, published notice trace, update.ps1 default, then
+    the historical repository fallback.
+    """
+    import json
     import re
+
+    def valid_repo(value: object) -> str:
+        text = str(value or "").strip()
+        return text if re.match(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", text) else ""
+
+    local_config = root / "config" / "local.json"
+    if local_config.exists():
+        try:
+            data = json.loads(local_config.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and isinstance(data.get("update"), dict):
+                repo = valid_repo(data["update"].get("repo"))
+                if repo:
+                    return repo
+        except (ValueError, OSError):
+            pass
+
+    notice = root / "UPDATE_NOTICE.json"
+    if notice.exists():
+        try:
+            data = json.loads(notice.read_text(encoding="utf-8-sig"))
+            if isinstance(data, dict) and isinstance(data.get("trace"), dict):
+                repo = valid_repo(data["trace"].get("repo"))
+                if repo:
+                    return repo
+        except (ValueError, OSError):
+            pass
+
     script = root / "update.ps1"
     if script.exists():
         match = re.search(r'\$Repo\s*=\s*"(https?://github\.com/[^"]+)"', script.read_text(encoding="utf-8"))

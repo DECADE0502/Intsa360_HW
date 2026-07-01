@@ -308,7 +308,11 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
             return
         if parsed.path.startswith("/api/history/"):
             run_id = unquote(parsed.path.removeprefix("/api/history/"))
-            run = history.get_run(self.root, run_id)
+            try:
+                run = history.get_run(self.root, run_id)
+            except ValueError as exc:
+                self._send_json({"status": "error", "error": str(exc), "user_message": str(exc), "error_kind": type(exc).__name__}, 400)
+                return
             if run is None:
                 self._send_json({"error": "history not found"}, 404)
                 return
@@ -349,7 +353,11 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
             return
         if parsed.path.startswith("/api/history/"):
             run_id = unquote(parsed.path.removeprefix("/api/history/"))
-            history.remove_run(self.root, run_id)
+            try:
+                history.remove_run(self.root, run_id)
+            except ValueError as exc:
+                self._send_json({"status": "error", "error": str(exc), "user_message": str(exc), "error_kind": type(exc).__name__}, 400)
+                return
             self._send_json({"status": "ok"})
             return
         self._send_json({"error": "not found"}, 404)
