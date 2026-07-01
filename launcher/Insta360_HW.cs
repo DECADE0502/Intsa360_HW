@@ -16,6 +16,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Net;
 using System.Reflection;
 using System.Text;
 using System.Threading;
@@ -25,6 +26,8 @@ internal static class Program
 {
     private const string MutexName = "Global\\Insta360_HW.exe";
     private const string PlatformUrl = "http://127.0.0.1:8765";
+    private const int MAX_LOG_BYTES = 512 * 1024;
+    private const int MAX_LOG_FILES = 5;
 
     [STAThread]
     private static int Main(string[] args)
@@ -41,12 +44,31 @@ internal static class Program
         string readyMarker = Path.Combine(root, "data", ".ready");
 
         bool createdNew;
-        using (var mutex = new Mutex(true, MutexName, out createdNew))
+        Mutex mutex = null;
+        try
         {
+            try
+            {
+                mutex = new Mutex(true, MutexName, out createdNew);
+            }
+            catch (AbandonedMutexException ex)
+            {
+                WriteLog("Recovered abandoned launcher mutex: " + ex.Message);
+                createdNew = true;
+                mutex = new Mutex(true, MutexName);
+            }
+
             if (!createdNew)
             {
-                WriteLog("Existing instance detected; opening platform URL.");
-                OpenPlatformUrl();
+                if (IsPlatformReady())
+                {
+                    WriteLog("Existing instance detected; platform is ready, no duplicate browser tab opened.");
+                }
+                else
+                {
+                    WriteLog("Existing instance detected; platform is not ready, opening platform URL.");
+                    OpenPlatformUrl();
+                }
                 return 0;
             }
 
@@ -57,10 +79,7 @@ internal static class Program
             }
             catch (Exception ex)
             {
-                WriteLog("First-run readiness failed: " + ex);
-                // First-run readiness is best-effort: never block the user from the
-                // platform if optional setup (e.g. Cadence deploy) fails. The launch
-                // step below will surface real errors via its health check.
+                ShowStartupFailure("First-run readiness failed", ex);
             }
 
             try
@@ -69,19 +88,27 @@ internal static class Program
             }
             catch (Exception ex)
             {
-                WriteLog("Cadence loader repair failed: " + ex);
-                // Cadence integration repair is best-effort. The platform still
-                // opens so System Status can show diagnostics and repair actions.
+                ShowStartupFailure("Cadence loader repair failed", ex);
             }
 
             int exitCode = RunPowerShellHidden(root, launchScript, string.Join(" ", QuoteArgs(args)));
             if (exitCode != 0)
             {
-                string message = "Insta360_HW 启动失败，错误码：" + exitCode + "\n\n日志：" + LogPath();
+                string message =
+                    "Insta360_HW startup failed\n\n" +
+                    "Exit code: " + exitCode + "\n\n" +
+                    "Log: " + LogPath();
                 WriteLog(message);
                 MessageBox.Show(message, "Insta360_HW", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             return exitCode;
+        }
+        finally
+        {
+            if (mutex != null)
+            {
+                mutex.Dispose();
+            }
         }
     }
 
@@ -179,6 +206,37 @@ internal static class Program
         }
     }
 
+    private static bool IsPlatformReady()
+    {
+        try
+        {
+            var request = (HttpWebRequest)WebRequest.Create(PlatformUrl + "/api/health");
+            request.Method = "GET";
+            request.Timeout = 800;
+            request.ReadWriteTimeout = 800;
+            using (var response = (HttpWebResponse)request.GetResponse())
+            {
+                return (int)response.StatusCode >= 200 && (int)response.StatusCode < 500;
+            }
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void ShowStartupFailure(string title, Exception ex)
+    {
+        string message =
+            "Insta360_HW startup warning\n\n" +
+            title + "\n\n" +
+            ex.Message + "\n\n" +
+            "Log: " + LogPath() + "\n" +
+            "Please send the log to the administrator.";
+        WriteLog(title + ": " + ex);
+        MessageBox.Show(message, "Insta360_HW", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+    }
+
     private static string LogPath()
     {
         string dir = Path.Combine(
@@ -193,12 +251,33 @@ internal static class Program
         {
             string path = LogPath();
             Directory.CreateDirectory(Path.GetDirectoryName(path));
+            RotateIfNeeded(path);
             File.AppendAllText(path, DateTime.Now.ToString("s") + " " + message + Environment.NewLine, Encoding.UTF8);
         }
         catch
         {
             // Logging must never prevent the platform from opening.
         }
+    }
+
+    private static void RotateIfNeeded(string path)
+    {
+        var info = new FileInfo(path);
+        if (!info.Exists || info.Length < MAX_LOG_BYTES) return;
+
+        string oldest = path + "." + MAX_LOG_FILES;
+        if (File.Exists(oldest)) File.Delete(oldest);
+        for (int i = MAX_LOG_FILES - 1; i >= 1; i--)
+        {
+            string current = path + "." + i;
+            string next = path + "." + (i + 1);
+            if (File.Exists(current))
+            {
+                if (File.Exists(next)) File.Delete(next);
+                File.Move(current, next);
+            }
+        }
+        File.Move(path, path + ".1");
     }
 
     // Quote each CLI arg for PowerShell so paths/spaces survive forwarding.

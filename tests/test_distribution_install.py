@@ -1432,6 +1432,19 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("http://127.0.0.1:8765", text)
         self.assertIn("System.Windows.Forms.dll", build)
 
+    def test_launcher_handles_abandoned_mutex_rotates_logs_and_surfaces_readiness_failures(self) -> None:
+        text = (ROOT / "launcher" / "Insta360_HW.cs").read_text(encoding="utf-8")
+
+        self.assertIn("AbandonedMutexException", text)
+        self.assertIn("MAX_LOG_BYTES", text)
+        self.assertIn("MAX_LOG_FILES", text)
+        self.assertIn("RotateIfNeeded", text)
+        self.assertIn("ShowStartupFailure", text)
+        self.assertIn("First-run readiness", text)
+        self.assertIn("Cadence loader repair", text)
+        self.assertNotIn("鍚", text)
+        self.assertNotIn("鏃", text)
+
     def test_launcher_repairs_cadence_loader_on_every_start(self) -> None:
         text = (ROOT / "launcher" / "Insta360_HW.cs").read_text(encoding="utf-8")
 
