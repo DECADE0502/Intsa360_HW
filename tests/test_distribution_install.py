@@ -808,19 +808,29 @@ class DistributionInstallTests(unittest.TestCase):
 
         # Rollback wrapper must enclose the git pull call.
         self.assertLess(rollback_index, pull_index)
-        # Single-transaction contract: no inner manual reset — restoration is
-        # delegated entirely to Invoke-HwAgentWithRollback so HEAD and working
-        # tree cannot diverge on partial-pull failure.
-        self.assertNotIn(
-            "git reset --hard", git_block,
-            "Invoke-HwAgentGitUpdate must not do a manual git reset --hard; "
-            "let Invoke-HwAgentWithRollback restore the tree.",
+        # Complementary-rollback contract: the wrapper's robocopy-based restore
+        # excludes .git (Copy-HwAgentTreeForRollback / Restore-HwAgentTreeFromRollback
+        # both pass /XD .git), so if a partial pull mutates refs the wrapper
+        # cannot restore HEAD. Invoke-HwAgentGitUpdate MUST reset refs itself
+        # inside the scriptblock's catch. This is a source-scan assertion because
+        # building a real partial-fetch scenario (fetch succeeds, merge fails
+        # after refs updated) needs a divergent local file:// remote.
+        self.assertIn(
+            "reset --hard", git_block,
+            "Invoke-HwAgentGitUpdate must reset refs on partial-pull failure; "
+            "the wrapper's rollback excludes .git and cannot restore HEAD.",
         )
-        self.assertNotIn("OriginalGitHead", git_block)
+        self.assertIn("__HWAGENT_GIT_ROLLBACK__", git_block)
 
     @unittest.skipUnless(sys.platform == "win32", "windows only")
-    def test_git_pull_failure_restores_previous_head(self) -> None:
-        """When git pull fails mid-way, working tree returns to previous state."""
+    def test_git_pull_dns_failure_leaves_repo_untouched(self) -> None:
+        """DNS failure occurs before any ref mutation, so HEAD and tree stay put.
+
+        Note: this covers the easy case only. A true partial-pull failure (fetch
+        succeeds, merge fails after refs update) would need a divergent local
+        file:// remote and is asserted via source-scan in
+        test_git_pull_update_is_wrapped_in_rollback_transaction instead.
+        """
         git_exe = shutil.which("git")
         if not git_exe:
             self.skipTest("git.exe not available on PATH")

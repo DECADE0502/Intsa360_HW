@@ -569,24 +569,36 @@ function Invoke-HwAgentGitUpdate {
     if (Test-Path -LiteralPath (Join-Path $Root ".git")) {
       Invoke-HwAgentWithRollback -Root $Root -Operation {
         $head = (& git -C $Root rev-parse HEAD 2>$null)
+        $headSha = ""
         if ($LASTEXITCODE -eq 0 -and $head) {
-          Write-Host ("__HWAGENT_GIT_HEAD_BEFORE__ " + $head.Trim())
+          $headSha = $head.Trim()
+          Write-Host ("__HWAGENT_GIT_HEAD_BEFORE__ " + $headSha)
         }
-        $remote = (& git -C $Root remote get-url origin 2>$null)
-        if ($LASTEXITCODE -ne 0) {
-          & git -C $Root remote add origin $Repo
-          if ($LASTEXITCODE -ne 0) { throw "git remote add failed" }
-        } elseif ($remote -ne $Repo) {
-          & git -C $Root remote set-url origin $Repo
-          if ($LASTEXITCODE -ne 0) { throw "git remote set-url failed" }
-        }
-        $pullResult = & git -C $Root pull --ff-only 2>&1
-        if ($LASTEXITCODE -ne 0) {
-          throw ("git pull --ff-only failed: " + ($pullResult -join "`n"))
-        }
-        $newHead = (& git -C $Root rev-parse HEAD 2>$null)
-        if ($LASTEXITCODE -eq 0 -and $newHead) {
-          Write-Host ("__HWAGENT_GIT_HEAD_AFTER__ " + $newHead.Trim())
+        # Wrapper's rollback excludes .git (Copy-HwAgentTreeForRollback / Restore-HwAgentTreeFromRollback pass /XD .git).
+        # If a partial pull mutates refs before failing, we must reset them here - the wrapper won't.
+        try {
+          $remote = (& git -C $Root remote get-url origin 2>$null)
+          if ($LASTEXITCODE -ne 0) {
+            & git -C $Root remote add origin $Repo
+            if ($LASTEXITCODE -ne 0) { throw "git remote add failed" }
+          } elseif ($remote -ne $Repo) {
+            & git -C $Root remote set-url origin $Repo
+            if ($LASTEXITCODE -ne 0) { throw "git remote set-url failed" }
+          }
+          $pullResult = & git -C $Root pull --ff-only 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            throw ("git pull --ff-only failed: " + ($pullResult -join "`n"))
+          }
+          $newHead = (& git -C $Root rev-parse HEAD 2>$null)
+          if ($LASTEXITCODE -eq 0 -and $newHead) {
+            Write-Host ("__HWAGENT_GIT_HEAD_AFTER__ " + $newHead.Trim())
+          }
+        } catch {
+          if ($headSha) {
+            Write-Host ("__HWAGENT_GIT_ROLLBACK__ resetting HEAD to " + $headSha)
+            & git -C $Root reset --hard $headSha 2>&1 | Out-Host
+          }
+          throw
         }
       }
     } else {
