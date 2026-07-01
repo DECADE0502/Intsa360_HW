@@ -114,6 +114,7 @@ export function BomProcessWizard() {
   const si = { source: 0, review: 1, process: 2, risk: 3, deliver: 4 }[stage];
 
   async function onFile(f: File) {
+    if (running) return Upload.LIST_IGNORE;
     try {
       const u = await uploadFiles([f]);
       setSp(u.files[0]?.path || "");
@@ -121,7 +122,7 @@ export function BomProcessWizard() {
       message.success("已接收文件");
       setStage("review");
     } catch (e: any) {
-      message.error(e.message);
+      message.error(String(e?.message ?? e));
     }
     return false;
   }
@@ -252,8 +253,12 @@ export function BomProcessWizard() {
       const a = document.createElement("a");
       a.href = u;
       a.download = `${name || "BOM"}.zip`;
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(u);
+      setTimeout(() => {
+        URL.revokeObjectURL(u);
+        a.remove();
+      }, 4000);
     } catch (e: any) {
       message.error(e.message);
     }

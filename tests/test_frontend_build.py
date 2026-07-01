@@ -81,6 +81,29 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn("removeEventListener", picker)
         self.assertIn("load()", picker)
 
+    def test_frontend_review_fix_regressions_are_guarded(self) -> None:
+        wizard = (ROOT / "frontend" / "src" / "tools" / "BomProcessWizard.tsx").read_text(encoding="utf-8")
+        netlist = (ROOT / "frontend" / "src" / "tools" / "NetlistComparePane.tsx").read_text(encoding="utf-8")
+        panes = [
+            ROOT / "frontend" / "src" / "tools" / "BomComparePane.tsx",
+            ROOT / "frontend" / "src" / "tools" / "NetlistComparePane.tsx",
+            ROOT / "frontend" / "src" / "tools" / "SmtPackageCheckPane.tsx",
+            ROOT / "frontend" / "src" / "tools" / "SingleNetworkCheckPane.tsx",
+        ]
+
+        self.assertNotIn('textOf(data?.["位号"]) || textOf(data?.["位号"])', netlist)
+        self.assertIn('textOf(data?.["位号"]) || textOf(data?.["Pin"])', netlist)
+        self.assertIn("document.body.appendChild(a)", wizard)
+        self.assertIn("setTimeout(() =>", wizard)
+        self.assertIn("URL.revokeObjectURL(u)", wizard)
+        self.assertIn("a.remove()", wizard)
+        self.assertIn("Upload.LIST_IGNORE", wizard)
+        self.assertIn("String(e?.message ?? e)", wizard)
+        for pane in panes:
+            text = pane.read_text(encoding="utf-8")
+            self.assertIn("setSelectedKey((prev)", text, pane.name)
+            self.assertIn("prev &&", text, pane.name)
+
     def test_update_controls_split_check_and_run_actions(self) -> None:
         text = (ROOT / "frontend" / "src" / "components" / "UpdateStatus.tsx").read_text(encoding="utf-8")
         client = (ROOT / "frontend" / "src" / "api" / "client.ts").read_text(encoding="utf-8")

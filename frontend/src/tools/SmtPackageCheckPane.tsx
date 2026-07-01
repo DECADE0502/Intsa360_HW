@@ -216,7 +216,12 @@ export function SmtPackageCheckPane({ tool }: { tool: ToolInfo }) {
   ];
 
   useEffect(() => {
-    if (review) setSelectedKey(review.focus_items?.[0]?.key || review.items?.[0]?.key || "");
+    if (review) {
+      setSelectedKey((prev) => {
+        if (prev && items.some((item) => item.key === prev)) return prev;
+        return review.focus_items?.[0]?.key || review.items?.[0]?.key || "";
+      });
+    }
   }, [review]);
 
   async function handleRun() {

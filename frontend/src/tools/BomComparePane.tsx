@@ -227,8 +227,11 @@ export function BomComparePane({ tool }: { tool: ToolInfo }) {
 
   useEffect(() => {
     if (result?.status === "ok") {
-      const focus = result.focus_items?.[0]?.key;
-      setSelectedKey(focus || filtered[0]?.key || items[0]?.key || "");
+      setSelectedKey((prev) => {
+        if (prev && filtered.some((item) => item.key === prev)) return prev;
+        const focus = result.focus_items?.[0]?.key;
+        return focus || filtered[0]?.key || items[0]?.key || "";
+      });
     }
   }, [result]);
 

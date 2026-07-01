@@ -123,7 +123,7 @@ function NodeSide({ title, data }: { title: string; data?: Record<string, unknow
       </div>
       <div className="netlist-side-field">
         <span>位号</span>
-        <p>{textOf(data?.["位号"]) || textOf(data?.["位号"]) || "-"}</p>
+        <p>{textOf(data?.["位号"]) || textOf(data?.["Pin"]) || "-"}</p>
       </div>
       <div className="netlist-side-field">
         <span>节点</span>
@@ -176,7 +176,12 @@ export function NetlistComparePane({ tool }: { tool: ToolInfo }) {
   const counts = review?.status_counts || {};
 
   useEffect(() => {
-    if (review) setSelectedKey(review.focus_items?.[0]?.key || review.items?.[0]?.key || "");
+    if (review) {
+      setSelectedKey((prev) => {
+        if (prev && items.some((item) => item.key === prev)) return prev;
+        return review.focus_items?.[0]?.key || review.items?.[0]?.key || "";
+      });
+    }
   }, [review]);
 
   async function handleRun() {
