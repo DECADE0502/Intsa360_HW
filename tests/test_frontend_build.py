@@ -17,7 +17,6 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn("react", dependencies)
         self.assertIn("antd", dependencies)
         self.assertIn("@ant-design/icons", dependencies)
-        self.assertIn("@tanstack/react-table", dependencies)
         self.assertIn("lucide-react", dependencies)
 
     def test_frontend_lazy_loads_large_workbench_views(self) -> None:

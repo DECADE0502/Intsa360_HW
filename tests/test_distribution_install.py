@@ -1047,12 +1047,24 @@ class DistributionInstallTests(unittest.TestCase):
 
     def test_launcher_source_uses_find_python_via_ps1_and_no_hardcoded_python(self) -> None:
         text = (ROOT / "launcher" / "Insta360_HW.cs").read_text(encoding="utf-8")
+        runner = (ROOT / "run_tool_suite.ps1").read_text(encoding="utf-8")
 
         # The exe must delegate launching to launch_tool_suite.ps1 (which uses
         # Find-Python) instead of hard-coding a Python path.
         self.assertIn("launch_tool_suite.ps1", text)
         self.assertNotIn("codex-primary-runtime", text)
         self.assertNotIn(".venv\\Scripts\\python.exe", text)
+        self.assertIn("Find-Python -Root $Root", runner)
+        self.assertNotIn("codex-runtimes", runner)
+        self.assertNotIn("C:\\Users\\Administrator", runner)
+
+    def test_no_stale_planned_tools_module_or_unused_frontend_dependencies(self) -> None:
+        package = json.loads((ROOT / "frontend" / "package.json").read_text(encoding="utf-8"))
+        deps = package["dependencies"]
+
+        self.assertFalse((ROOT / "app" / "backend" / "tools" / "planned_tools.py").exists())
+        self.assertNotIn("zustand", deps)
+        self.assertNotIn("@tanstack/react-table", deps)
 
     def test_launcher_source_runs_first_run_readiness_then_launches(self) -> None:
         text = (ROOT / "launcher" / "Insta360_HW.cs").read_text(encoding="utf-8")
