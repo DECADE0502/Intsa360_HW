@@ -815,6 +815,40 @@ class DistributionInstallTests(unittest.TestCase):
                 self.assertIn('"/R:2"', line)
                 self.assertIn('"/W:1"', line)
 
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
+    def test_start_service_quotes_backend_script_under_install_path_with_spaces(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "Program Files" / "Insta360" / "HWAgent"
+            backend = root / "app" / "backend"
+            backend.mkdir(parents=True)
+            (backend / "suite_app.py").write_text(
+                "from pathlib import Path\n"
+                "Path(__file__).with_name('started.txt').write_text('ok', encoding='utf-8')\n",
+                encoding="utf-8",
+            )
+            (root / "data" / "reports" / "runtime").mkdir(parents=True)
+
+            service = ROOT / "scripts" / "lib" / "Service.ps1"
+            ps = (
+                "$ErrorActionPreference='Stop'; "
+                f". '{service}'; "
+                f"Start-HwAgentService -Root '{root}' -PythonPath '{Path(sys.executable)}' -Port 59999 | Out-Null; "
+                "Start-Sleep -Milliseconds 1200"
+            )
+            encoded = base64.b64encode(ps.encode("utf-16le")).decode("ascii")
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=8,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((backend / "started.txt").read_text(encoding="utf-8"), "ok")
+
     def test_update_api_refuses_to_start_duplicate_update(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "install"
@@ -2538,6 +2572,14 @@ class DistributionInstallTests(unittest.TestCase):
         ]
         for gate in required_gates:
             self.assertIn(gate, content, f"pre-release gate '{gate}' missing")
+
+    def test_pre_release_check_uses_same_parent_release_tree_as_builder(self) -> None:
+        content = (ROOT / "scripts" / "pre_release_check.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("$repoRoot = Split-Path -Parent $root", content)
+        self.assertIn('Join-Path $repoRoot "HWAgent_release\\Insta360_HW.exe"', content)
+        self.assertIn('Join-Path $repoRoot "HWAgent_release\\REVISION"', content)
+        self.assertIn("Rebuild release after committing", content)
 
 
 if __name__ == "__main__":

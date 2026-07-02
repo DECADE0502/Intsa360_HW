@@ -1,20 +1,20 @@
 ﻿{
-    "version":  "0.2.18",
-    "revision":  "6d64d83467a6ef73bc002456017ae23d64452c82",
-    "date":  "2026-07-01",
-    "title":  "0.2.18 install reliability update",
-    "summary":  "This update improves overwrite install reliability, first-run feedback, launcher VersionInfo, and Cadence integration visibility.",
+    "version":  "0.2.19",
+    "revision":  "3fa2ef9ff98c05d8d23ee9220a50d2420bc1f04d",
+    "date":  "2026-07-02",
+    "title":  "0.2.19 OTA recovery update",
+    "summary":  "This update fixes the 0.2.18 in-platform update hang after file application and makes OTA sync/rollback overwrite changed runtime files more reliably.",
     "highlights":  [
-                       "Overwrite setup now stops running Insta360_HW services before replacing files, reducing file-lock failures.",
-                       "Downgrade installs warn when a newer version is already registered.",
-                       "First run stores the readiness marker under LOCALAPPDATA and opens a waiting page while initialization runs."
+                       "Fixed service restart after OTA when the install path contains spaces such as C:\\Program Files.",
+                       "OTA sync and rollback now overwrite same-size runtime files instead of relying only on robocopy timestamp heuristics.",
+                       "Added a regression test that starts the backend from an install path with spaces."
                    ],
     "assets":  [
                    {
                        "kind":  "release_zip",
-                       "url":  "https://github.com/DECADE0502/Intsa360_HW/releases/download/v0.2.18/Insta360_HW_v0.2.18.zip",
-                       "sha256":  "e5584a8ffd9bb2b95881cb19b7c06c41755443d5603d83b054b129621bbd3f2a",
-                       "size_bytes":  12775160
+                       "url":  "https://github.com/DECADE0502/Intsa360_HW/releases/download/v0.2.19/Insta360_HW_v0.2.19.zip",
+                       "sha256":  "1839b3cd67f467d43d0826f9999a0f70b7a446486411923ed1331c276f532ce9",
+                       "size_bytes":  12782918
                    }
                ],
     "compatibility":  "No data migration is required. Existing history, user plugins and local config are preserved.",

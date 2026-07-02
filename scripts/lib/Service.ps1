@@ -30,7 +30,8 @@ function Start-HwAgentService {
   New-Item -ItemType Directory -Force -Path $logDir | Out-Null
   $stdout = Join-Path $logDir "tool_suite_server_latest.log"
   $stderr = Join-Path $logDir "tool_suite_server_error_latest.log"
-  Start-Process -FilePath $PythonPath -ArgumentList @($script, "--port", "$Port") -WorkingDirectory $Root -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr | Out-Null
+  $scriptArg = '"' + $script + '"'
+  Start-Process -FilePath $PythonPath -ArgumentList @($scriptArg, "--port", "$Port") -WorkingDirectory $Root -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr | Out-Null
   Write-Host (Get-HwAgentText "5q2j5Zyo5ZCv5Yqo5pyN5Yqh77yM6K+356iN5YCZLi4u")
   return $false
 }

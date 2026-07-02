@@ -31,6 +31,70 @@ function Resolve-HwAgentExcludeFileArgs {
   return $result
 }
 
+function Get-HwAgentRelativePath {
+  param(
+    [Parameter(Mandatory=$true)][string]$Root,
+    [Parameter(Mandatory=$true)][string]$Path
+  )
+  $rootFull = (Resolve-Path -LiteralPath $Root).Path.TrimEnd("\", "/")
+  $pathFull = (Resolve-Path -LiteralPath $Path).Path
+  if ($pathFull.Length -le $rootFull.Length) { return "" }
+  return $pathFull.Substring($rootFull.Length).TrimStart("\", "/").Replace("/", "\")
+}
+
+function Test-HwAgentRelativePathExcluded {
+  param(
+    [Parameter(Mandatory=$true)][string]$RelativePath,
+    [Parameter(Mandatory=$true)][AllowEmptyCollection()][string[]]$ExcludeDirs,
+    [Parameter(Mandatory=$true)][AllowEmptyCollection()][string[]]$ExcludeFiles
+  )
+  $rel = $RelativePath.Replace("/", "\").TrimStart("\")
+  $first = ($rel -split "\\", 2)[0]
+  foreach ($dir in $ExcludeDirs) {
+    if ([string]::IsNullOrWhiteSpace($dir)) { continue }
+    $normalized = $dir.Replace("/", "\").Trim("\")
+    if ([System.IO.Path]::IsPathRooted($normalized)) { continue }
+    if ($normalized.EndsWith("*")) {
+      if ($first -like $normalized) { return $true }
+      continue
+    }
+    if ($rel -ieq $normalized -or $rel.StartsWith($normalized + "\", [System.StringComparison]::OrdinalIgnoreCase)) {
+      return $true
+    }
+  }
+  $name = Split-Path -Leaf $rel
+  foreach ($file in $ExcludeFiles) {
+    if ([string]::IsNullOrWhiteSpace($file)) { continue }
+    $normalized = $file.Replace("/", "\").Trim("\")
+    if ([System.IO.Path]::IsPathRooted($normalized)) { continue }
+    if ($normalized -match "\\") {
+      if ($rel -ieq $normalized) { return $true }
+    } elseif ($name -ieq $normalized) {
+      return $true
+    }
+  }
+  return $false
+}
+
+function Copy-HwAgentFilesForce {
+  param(
+    [Parameter(Mandatory=$true)][string]$SourceRoot,
+    [Parameter(Mandatory=$true)][string]$TargetRoot,
+    [Parameter(Mandatory=$true)][AllowEmptyCollection()][string[]]$ExcludeDirs,
+    [Parameter(Mandatory=$true)][AllowEmptyCollection()][string[]]$ExcludeFiles
+  )
+  foreach ($file in Get-ChildItem -LiteralPath $SourceRoot -Recurse -File -Force -ErrorAction SilentlyContinue) {
+    $relative = Get-HwAgentRelativePath -Root $SourceRoot -Path $file.FullName
+    if (Test-HwAgentRelativePathExcluded -RelativePath $relative -ExcludeDirs $ExcludeDirs -ExcludeFiles $ExcludeFiles) {
+      continue
+    }
+    $target = Join-Path $TargetRoot $relative
+    $parent = Split-Path -Parent $target
+    if ($parent) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
+    Copy-Item -LiteralPath $file.FullName -Destination $target -Force
+  }
+}
+
 function Get-HwAgentUpdateStateDir {
   param([Parameter(Mandatory=$true)][string]$Root)
   return (Join-Path $Root "data\reports\runtime")
@@ -186,11 +250,12 @@ function Sync-HwAgentTree {
     # See Resolve-HwAgentExcludeFileArgs: subdir-scoped /XF entries must be
     # absolute paths anchored at SourceRoot; bare names remain filename globs.
     $excludeFiles = Resolve-HwAgentExcludeFileArgs -Root $SourceRoot -Files $script:HwAgentExcludeFiles
-    $args = @($SourceRoot, $TargetRoot, "/MIR", "/R:2", "/W:1", "/XD") + $excludeDirs + @("/XF") + $excludeFiles
+    $args = @($SourceRoot, $TargetRoot, "/MIR", "/IS", "/IT", "/R:2", "/W:1", "/XD") + $excludeDirs + @("/XF") + $excludeFiles
     & robocopy @args | Out-Null
     if ($LASTEXITCODE -ge 8) {
       throw ("robocopy failed: " + $LASTEXITCODE)
     }
+    Copy-HwAgentFilesForce -SourceRoot $SourceRoot -TargetRoot $TargetRoot -ExcludeDirs ($script:HwAgentExcludeDirs + $script:HwAgentRootExcludeDirs) -ExcludeFiles $script:HwAgentExcludeFiles
 
     foreach ($item in $script:HwAgentInstallerOwned) {
       $backupPath = Join-Path $installerBackupRoot $item
@@ -213,11 +278,12 @@ function Copy-HwAgentTreeForRollback {
   New-Item -ItemType Directory -Force -Path $BackupRoot | Out-Null
   # Source = $Root, so subdir-scoped /XF entries must be absolute paths under $Root.
   $excludeFiles = Resolve-HwAgentExcludeFileArgs -Root $Root -Files @("config\local.json")
-  $args = @($Root, $BackupRoot, "/MIR", "/R:2", "/W:1", "/XD", "data", "plugins\user", ".git", "node_modules", "/XF") + $excludeFiles
+  $args = @($Root, $BackupRoot, "/MIR", "/IS", "/IT", "/R:2", "/W:1", "/XD", "data", "plugins\user", ".git", "node_modules", "/XF") + $excludeFiles
   & robocopy @args | Out-Null
   if ($LASTEXITCODE -ge 8) {
     throw ("rollback backup failed: " + $LASTEXITCODE)
   }
+  Copy-HwAgentFilesForce -SourceRoot $Root -TargetRoot $BackupRoot -ExcludeDirs @("data", "plugins\user", ".git", "node_modules") -ExcludeFiles @("config\local.json")
 }
 
 function Restore-HwAgentTreeFromRollback {
@@ -230,11 +296,12 @@ function Restore-HwAgentTreeFromRollback {
   # This ensures the user's live config/local.json is preserved even if a stale copy
   # somehow ended up in the backup tree.
   $excludeFiles = Resolve-HwAgentExcludeFileArgs -Root $BackupRoot -Files @("config\local.json")
-  $args = @($BackupRoot, $Root, "/MIR", "/R:2", "/W:1", "/XD", "data", "plugins\user", ".git", "node_modules", "/XF") + $excludeFiles
+  $args = @($BackupRoot, $Root, "/MIR", "/IS", "/IT", "/R:2", "/W:1", "/XD", "data", "plugins\user", ".git", "node_modules", "/XF") + $excludeFiles
   & robocopy @args | Out-Null
   if ($LASTEXITCODE -ge 8) {
     throw ("rollback restore failed: " + $LASTEXITCODE)
   }
+  Copy-HwAgentFilesForce -SourceRoot $BackupRoot -TargetRoot $Root -ExcludeDirs @("data", "plugins\user", ".git", "node_modules") -ExcludeFiles @("config\local.json")
 }
 
 function Invoke-HwAgentWithRollback {

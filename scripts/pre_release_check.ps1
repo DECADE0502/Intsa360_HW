@@ -1,6 +1,7 @@
 $ErrorActionPreference = "Continue"  # We collect all errors, don't die on first
 
 $root = Split-Path -Parent $PSScriptRoot
+$repoRoot = Split-Path -Parent $root
 $errors = @()
 
 function Add-Error { param([string]$msg) $script:errors += $msg }
@@ -25,13 +26,13 @@ if ($issContent -notmatch [regex]::Escape($issPattern)) {
     Write-Host "[OK] iss version matches VERSION ($version)" -ForegroundColor Green
 }
 
-# 3. REVISION == HEAD (or explicit skip if REVISION intentionally lags)
+# 3. Source REVISION matches UPDATE_NOTICE; release REVISION is checked against HEAD after build.
 $revision = (Get-Content -Raw (Join-Path $root "REVISION")).Trim()
-$head = (& git -C $root rev-parse HEAD 2>&1).Trim()
-if ($revision -ne $head) {
-    Add-Error "REVISION ($revision) does not match git HEAD ($head). Run scripts\bump_version.ps1 to sync."
+$notice = Get-Content -Raw (Join-Path $root "UPDATE_NOTICE.json") | ConvertFrom-Json
+if ([string]$notice.revision -ne $revision) {
+    Add-Error "UPDATE_NOTICE.revision ($($notice.revision)) does not match REVISION ($revision). Run scripts\bump_version.ps1 to sync."
 } else {
-    Write-Host "[OK] REVISION matches git HEAD" -ForegroundColor Green
+    Write-Host "[OK] REVISION matches UPDATE_NOTICE.revision" -ForegroundColor Green
 }
 
 # 4. UPDATE_NOTICE.assets non-empty with sha256
@@ -44,10 +45,18 @@ try {
 }
 
 # 5. HWAgent_release/Insta360_HW.exe exists and mtime > VERSION mtime
-$releaseExe = Join-Path $root "HWAgent_release\Insta360_HW.exe"
+$releaseExe = Join-Path $repoRoot "HWAgent_release\Insta360_HW.exe"
 if (-not (Test-Path $releaseExe)) {
     Add-Error "HWAgent_release\Insta360_HW.exe not built. Run scripts\build_release.ps1 first."
 } else {
+    $head = (& git -C $root rev-parse HEAD 2>&1).Trim()
+    $releaseRevisionPath = Join-Path $repoRoot "HWAgent_release\REVISION"
+    $releaseRevision = if (Test-Path $releaseRevisionPath) { (Get-Content -Raw $releaseRevisionPath).Trim() } else { "" }
+    if ($releaseRevision -ne $head) {
+        Add-Error "HWAgent_release\REVISION ($releaseRevision) does not match git HEAD ($head). Rebuild release after committing."
+    } else {
+        Write-Host "[OK] HWAgent_release REVISION matches git HEAD" -ForegroundColor Green
+    }
     $exeMtime = (Get-Item $releaseExe).LastWriteTime
     $versionMtime = (Get-Item (Join-Path $root "VERSION")).LastWriteTime
     if ($exeMtime -lt $versionMtime) {
