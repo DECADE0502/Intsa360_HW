@@ -1,21 +1,21 @@
 ﻿{
-    "version":  "0.2.23",
-    "revision":  "4f9c6141cee923614557202698c58ac9fd36f27a",
+    "version":  "0.2.24",
+    "revision":  "581a9fe54a263fba332c7be693860ba3313926a4",
     "date":  "2026-07-02",
-    "title":  "0.2.23 rollback dependency-tree fix",
-    "summary":  "This update fixes OTA rollback when a source-tree install contains frontend/node_modules or other development-only directories.",
+    "title":  "0.2.24 OTA update detection fix",
+    "summary":  "This update fixes OTA version detection so the platform compares the packaged REVISION file instead of the GitHub branch head commit.",
     "highlights":  [
-                       "Rollback backup and restore now exclude frontend, tests, docs, launcher and nested node_modules trees.",
-                       "The file-copy fallback now treats bare excluded directory names as matching any path segment, not only the root segment.",
-                       "This prevents pnpm/Ant Design dependency paths from breaking rollback after a failed update.",
-                       "Regression tests cover both rollback backup and nested node_modules copy exclusion."
+                       "Update checks now read the remote REVISION file that will actually be installed.",
+                       "Publishing metadata commits no longer make the platform report a false same-version update.",
+                       "The update notice target revision now matches the packaged payload revision.",
+                       "Regression tests cover the REVISION-file lookup and the existing rollback dependency-tree fix."
                    ],
     "assets":  [
                    {
                        "kind":  "release_zip",
-                       "url":  "https://github.com/DECADE0502/Intsa360_HW/releases/download/v0.2.23/Insta360_HW_v0.2.23.zip",
-                       "sha256":  "4dd05277b79ae7975963fdf7a4018d8417c188762740b2dc2b444ab8bd10a698",
-                       "size_bytes":  12785535
+                       "url":  "https://github.com/DECADE0502/Intsa360_HW/releases/download/v0.2.24/Insta360_HW_v0.2.24.zip",
+                       "sha256":  "1ecf34f33ce349289d7ec494460f9a06f2653b0afed5ff3a2497bfa711e08808",
+                       "size_bytes":  12785574
                    }
                ],
     "compatibility":  "No data migration is required. Existing history, user plugins and local config are preserved.",
