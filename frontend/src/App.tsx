@@ -65,11 +65,33 @@ export default function App() {
   }
 
   function triggerReconnectProtocol() {
-    const frame = document.createElement("iframe");
-    frame.style.display = "none";
-    frame.src = RECONNECT_PROTOCOL_URL;
-    document.body.appendChild(frame);
-    window.setTimeout(() => frame.remove(), 2000);
+    // A hidden iframe.src = "custom-scheme://" used to work but modern
+    // browsers (Chrome 90+, Firefox) block programmatic navigation to
+    // unknown schemes from iframes without a user gesture. The click on
+    // the "重新连接" button IS a user gesture, so a top-level assignment
+    // is the reliable path. We stash the current href first so the tab
+    // does not actually navigate away if the OS blocks the scheme.
+    try {
+      const before = window.location.href;
+      // Assigning to location for an unknown scheme causes the browser to
+      // hand the URL to the OS but leaves the current page loaded, so the
+      // user does NOT see a blank tab even when the handler is missing.
+      window.location.href = RECONNECT_PROTOCOL_URL;
+      // Some browsers race the navigation attempt; forcing a same-tab
+      // restore is a no-op when the scheme was handed off but useful if
+      // the browser started a real navigation.
+      window.setTimeout(() => {
+        if (window.location.href !== before) {
+          try {
+            window.history.replaceState(null, "", before);
+          } catch {
+            /* ignore */
+          }
+        }
+      }, 500);
+    } catch {
+      /* browser refused the navigation; fall through to the poll below */
+    }
   }
 
   async function pollBackendUntilReady() {
@@ -86,12 +108,15 @@ export default function App() {
     if (serviceReconnecting) return;
     setServiceReconnecting(true);
     setServiceOnline(false);
-    setServiceError("正在重启服务，请稍候...");
+    setServiceError("正在唤起本地服务，请稍候（若浏览器询问是否打开 Insta360_HW，请点“打开”）…");
     triggerReconnectProtocol();
     try {
       const ready = await pollBackendUntilReady();
       if (!ready) {
-        setServiceError("仍未连接到后端服务，请确认已安装 Insta360_HW，或从桌面图标重新打开平台。");
+        setServiceError(
+          "本地服务未在 30 秒内恢复。可能原因：浏览器阻止了 insta360-hw:// 协议，或平台未安装。" +
+            "\n请从桌面图标手动启动 Insta360_HW，或重新运行 Insta360_HW_Setup.exe。"
+        );
       }
     } finally {
       setServiceReconnecting(false);

@@ -622,12 +622,17 @@ def check_update(root: Path) -> dict[str, object]:
             update_reason = "version"
         elif (
             remote_cmp == 0
-            and remote_revision_status == "ok"
+            and remote_revision_status in {"ok", "ok_raw", "ok_zip"}
             and remote_revision
             and local_revision
             and remote_revision != local_revision
-            and _is_revision_ancestor(root, local_revision, remote_revision)
         ):
+            # Same version, different revision = a hotfix landed. Do NOT gate
+            # this on `git merge-base --is-ancestor`: installed runtimes ship
+            # WITHOUT .git, so ancestor check would always fail and hotfixes
+            # would never reach real users. REVISION is a signed release
+            # marker (set by bump_version.ps1) - a plain inequality is the
+            # correct signal that the packaged revision has advanced.
             has_update = True
             update_reason = "revision"
     notice_version = str(remote_notice.get("version") or "").strip() if remote_notice else ""

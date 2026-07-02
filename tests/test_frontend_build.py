@@ -152,8 +152,12 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn("serviceReconnecting", app)
         self.assertIn("pollBackendUntilReady", app)
         self.assertIn("refreshRuntimeStatus", app)
-        self.assertIn("document.createElement(\"iframe\")", app)
-        self.assertIn("正在重启服务", app)
+        # Reconnect must use a top-level window.location assignment. The earlier
+        # hidden-iframe trick is blocked by Chrome 90+/Firefox for programmatic
+        # navigation to unknown schemes without a user gesture.
+        self.assertIn("window.location.href = RECONNECT_PROTOCOL_URL", app)
+        self.assertNotIn('document.createElement("iframe")', app)
+        self.assertIn("正在唤起本地服务", app)
 
     def test_platform_page_removes_full_uninstall_flow(self) -> None:
         text = (ROOT / "frontend" / "src" / "components" / "UpdateStatus.tsx").read_text(encoding="utf-8")

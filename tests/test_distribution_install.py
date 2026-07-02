@@ -1235,7 +1235,15 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertEqual(revision, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
             self.assertEqual(len(calls), 1)
 
-    def test_update_api_does_not_treat_same_version_older_remote_revision_as_update(self) -> None:
+    def test_update_api_flags_same_version_different_remote_revision_as_hotfix(self) -> None:
+        """Same version but different remote REVISION = a hotfix landed.
+
+        Installed runtimes ship WITHOUT .git, so we cannot ask git whether the
+        remote revision is an ancestor of local. Instead the remote REVISION
+        file is the release-authored source of truth: bump_version.ps1 only
+        moves it forward, so any inequality means the packaged revision has
+        advanced and the user should update.
+        """
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "install"
             root.mkdir()
@@ -1246,21 +1254,18 @@ class DistributionInstallTests(unittest.TestCase):
             original_fetch_version = update_api._fetch_remote_version
             original_fetch_revision = update_api._fetch_remote_revision
             original_fetch_notice = update_api._fetch_remote_update_notice
-            original_is_ancestor = update_api._is_revision_ancestor
             try:
                 update_api._fetch_remote_version = lambda _root: ("0.2.13", "ok")
                 update_api._fetch_remote_revision = lambda _root: ("76f3406ed0a163f3ea3740fb7a642e4328ad06af", "ok")
                 update_api._fetch_remote_update_notice = lambda _root: ({}, "missing_notice")
-                update_api._is_revision_ancestor = lambda _root, ancestor, descendant: ancestor.startswith("76f3406") and descendant.startswith("508e5db")
                 result = update_api.check_update(root)
             finally:
                 update_api._fetch_remote_version = original_fetch_version
                 update_api._fetch_remote_revision = original_fetch_revision
                 update_api._fetch_remote_update_notice = original_fetch_notice
-                update_api._is_revision_ancestor = original_is_ancestor
 
-            self.assertFalse(result["has_update"])
-            self.assertEqual(result["update_reason"], "")
+            self.assertTrue(result["has_update"])
+            self.assertEqual(result["update_reason"], "revision")
             self.assertEqual(result["remote_revision"], "76f3406ed0a163f3ea3740fb7a642e4328ad06af")
 
     def test_update_api_returns_remote_update_notice_for_new_versions(self) -> None:

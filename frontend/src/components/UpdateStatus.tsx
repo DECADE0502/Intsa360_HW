@@ -53,17 +53,30 @@ export function UpdateStatus({ version }: { version: string }) {
     };
   }, []);
 
+  const [pollErrorStreak, setPollErrorStreak] = useState(0);
+
   useEffect(() => {
     if (!progressOpen) return;
     const ctrl = new AbortController();
     const tick = async () => {
       try {
         const s = await fetchUpdateStatus({ signal: ctrl.signal });
-        if (!ctrl.signal.aborted) setUpdateStatus(s);
+        if (!ctrl.signal.aborted) {
+          setUpdateStatus(s);
+          setPollErrorStreak(0);
+          // Backend came back after being restarted by update.ps1: if the
+          // status log shows __HWAGENT_DONE__, page needs a hard reload so
+          // the UI matches the just-installed version.
+          if (s?.done) {
+            window.setTimeout(() => window.location.reload(), 3000);
+          }
+        }
       } catch (e: any) {
-        // Silently ignore abort; log other errors
         if (e?.name !== "AbortError" && !ctrl.signal.aborted) {
-          console.warn("update status poll failed", e);
+          // update.ps1 restarts the backend near the end; polling will
+          // fail for several seconds. Count consecutive failures so the
+          // UI can distinguish a normal restart window from a real error.
+          setPollErrorStreak((n) => n + 1);
         }
       }
     };
@@ -72,6 +85,7 @@ export function UpdateStatus({ version }: { version: string }) {
     return () => {
       ctrl.abort();
       if (updatePollRef.current) window.clearInterval(updatePollRef.current);
+      setPollErrorStreak(0);
     };
   }, [progressOpen]);
 
@@ -218,6 +232,10 @@ export function UpdateStatus({ version }: { version: string }) {
             <Text type="danger">{updateStatus.message}</Text>
           ) : updateStatus?.done ? (
             <Text type="success">{updateStatus.message}</Text>
+          ) : pollErrorStreak >= 5 ? (
+            <Text type="warning">
+              后端服务已被更新脚本停止，正在等待新版本启动… 请勿关闭窗口，页面会在服务恢复后自动刷新。
+            </Text>
           ) : (
             <Text type="secondary">{updateStatus?.step || updateStatus?.message || "准备中..."}</Text>
           )}
