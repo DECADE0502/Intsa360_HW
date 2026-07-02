@@ -12,8 +12,7 @@ from openpyxl import Workbook, load_workbook
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE_BOM = ROOT / "data" / "raw" / "bom" / "IAC4_MB_POWER_V02_20260618A.xlsx"
-PACKAGE_DIR = next(p for p in ROOT.iterdir() if p.is_dir() and p.name.startswith("BOM"))
-TEMPLATE = next(PACKAGE_DIR.rglob("203010100819_ERP_BOM导入模板.xlsx"))
+TEMPLATE = Path(__file__).resolve().parent / "templates" / "203010100819_ERP_BOM导入模板.xlsx"
 OUTPUT_DIR = ROOT / "data" / "outputs" / "bom"
 
 PARENT_CODE = "203010100819"
