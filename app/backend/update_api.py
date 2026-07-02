@@ -467,19 +467,30 @@ def _fetch_file_from_codeload_zip(repo: str, relative_path: str) -> tuple[bytes,
 
 
 def _fetch_remote_revision(root: Path) -> tuple[str, str]:
+    import base64
     import json
     import urllib.request
 
     repo = _remote_repo_path(root)
-    url = f"https://api.github.com/repos/{repo}/commits/main"
+    api_url = f"https://api.github.com/repos/{repo}/contents/REVISION?ref=main"
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "HWAgent-Updater", "Accept": "application/vnd.github+json"})
+        req = urllib.request.Request(api_url, headers={"User-Agent": "HWAgent-Updater", "Accept": "application/vnd.github+json"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             payload = json.loads(resp.read().decode("utf-8", errors="replace"))
-        sha = str(payload.get("sha") or "").strip()
-        return sha, "ok" if sha else "empty_remote_revision"
+        content = str(payload.get("content") or "")
+        revision = base64.b64decode(content).decode("utf-8-sig", errors="replace").strip()
+        return revision, "ok" if revision else "empty_remote_revision"
     except Exception as exc:  # noqa: BLE001
-        return "", f"无法获取远程修订：{exc}"
+        try:
+            raw_url = f"https://raw.githubusercontent.com/{repo}/main/REVISION"
+            with urllib.request.urlopen(raw_url, timeout=10) as resp:
+                revision = resp.read().decode("utf-8-sig", errors="replace").strip()
+            return revision, "ok_raw" if revision else "empty_remote_revision"
+        except Exception as raw_exc:  # noqa: BLE001
+            zip_body, zip_status = _fetch_file_from_codeload_zip(repo, "REVISION")
+            if zip_status == "ok_zip":
+                return zip_body.decode("utf-8-sig", errors="replace").strip(), zip_status
+            return "", f"remote revision fetch failed: {exc}; raw fallback failed: {raw_exc}; zip fallback: {zip_status}"
 
 
 def _normalize_update_notice(raw: dict[str, Any], remote_version: str = "", remote_revision: str = "") -> dict[str, object]:

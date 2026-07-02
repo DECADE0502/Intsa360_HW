@@ -1150,6 +1150,57 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertEqual(result["remote_revision"], "2222222222222222222222222222222222222222")
             self.assertEqual(result["update_reason"], "revision")
 
+    def test_fetch_remote_revision_reads_revision_file_not_branch_head(self) -> None:
+        import base64
+        import json
+        import urllib.request
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "install"
+            root.mkdir()
+            (root / "config").mkdir()
+            (root / "config" / "local.json").write_text(
+                json.dumps({"update_repo": "DECADE0502/Intsa360_HW"}),
+                encoding="utf-8",
+            )
+
+            calls: list[str] = []
+
+            class FakeResponse:
+                def __init__(self, body: bytes) -> None:
+                    self.body = body
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, exc_type, exc, tb) -> None:
+                    return None
+
+                def read(self) -> bytes:
+                    return self.body
+
+            original_urlopen = urllib.request.urlopen
+            try:
+                def fake_urlopen(request, timeout=10):
+                    url = request.full_url if hasattr(request, "full_url") else str(request)
+                    calls.append(url)
+                    self.assertIn("/contents/REVISION?ref=main", url)
+                    payload = {
+                        "content": base64.b64encode(
+                            b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+                        ).decode("ascii")
+                    }
+                    return FakeResponse(json.dumps(payload).encode("utf-8"))
+
+                urllib.request.urlopen = fake_urlopen
+                revision, status = update_api._fetch_remote_revision(root)
+            finally:
+                urllib.request.urlopen = original_urlopen
+
+            self.assertEqual(status, "ok")
+            self.assertEqual(revision, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+            self.assertEqual(len(calls), 1)
+
     def test_update_api_does_not_treat_same_version_older_remote_revision_as_update(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "install"
