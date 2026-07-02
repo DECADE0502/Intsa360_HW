@@ -25,7 +25,7 @@ function Write-LauncherLog {
   "[$(Get-Date -Format s)] $Message" | Out-File -FilePath $LauncherLogFile -Encoding utf8 -Append
 }
 
-# 纯 .NET TCP 探测，避开 Get-NetTCPConnection 的模块加载开销。
+# Pure .NET TCP probe, avoids Get-NetTCPConnection module startup cost.
 function Test-PortOpen {
   param([int]$Port)
   try {
@@ -40,7 +40,7 @@ function Test-PortOpen {
   }
 }
 
-# 纯 .NET HttpWebRequest，避开 Invoke-WebRequest 约 1.5s 的首调初始化开销。
+# Pure .NET HttpWebRequest, avoids Invoke-WebRequest first-call overhead.
 function Test-HttpReady {
   param([int]$Port)
   try {
@@ -79,7 +79,7 @@ function Open-Suite {
   if ($Name   -ne "") { $params += "name=$([uri]::EscapeDataString($Name))"   }
   if ($params.Count -gt 0) { $url = "$url/?tool=bom_process&$($params -join '&')" }
   Write-LauncherLog "Opening URL: $url"
-  Write-Host "Insta360硬件提效平台已就绪：$url" -ForegroundColor Green
+  Write-Host "Insta360 HW platform is ready: $url" -ForegroundColor Green
   Start-Process -FilePath "rundll32.exe" -ArgumentList "url.dll,FileProtocolHandler", $url | Out-Null
 }
 
@@ -107,7 +107,7 @@ try {
   Write-LauncherLog ("Interrupted update recovery failed: " + $_.Exception.Message)
 }
 
-# 0) 已有健康服务且未要求重启 → 直接复用（防重复启动）
+# 0) Reuse a healthy service unless restart is requested.
 if (-not $Restart) {
   foreach ($candidate in $PortRange) {
     if ((Test-PortOpen -Port $candidate) -and (Test-HttpReady -Port $candidate)) {
@@ -122,7 +122,7 @@ if (-not $Restart) {
   }
 }
 
-# 1) -Restart 或服务不可用时：杀掉所有旧进程再全新启动。
+# 1) Restart or unavailable service: stop old backend processes and start fresh.
 Get-CimInstance Win32_Process |
   Where-Object { $_.Name -like "python*" -and $_.CommandLine -and ($_.CommandLine -like "*$BackendScriptResolved*") } |
   ForEach-Object {
@@ -131,7 +131,7 @@ Get-CimInstance Win32_Process |
     }
   }
 
-# 2) 选第一个未被占用的端口。
+# 2) Pick the first free port.
 $Port = $null
 foreach ($candidate in $PortRange) {
   if (-not (Test-PortOpen -Port $candidate)) {
@@ -144,7 +144,7 @@ if ($null -eq $Port) {
   throw "8765-8775 ports are all in use; cannot start."
 }
 
-# 3) 后台启动全新服务。
+# 3) Start a fresh backend in the background.
 "[$(Get-Date -Format s)] Starting hardware tool suite on port $Port" | Out-File -FilePath $LogFile -Encoding utf8 -Append
 Write-LauncherLog "Starting service on port $Port"
 if (-not $NoOpen) {
@@ -159,7 +159,7 @@ Start-Process -FilePath $Python `
   -RedirectStandardOutput $LogFile `
   -RedirectStandardError $ErrorLogFile | Out-Null
 
-# 4) 快速轮询就绪（200ms 一跳，最多约 8 秒）。
+# 4) Poll readiness quickly, up to about 8 seconds.
 $ready = $false
 foreach ($i in 1..40) {
   if (Test-HttpReady -Port $Port) {
@@ -171,7 +171,7 @@ foreach ($i in 1..40) {
 
 if (-not $ready) {
   Write-LauncherLog "Startup failed on port $Port; error log: $ErrorLogFile"
-  Write-Host "平台启动失败，请查看日志：$ErrorLogFile" -ForegroundColor Red
+  Write-Host "Platform startup failed. See log: $ErrorLogFile" -ForegroundColor Red
   exit 1
 }
 

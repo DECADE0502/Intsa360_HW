@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -2045,6 +2046,20 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("Resolve-Path -LiteralPath $BackendScript", text)
         self.assertIn("CommandLine -like", text)
         self.assertNotIn('.CommandLine.Contains("suite_app.py")', text)
+
+    def test_launch_tool_suite_keeps_powershell_statements_out_of_comments(self) -> None:
+        text = (ROOT / "launch_tool_suite.ps1").read_text(encoding="utf-8")
+
+        for statement in [
+            "function Test-PortOpen {",
+            "function Test-HttpReady {",
+            "if (-not $Restart) {",
+            "Get-CimInstance Win32_Process |",
+            "$Port = $null",
+            "$ready = $false",
+        ]:
+            self.assertRegex(text, rf"(?m)^{re.escape(statement)}")
+            self.assertNotRegex(text, rf"(?m)^#.*{re.escape(statement)}")
 
     def test_uninstall_status_parses_progress_markers_from_log(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
