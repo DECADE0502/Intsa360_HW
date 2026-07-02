@@ -1,21 +1,24 @@
 ﻿{
-    "version":  "0.2.24",
-    "revision":  "581a9fe54a263fba332c7be693860ba3313926a4",
+    "version":  "0.2.25",
+    "revision":  "00c0bdf0bbde6a1a80abf8343a964088cea5bd5f",
     "date":  "2026-07-02",
-    "title":  "0.2.24 OTA update detection fix",
-    "summary":  "This update fixes OTA version detection so the platform compares the packaged REVISION file instead of the GitHub branch head commit.",
+    "title":  "0.2.25 OTA reliability hotfix",
+    "summary":  "This release restores end-to-end update reliability: rollback preserves the packaged UI, OTA no longer runs verify_all after committing the transaction, revision-only hotfixes reach installed runtimes, reconnect works on modern browsers, and pre-release checks now catch broken release assets before tagging.",
     "highlights":  [
-                       "Update checks now read the remote REVISION file that will actually be installed.",
-                       "Publishing metadata commits no longer make the platform report a false same-version update.",
-                       "The update notice target revision now matches the packaged payload revision.",
-                       "Regression tests cover the REVISION-file lookup and the existing rollback dependency-tree fix."
+                       "Rollback backup and restore now include app/frontend and every packaged runtime dir. Dev-only exclude names (frontend/tests/docs/launcher) are anchored as absolute paths so /XD no longer eats packaged directories at deeper levels.",
+                       "OTA no longer runs verify_all: verification used to fire after the rollback transaction committed, so a failure could only strand the tree as FAILED without restarting the service.",
+                       "Revision-only hotfixes now reach installed runtimes; check_update no longer requires local .git for the ancestor check, which meant hotfixes were silently invisible to every real user.",
+                       "Reconnect from the offline banner now works on Chrome 90+ / Firefox by using a top-level navigation instead of a hidden iframe.",
+                       "Update-in-progress modal explains the backend-restart window instead of stalling at the last known progress, and auto-reloads once the update finishes.",
+                       "Interrupted update transactions that fail to roll back are quarantined so a bad pending file no longer blocks every subsequent launch.",
+                       "pre_release_check.ps1 now HEAD-requests every UPDATE_NOTICE asset URL and diffs highlights against the previous release; publish_release.ps1 verifies the just-uploaded asset resolves anonymously before returning success."
                    ],
     "assets":  [
                    {
                        "kind":  "release_zip",
-                       "url":  "https://github.com/DECADE0502/Intsa360_HW/releases/download/v0.2.24/Insta360_HW_v0.2.24.zip",
-                       "sha256":  "1ecf34f33ce349289d7ec494460f9a06f2653b0afed5ff3a2497bfa711e08808",
-                       "size_bytes":  12785574
+                       "url":  "https://github.com/DECADE0502/Intsa360_HW/releases/download/v0.2.25/Insta360_HW_v0.2.25.zip",
+                       "sha256":  "6b164b70ecc9e9d439a37d536be3648912bc8962db3689497aff9828f2e9052f",
+                       "size_bytes":  12787441
                    }
                ],
     "compatibility":  "No data migration is required. Existing history, user plugins and local config are preserved.",
