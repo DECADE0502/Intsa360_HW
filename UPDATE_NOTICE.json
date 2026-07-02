@@ -3,18 +3,19 @@
     "revision":  "d72fa3203de52f95cee6bf20791414277a4b7a8f",
     "date":  "2026-07-02",
     "title":  "0.2.20 release metadata guard",
-    "summary":  "This update tightens the release readiness check so package metadata cannot silently point at a stale revision.",
+    "summary":  "This update tightens release metadata checks and makes the update dialog honest about runtime release packages versus source zip fallback.",
     "highlights":  [
                        "Pre-release checks now verify that source REVISION belongs to the current branch history.",
                        "Updated release metadata for the next manual in-platform update test.",
-                       "No local self-upgrade is performed by the build workflow; users can update manually from the platform."
+                       "No local self-upgrade is performed by the build workflow; users can update manually from the platform.",
+                       "The update notice now distinguishes pending runtime-release SHA verification from send-pack source zip fallback."
                    ],
     "assets":  [
                    {
                        "kind":  "release_zip",
                        "url":  "https://github.com/DECADE0502/Intsa360_HW/releases/download/v0.2.20/Insta360_HW_v0.2.20.zip",
-                       "sha256":  "503cdde75c5785c1272093a66f11c6770026044fc354711499c2e367f2bbaffd",
-                       "size_bytes":  12783814
+                       "sha256":  "712399669ded4d6db1ccb116f00cf7cd45da2a47fd537b394441f2e348867239",
+                       "size_bytes":  12784511
                    }
                ],
     "compatibility":  "No data migration is required. Existing history, user plugins and local config are preserved.",

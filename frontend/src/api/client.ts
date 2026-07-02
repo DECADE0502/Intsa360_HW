@@ -286,6 +286,8 @@ export type UpdateCheck = {
   remote_revision_status: string;
   expected_sha256?: string;
   integrity_verified?: boolean;
+  integrity_status?: string;
+  download_strategy?: string;
   message: string;
 };
 

@@ -122,6 +122,16 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn("查看更新公告", text)
         self.assertIn("本次更新要点", text)
 
+    def test_update_notice_surfaces_download_integrity_status(self) -> None:
+        text = (ROOT / "frontend" / "src" / "components" / "UpdateStatus.tsx").read_text(encoding="utf-8")
+        client = (ROOT / "frontend" / "src" / "api" / "client.ts").read_text(encoding="utf-8")
+
+        self.assertIn("integrity_status", client)
+        self.assertIn("download_strategy", client)
+        self.assertIn("integrityStatus", text)
+        self.assertIn("runtime_release_sha_pending", text)
+        self.assertIn("source_zip_fallback", text)
+
     def test_frontend_marks_backend_offline_when_health_check_fails(self) -> None:
         app = (ROOT / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
         client = (ROOT / "frontend" / "src" / "api" / "client.ts").read_text(encoding="utf-8")

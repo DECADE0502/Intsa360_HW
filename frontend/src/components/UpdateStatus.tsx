@@ -27,6 +27,7 @@ export function UpdateStatus({ version }: { version: string }) {
   const [checkedUpdate, setCheckedUpdate] = useState(false);
   const [updateNotice, setUpdateNotice] = useState<UpdateNotice | null>(null);
   const [integrityVerified, setIntegrityVerified] = useState<boolean | undefined>(undefined);
+  const [integrityStatus, setIntegrityStatus] = useState<string>("");
   const [noticeOpen, setNoticeOpen] = useState(false);
 
   const [progressOpen, setProgressOpen] = useState(false);
@@ -42,6 +43,7 @@ export function UpdateStatus({ version }: { version: string }) {
         setRemoteVersion(info.display_remote || info.remote_version || "");
         setUpdateNotice(info.update_notice && Object.keys(info.update_notice).length ? info.update_notice : null);
         setIntegrityVerified(info.integrity_verified);
+        setIntegrityStatus(info.integrity_status || "");
         if (info.has_update && info.update_notice && Object.keys(info.update_notice).length) setNoticeOpen(true);
         setCheckedUpdate(true);
       })
@@ -83,6 +85,7 @@ export function UpdateStatus({ version }: { version: string }) {
       setRemoteVersion(info.display_remote || info.remote_version || "");
       setUpdateNotice(info.update_notice && Object.keys(info.update_notice).length ? info.update_notice : null);
       setIntegrityVerified(info.integrity_verified);
+      setIntegrityStatus(info.integrity_status || "");
       setCheckedUpdate(true);
       if (info.has_update) {
         if (info.update_notice && Object.keys(info.update_notice).length) setNoticeOpen(true);
@@ -191,6 +194,7 @@ export function UpdateStatus({ version }: { version: string }) {
         notice={updateNotice}
         remoteVersion={remoteVersion}
         integrityVerified={integrityVerified}
+        integrityStatus={integrityStatus}
         onClose={() => setNoticeOpen(false)}
         onUpdate={onUpdate}
       />
@@ -250,6 +254,7 @@ function UpdateNoticeModal({
   notice,
   remoteVersion,
   integrityVerified,
+  integrityStatus,
   onClose,
   onUpdate,
 }: {
@@ -257,12 +262,28 @@ function UpdateNoticeModal({
   notice: UpdateNotice | null;
   remoteVersion: string;
   integrityVerified?: boolean;
+  integrityStatus?: string;
   onClose: () => void;
   onUpdate: () => void;
 }) {
   if (!notice) return null;
   const highlights = notice.highlights || [];
   const trace = notice.trace || {};
+  const integrityAlert =
+    integrityStatus === "runtime_release_sha_pending"
+      ? {
+          type: "info" as const,
+          message: "更新包校验将在下载时确认",
+          description:
+            "平台会优先使用 GitHub Release 运行包；如果当前仓库只通过 send-pack 更新、没有对应 Release 包，则会回退到 source_zip_fallback。实际 SHA256 校验结果以更新日志为准。",
+        }
+      : integrityStatus === "source_zip_fallback"
+      ? {
+          type: "warning" as const,
+          message: "将使用源码包回退更新",
+          description: "未发现可直接校验的运行包资产，更新会使用 GitHub source zip 回退路径，下载包不会显示为已 SHA256 校验。",
+        }
+      : null;
   return (
     <Modal
       open={open}
@@ -279,7 +300,16 @@ function UpdateNoticeModal({
         {notice.date ? <Text>发布日期：{notice.date}</Text> : null}
       </div>
       {notice.summary ? <Paragraph>{notice.summary}</Paragraph> : null}
-      {integrityVerified === false && (
+      {integrityVerified === false && integrityAlert ? (
+        <Alert
+          type={integrityAlert.type}
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={integrityAlert.message}
+          description={integrityAlert.description}
+        />
+      ) : null}
+      {integrityVerified === false && !integrityAlert && (
         <Alert
           type="warning"
           showIcon

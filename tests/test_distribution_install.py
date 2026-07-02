@@ -1187,6 +1187,43 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertEqual(result["update_notice"]["revision"], "3333333333333333333333333333333333333333")
             self.assertEqual(result["update_notice"]["target_revision"], "3333333")
 
+    def test_update_api_does_not_claim_notice_release_zip_sha_is_verified(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "install"
+            root.mkdir()
+            (root / "VERSION").write_text("0.2.19\n", encoding="utf-8")
+            (root / "REVISION").write_text("1111111111111111111111111111111111111111\n", encoding="utf-8")
+            (root / "update.ps1").write_text("echo hi\n", encoding="utf-8")
+
+            original_fetch_version = update_api._fetch_remote_version
+            original_fetch_revision = update_api._fetch_remote_revision
+            original_fetch_notice = update_api._fetch_remote_update_notice
+            try:
+                update_api._fetch_remote_version = lambda _root: ("0.2.20", "ok")
+                update_api._fetch_remote_revision = lambda _root: ("2222222222222222222222222222222222222222", "ok")
+                update_api._fetch_remote_update_notice = lambda _root: ({
+                    "version": "0.2.20",
+                    "revision": "2222222222222222222222222222222222222222",
+                    "title": "send-pack release",
+                    "assets": [{
+                        "kind": "release_zip",
+                        "url": "https://github.com/DECADE0502/Intsa360_HW/releases/download/v0.2.20/Insta360_HW_v0.2.20.zip",
+                        "sha256": "a" * 64,
+                        "size_bytes": 123,
+                    }],
+                }, "ok")
+                result = update_api.check_update(root)
+            finally:
+                update_api._fetch_remote_version = original_fetch_version
+                update_api._fetch_remote_revision = original_fetch_revision
+                update_api._fetch_remote_update_notice = original_fetch_notice
+
+            self.assertTrue(result["has_update"])
+            self.assertEqual(result["download_strategy"], "runtime_release_or_source_zip")
+            self.assertEqual(result["integrity_status"], "runtime_release_sha_pending")
+            self.assertEqual(result["expected_sha256"], "")
+            self.assertFalse(result["integrity_verified"])
+
     def test_update_api_normalizes_update_notice_assets(self) -> None:
         sha = "b" * 64
         notice = update_api._normalize_update_notice({

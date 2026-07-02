@@ -516,6 +516,41 @@ def _normalize_update_notice(raw: dict[str, Any], remote_version: str = "", remo
     }
 
 
+def _resolve_update_download_metadata(remote_notice: dict[str, object] | None) -> dict[str, object]:
+    """Describe the actual updater path without overstating integrity.
+
+    update.ps1 does not consume UPDATE_NOTICE.assets directly. It first asks
+    GitHub Releases for a runtime zip and only then uses the release API
+    sha/digest; if that lookup fails it falls back to the codeload source zip.
+    Therefore a sha256 stored in UPDATE_NOTICE is advisory, not proof that the
+    next download will be verified.
+    """
+    assets = remote_notice.get("assets", []) if remote_notice else []
+    release_asset = next(
+        (
+            asset
+            for asset in assets
+            if isinstance(asset, dict)
+            and asset.get("kind") == "release_zip"
+            and str(asset.get("sha256") or "")
+        ),
+        None,
+    )
+    if release_asset:
+        return {
+            "download_strategy": "runtime_release_or_source_zip",
+            "integrity_status": "runtime_release_sha_pending",
+            "expected_sha256": "",
+            "integrity_verified": False,
+        }
+    return {
+        "download_strategy": "source_zip_fallback",
+        "integrity_status": "unverified_source_zip",
+        "expected_sha256": "",
+        "integrity_verified": False,
+    }
+
+
 def _fetch_remote_update_notice(root: Path) -> tuple[dict[str, object], str]:
     import base64
     import json
@@ -593,12 +628,7 @@ def check_update(root: Path) -> dict[str, object]:
             update_reason = "notice_version"
     if remote_notice:
         remote_notice = _normalize_update_notice(dict(remote_notice), remote_version, remote_revision)
-    expected_sha256 = ""
-    for asset in remote_notice.get("assets", []) if remote_notice else []:
-        if isinstance(asset, dict) and asset.get("kind") == "release_zip":
-            expected_sha256 = str(asset.get("sha256") or "")
-            break
-    integrity_verified = bool(expected_sha256) and len(expected_sha256) == 64
+    download_meta = _resolve_update_download_metadata(remote_notice)
     if has_update:
         message = "发现新版本，可一键更新"
     elif remote_status in _REMOTE_VERSION_OK_STATUSES:
@@ -612,8 +642,10 @@ def check_update(root: Path) -> dict[str, object]:
         "remote_version": remote_version,
         "remote_revision": remote_revision,
         "update_notice": remote_notice if has_update else {},
-        "expected_sha256": expected_sha256 if has_update else "",
-        "integrity_verified": integrity_verified if has_update else False,
+        "expected_sha256": download_meta["expected_sha256"] if has_update else "",
+        "integrity_verified": download_meta["integrity_verified"] if has_update else False,
+        "integrity_status": download_meta["integrity_status"] if has_update else "",
+        "download_strategy": download_meta["download_strategy"] if has_update else "",
         "notice_status": notice_status,
         "has_update": has_update,
         "update_reason": update_reason,
