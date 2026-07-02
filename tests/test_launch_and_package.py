@@ -28,7 +28,7 @@ class LaunchAndPackageTests(unittest.TestCase):
         self.assertIn("waiting.html", text)
         self.assertIn("/api/plugins", text)
         self.assertIn("url.dll,FileProtocolHandler", text)
-        self.assertIn("Insta360硬件提效平台已就绪", text)
+        self.assertIn("Insta360 HW platform is ready", text)
         self.assertNotIn("Hardware Efficiency Suite ready", text)
         self.assertIn("WScript.Shell", vbs)
         self.assertIn("launch_tool_suite.ps1", vbs)
