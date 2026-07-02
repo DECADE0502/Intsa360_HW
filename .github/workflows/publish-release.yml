@@ -1,0 +1,75 @@
+name: publish-release
+
+# Publishes a GitHub Release from assets staged on the release-assets branch.
+# This exists because the dev environment only permits git send-pack (SSH push);
+# release creation and asset upload must therefore happen GitHub-side with the
+# workflow's built-in GITHUB_TOKEN.
+#
+# Contract:
+#   1. The release tag named in release-manifest.json must already exist on the
+#      remote (push the tag BEFORE pushing this branch); --verify-tag enforces it.
+#   2. release-manifest.json declares the asset file, its sha256 and size; the
+#      job fails if the staged file does not match, so a corrupt or wrong zip
+#      can never be published.
+#   3. After upload, the anonymous download URL is polled until it returns 200,
+#      mirroring the guarantee of scripts/publish_release.ps1.
+
+on:
+  push:
+    branches:
+      - release-assets
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release-assets branch
+        uses: actions/checkout@v4
+
+      - name: Read manifest
+        id: manifest
+        run: |
+          echo "tag=$(jq -r .tag release-manifest.json)" >> "$GITHUB_OUTPUT"
+          echo "file=$(jq -r .file release-manifest.json)" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(jq -r .sha256 release-manifest.json)" >> "$GITHUB_OUTPUT"
+          echo "size=$(jq -r .size_bytes release-manifest.json)" >> "$GITHUB_OUTPUT"
+          echo "title=$(jq -r .title release-manifest.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Verify staged asset matches manifest
+        run: |
+          echo "${{ steps.manifest.outputs.sha256 }}  ${{ steps.manifest.outputs.file }}" | sha256sum -c -
+          actual_size=$(stat -c %s "${{ steps.manifest.outputs.file }}")
+          if [ "$actual_size" -ne "${{ steps.manifest.outputs.size }}" ]; then
+            echo "size mismatch: manifest=${{ steps.manifest.outputs.size }} actual=$actual_size"
+            exit 1
+          fi
+
+      - name: Create release on existing tag and upload asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ steps.manifest.outputs.tag }}"
+          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --verify-tag \
+              --title "${{ steps.manifest.outputs.title }}" \
+              --notes-file release-notes.md
+          fi
+          gh release upload "$tag" "${{ steps.manifest.outputs.file }}" \
+            --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Verify anonymous download URL
+        run: |
+          url="https://github.com/$GITHUB_REPOSITORY/releases/download/${{ steps.manifest.outputs.tag }}/${{ steps.manifest.outputs.file }}"
+          for i in $(seq 1 12); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -I -L "$url")
+            echo "attempt $i: HTTP $code"
+            if [ "$code" = "200" ]; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "release asset never became anonymously reachable: $url"
+          exit 1
