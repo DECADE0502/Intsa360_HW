@@ -16,6 +16,19 @@ function Write-HwAgentNotice {
   $Notice | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $Path -Encoding UTF8
 }
 
+function New-HwAgentReleaseZip {
+  param(
+    [Parameter(Mandatory=$true)][string]$ReleaseDir,
+    [Parameter(Mandatory=$true)][string]$ZipPath
+  )
+  if (-not (Test-Path -LiteralPath $ReleaseDir)) { throw "Release tree missing: $ReleaseDir" }
+  if (Test-Path -LiteralPath $ZipPath) { Remove-Item -LiteralPath $ZipPath -Force }
+  # Zip the directory itself, not its contents: every deployed
+  # Find-HwAgentUpdatePayloadRoot locates the runtime by scanning top-level
+  # directories of the extracted archive, so the wrapper must be present.
+  Compress-Archive -Path $ReleaseDir -DestinationPath $ZipPath -Force
+}
+
 function Assert-HwAgentNoticeHasAssets {
   param([Parameter(Mandatory=$true)][string]$Path)
   $notice = Read-HwAgentNotice -Path $Path

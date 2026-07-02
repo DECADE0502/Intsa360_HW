@@ -1454,6 +1454,70 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertEqual(asset["size_bytes"], zip_path.stat().st_size if zip_path.exists() else 22)
         self.assertIn("/releases/download/v0.0.1/", asset["url"])
 
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
+    def test_release_zip_wraps_runtime_payload_for_updater(self) -> None:
+        # 0.2.25 shipped a zip with the runtime at the archive root; every
+        # deployed Find-HwAgentUpdatePayloadRoot only inspects subdirectories,
+        # so OTA failed at 40% for every client. The zip must wrap the runtime
+        # in a top-level HWAgent_release directory.
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            release = tmp_path / "HWAgent_release"
+            (release / "app" / "frontend").mkdir(parents=True)
+            (release / "install_manifest.json").write_text("{}", encoding="utf-8")
+            (release / "app" / "frontend" / "index.html").write_text("<html></html>", encoding="utf-8")
+            zip_path = tmp_path / "release.zip"
+            extract = tmp_path / "extract"
+            command = (
+                f". '{ROOT / 'scripts' / 'lib' / 'ReleaseNotice.ps1'}'; "
+                f". '{ROOT / 'scripts' / 'lib' / 'Update.ps1'}'; "
+                f"New-HwAgentReleaseZip -ReleaseDir '{release}' -ZipPath '{zip_path}'; "
+                f"Expand-Archive -Path '{zip_path}' -DestinationPath '{extract}'; "
+                f"Find-HwAgentUpdatePayloadRoot -ExtractRoot '{extract}'"
+            )
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+                cwd=ROOT,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=120,
+            )
+            stderr = result.stderr.decode("utf-8", errors="replace")
+            self.assertEqual(result.returncode, 0, stderr)
+            stdout_lines = result.stdout.decode("utf-8", errors="replace").strip().splitlines()
+            self.assertTrue(stdout_lines, "detector printed no payload root")
+            payload = stdout_lines[-1].strip()
+            self.assertTrue(
+                payload.lower().endswith("hwagent_release"),
+                f"payload root should be the HWAgent_release wrapper, got: {payload}",
+            )
+
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
+    def test_update_payload_detector_accepts_extract_root_layout(self) -> None:
+        # Defense in depth for the same incident: if a future zip unpacks the
+        # runtime at the extraction root again, the detector must accept it
+        # instead of stranding every deployed updater.
+        with tempfile.TemporaryDirectory() as tmp:
+            extract = Path(tmp) / "extract"
+            (extract / "app" / "frontend").mkdir(parents=True)
+            (extract / "install_manifest.json").write_text("{}", encoding="utf-8")
+            (extract / "app" / "frontend" / "index.html").write_text("<html></html>", encoding="utf-8")
+            command = (
+                f". '{ROOT / 'scripts' / 'lib' / 'Update.ps1'}'; "
+                f"Find-HwAgentUpdatePayloadRoot -ExtractRoot '{extract}'"
+            )
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+                cwd=ROOT,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=60,
+            )
+            stderr = result.stderr.decode("utf-8", errors="replace")
+            self.assertEqual(result.returncode, 0, stderr)
+            payload = result.stdout.decode("utf-8", errors="replace").strip()
+            self.assertEqual(Path(payload), extract)
+
     def test_update_api_uses_notice_version_when_version_endpoint_is_stale(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "install"

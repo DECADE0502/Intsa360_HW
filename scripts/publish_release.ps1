@@ -43,8 +43,7 @@ if (-not $ZipPath) {
   if (-not (Test-Path -LiteralPath $Release)) { throw "Release tree missing: $Release" }
 
   $ZipPath = Join-Path $Workspace ("Insta360_HW_$tagName.zip")
-  if (Test-Path -LiteralPath $ZipPath) { Remove-Item -LiteralPath $ZipPath -Force }
-  Compress-Archive -Path (Join-Path $Release "*") -DestinationPath $ZipPath -Force
+  New-HwAgentReleaseZip -ReleaseDir $Release -ZipPath $ZipPath
 }
 $zipSize = (Get-Item -LiteralPath $ZipPath).Length
 Write-Host ("Packed release zip: {0} ({1:N1} MB)" -f $ZipPath, ($zipSize / 1MB))

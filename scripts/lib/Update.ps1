@@ -484,6 +484,9 @@ function Write-HwAgentRevision {
 function Find-HwAgentUpdatePayloadRoot {
   param([Parameter(Mandatory=$true)][string]$ExtractRoot)
   $candidates = @()
+  # The extraction root itself is a valid payload location: a zip that packs
+  # the runtime without a wrapper directory must not strand deployed updaters.
+  $candidates += Get-Item -LiteralPath $ExtractRoot -ErrorAction SilentlyContinue
   $candidates += Get-ChildItem -LiteralPath $ExtractRoot -Directory -ErrorAction SilentlyContinue
   $candidates += Get-ChildItem -LiteralPath $ExtractRoot -Directory -Recurse -ErrorAction SilentlyContinue |
     Where-Object { $_.Name -eq "HWAgent_release" }
