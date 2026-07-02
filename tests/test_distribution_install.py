@@ -2579,7 +2579,8 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("$repoRoot = Split-Path -Parent $root", content)
         self.assertIn('Join-Path $repoRoot "HWAgent_release\\Insta360_HW.exe"', content)
         self.assertIn('Join-Path $repoRoot "HWAgent_release\\REVISION"', content)
-        self.assertIn("Rebuild release after committing", content)
+        self.assertIn("merge-base --is-ancestor", content)
+        self.assertIn("Rebuild release from this branch", content)
 
 
 if __name__ == "__main__":

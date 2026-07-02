@@ -13,8 +13,8 @@
                    {
                        "kind":  "release_zip",
                        "url":  "https://github.com/DECADE0502/Intsa360_HW/releases/download/v0.2.19/Insta360_HW_v0.2.19.zip",
-                       "sha256":  "1839b3cd67f467d43d0826f9999a0f70b7a446486411923ed1331c276f532ce9",
-                       "size_bytes":  12782918
+                       "sha256":  "2611271d96c81a9595f00bf0c5ec093faee450de272e6a1c76b6fe9e017342d0",
+                       "size_bytes":  12783562
                    }
                ],
     "compatibility":  "No data migration is required. Existing history, user plugins and local config are preserved.",

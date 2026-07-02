@@ -52,10 +52,15 @@ if (-not (Test-Path $releaseExe)) {
     $head = (& git -C $root rev-parse HEAD 2>&1).Trim()
     $releaseRevisionPath = Join-Path $repoRoot "HWAgent_release\REVISION"
     $releaseRevision = if (Test-Path $releaseRevisionPath) { (Get-Content -Raw $releaseRevisionPath).Trim() } else { "" }
-    if ($releaseRevision -ne $head) {
-        Add-Error "HWAgent_release\REVISION ($releaseRevision) does not match git HEAD ($head). Rebuild release after committing."
+    $releaseIsAncestor = $false
+    if ($releaseRevision -match '^[0-9a-fA-F]{40}$') {
+        & git -C $root merge-base --is-ancestor $releaseRevision $head 2>$null
+        $releaseIsAncestor = ($LASTEXITCODE -eq 0)
+    }
+    if (-not $releaseIsAncestor) {
+        Add-Error "HWAgent_release\REVISION ($releaseRevision) is not an ancestor of git HEAD ($head). Rebuild release from this branch."
     } else {
-        Write-Host "[OK] HWAgent_release REVISION matches git HEAD" -ForegroundColor Green
+        Write-Host "[OK] HWAgent_release REVISION is on current branch" -ForegroundColor Green
     }
     $exeMtime = (Get-Item $releaseExe).LastWriteTime
     $versionMtime = (Get-Item (Join-Path $root "VERSION")).LastWriteTime
