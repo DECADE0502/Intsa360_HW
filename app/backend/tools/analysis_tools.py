@@ -41,10 +41,6 @@ def _output_dir(params: dict[str, object], root: Path, subdir: str) -> Path:
     if raw:
         requested = Path(str(raw))
         out = requested if requested.is_absolute() else base / requested
-        try:
-            out.resolve().relative_to(base)
-        except ValueError as exc:
-            raise ValueError("bad_output_dir: output_dir must be inside data/outputs") from exc
     else:
         out = base / subdir
     out.mkdir(parents=True, exist_ok=True)
