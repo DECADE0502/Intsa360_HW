@@ -2586,6 +2586,14 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("cmd.exe /c", content)
         self.assertNotIn("npm run build 2>&1 | Out-String", content)
 
+    def test_pre_release_check_requires_source_revision_to_be_on_current_branch(self) -> None:
+        content = (ROOT / "scripts" / "pre_release_check.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("git -C $root rev-parse HEAD", content)
+        self.assertIn("sourceRevisionIsAncestor", content)
+        self.assertIn("Source REVISION", content)
+        self.assertIn("is not an ancestor of git HEAD", content)
+
 
 if __name__ == "__main__":
     unittest.main()

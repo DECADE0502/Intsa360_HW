@@ -1,20 +1,20 @@
 ﻿{
-    "version":  "0.2.19",
-    "revision":  "3fa2ef9ff98c05d8d23ee9220a50d2420bc1f04d",
+    "version":  "0.2.20",
+    "revision":  "d72fa3203de52f95cee6bf20791414277a4b7a8f",
     "date":  "2026-07-02",
-    "title":  "0.2.19 OTA recovery update",
-    "summary":  "This update fixes the 0.2.18 in-platform update hang after file application and makes OTA sync/rollback overwrite changed runtime files more reliably.",
+    "title":  "0.2.20 release metadata guard",
+    "summary":  "This update tightens the release readiness check so package metadata cannot silently point at a stale revision.",
     "highlights":  [
-                       "Fixed service restart after OTA when the install path contains spaces such as C:\\Program Files.",
-                       "OTA sync and rollback now overwrite same-size runtime files instead of relying only on robocopy timestamp heuristics.",
-                       "Added a regression test that starts the backend from an install path with spaces."
+                       "Pre-release checks now verify that source REVISION belongs to the current branch history.",
+                       "Updated release metadata for the next manual in-platform update test.",
+                       "No local self-upgrade is performed by the build workflow; users can update manually from the platform."
                    ],
     "assets":  [
                    {
                        "kind":  "release_zip",
-                       "url":  "https://github.com/DECADE0502/Intsa360_HW/releases/download/v0.2.19/Insta360_HW_v0.2.19.zip",
-                       "sha256":  "2cae74f6ba46615cfca090512416163fc877bd30dae4153422b053bc3d775f41",
-                       "size_bytes":  12783764
+                       "url":  "https://github.com/DECADE0502/Intsa360_HW/releases/download/v0.2.20/Insta360_HW_v0.2.20.zip",
+                       "sha256":  "503cdde75c5785c1272093a66f11c6770026044fc354711499c2e367f2bbaffd",
+                       "size_bytes":  12783814
                    }
                ],
     "compatibility":  "No data migration is required. Existing history, user plugins and local config are preserved.",

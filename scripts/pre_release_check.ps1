@@ -26,13 +26,24 @@ if ($issContent -notmatch [regex]::Escape($issPattern)) {
     Write-Host "[OK] iss version matches VERSION ($version)" -ForegroundColor Green
 }
 
-# 3. Source REVISION matches UPDATE_NOTICE; release REVISION is checked against HEAD after build.
+# 3. Source REVISION matches UPDATE_NOTICE and belongs to the current branch.
+$head = (& git -C $root rev-parse HEAD 2>&1).Trim()
 $revision = (Get-Content -Raw (Join-Path $root "REVISION")).Trim()
 $notice = Get-Content -Raw (Join-Path $root "UPDATE_NOTICE.json") | ConvertFrom-Json
 if ([string]$notice.revision -ne $revision) {
     Add-Error "UPDATE_NOTICE.revision ($($notice.revision)) does not match REVISION ($revision). Run scripts\bump_version.ps1 to sync."
 } else {
     Write-Host "[OK] REVISION matches UPDATE_NOTICE.revision" -ForegroundColor Green
+}
+$sourceRevisionIsAncestor = $false
+if ($revision -match '^[0-9a-fA-F]{40}$') {
+    & git -C $root merge-base --is-ancestor $revision $head 2>$null
+    $sourceRevisionIsAncestor = ($LASTEXITCODE -eq 0)
+}
+if (-not $sourceRevisionIsAncestor) {
+    Add-Error "Source REVISION ($revision) is not an ancestor of git HEAD ($head). Run scripts\bump_version.ps1 and rebuild release metadata."
+} else {
+    Write-Host "[OK] Source REVISION is on current branch" -ForegroundColor Green
 }
 
 # 4. UPDATE_NOTICE.assets non-empty with sha256
@@ -49,7 +60,6 @@ $releaseExe = Join-Path $repoRoot "HWAgent_release\Insta360_HW.exe"
 if (-not (Test-Path $releaseExe)) {
     Add-Error "HWAgent_release\Insta360_HW.exe not built. Run scripts\build_release.ps1 first."
 } else {
-    $head = (& git -C $root rev-parse HEAD 2>&1).Trim()
     $releaseRevisionPath = Join-Path $repoRoot "HWAgent_release\REVISION"
     $releaseRevision = if (Test-Path $releaseRevisionPath) { (Get-Content -Raw $releaseRevisionPath).Trim() } else { "" }
     $releaseIsAncestor = $false
