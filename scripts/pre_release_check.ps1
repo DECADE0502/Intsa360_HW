@@ -85,7 +85,7 @@ Write-Host "Running npm run build..." -ForegroundColor Cyan
 Push-Location (Join-Path $root "frontend")
 try {
     $npmLog = Join-Path ([System.IO.Path]::GetTempPath()) ("hwagent_npm_build_" + [System.Guid]::NewGuid().ToString("N") + ".log")
-    & npm run build > $npmLog 2>&1
+    & cmd.exe /c "npm run build > `"$npmLog`" 2>&1"
     $npmExit = $LASTEXITCODE
     $npmOut = if (Test-Path -LiteralPath $npmLog) { Get-Content -LiteralPath $npmLog -Raw -ErrorAction SilentlyContinue } else { "" }
     if (Test-Path -LiteralPath $npmLog) { Remove-Item -LiteralPath $npmLog -Force -ErrorAction SilentlyContinue }

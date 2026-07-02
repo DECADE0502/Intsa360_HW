@@ -2583,6 +2583,7 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("Rebuild release from this branch", content)
         self.assertIn("$npmLog", content)
         self.assertIn("$npmExit = $LASTEXITCODE", content)
+        self.assertIn("cmd.exe /c", content)
         self.assertNotIn("npm run build 2>&1 | Out-String", content)
 
 
