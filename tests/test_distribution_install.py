@@ -2581,6 +2581,9 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn('Join-Path $repoRoot "HWAgent_release\\REVISION"', content)
         self.assertIn("merge-base --is-ancestor", content)
         self.assertIn("Rebuild release from this branch", content)
+        self.assertIn("$npmLog", content)
+        self.assertIn("$npmExit = $LASTEXITCODE", content)
+        self.assertNotIn("npm run build 2>&1 | Out-String", content)
 
 
 if __name__ == "__main__":

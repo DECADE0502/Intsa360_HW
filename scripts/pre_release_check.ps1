@@ -84,8 +84,12 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "Running npm run build..." -ForegroundColor Cyan
 Push-Location (Join-Path $root "frontend")
 try {
-    $npmOut = & npm run build 2>&1 | Out-String
-    if ($LASTEXITCODE -ne 0) {
+    $npmLog = Join-Path ([System.IO.Path]::GetTempPath()) ("hwagent_npm_build_" + [System.Guid]::NewGuid().ToString("N") + ".log")
+    & npm run build > $npmLog 2>&1
+    $npmExit = $LASTEXITCODE
+    $npmOut = if (Test-Path -LiteralPath $npmLog) { Get-Content -LiteralPath $npmLog -Raw -ErrorAction SilentlyContinue } else { "" }
+    if (Test-Path -LiteralPath $npmLog) { Remove-Item -LiteralPath $npmLog -Force -ErrorAction SilentlyContinue }
+    if ($npmExit -ne 0) {
         Add-Error "frontend build failing:`n$($npmOut -split "`n" | Select-Object -Last 10 | Out-String)"
     } else {
         Write-Host "[OK] frontend build passes" -ForegroundColor Green
