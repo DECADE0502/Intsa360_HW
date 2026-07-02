@@ -144,6 +144,17 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn("后端服务已断开", client)
         self.assertIn("requestJson", client)
 
+    def test_reconnect_button_restarts_backend_via_local_protocol(self) -> None:
+        app = (ROOT / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("restartBackendAndReconnect", app)
+        self.assertIn("insta360-hw://reconnect", app)
+        self.assertIn("serviceReconnecting", app)
+        self.assertIn("pollBackendUntilReady", app)
+        self.assertIn("refreshRuntimeStatus", app)
+        self.assertIn("document.createElement(\"iframe\")", app)
+        self.assertIn("正在重启服务", app)
+
     def test_platform_page_removes_full_uninstall_flow(self) -> None:
         text = (ROOT / "frontend" / "src" / "components" / "UpdateStatus.tsx").read_text(encoding="utf-8")
 

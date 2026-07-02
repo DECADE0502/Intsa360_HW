@@ -1,4 +1,4 @@
-﻿param([string]$Source = "", [string]$Name = "", [switch]$Restart)
+param([string]$Source = "", [string]$Name = "", [switch]$Restart, [switch]$NoOpen)
 
 $ErrorActionPreference = "Stop"
 
@@ -97,7 +97,7 @@ function Open-WaitingPage {
   Start-Process $waitUrl | Out-Null
 }
 
-Write-LauncherLog "Launch requested Source='$Source' Name='$Name' Restart='$Restart'"
+Write-LauncherLog "Launch requested Source='$Source' Name='$Name' Restart='$Restart' NoOpen='$NoOpen'"
 
 try {
   if (Restore-HwAgentInterruptedUpdate -Root $Root) {
@@ -112,7 +112,11 @@ if (-not $Restart) {
   foreach ($candidate in $PortRange) {
     if ((Test-PortOpen -Port $candidate) -and (Test-HttpReady -Port $candidate)) {
       Write-LauncherLog "Reusing healthy service on port $candidate"
-      Open-Suite -Port $candidate
+      if (-not $NoOpen) {
+        Open-Suite -Port $candidate
+      } else {
+        Write-LauncherLog "NoOpen requested; leaving existing browser page to reconnect"
+      }
       exit 0
     }
   }
@@ -143,7 +147,11 @@ if ($null -eq $Port) {
 # 3) 后台启动全新服务。
 "[$(Get-Date -Format s)] Starting hardware tool suite on port $Port" | Out-File -FilePath $LogFile -Encoding utf8 -Append
 Write-LauncherLog "Starting service on port $Port"
-Open-WaitingPage -Port $Port
+if (-not $NoOpen) {
+  Open-WaitingPage -Port $Port
+} else {
+  Write-LauncherLog "NoOpen requested; suppressing waiting page"
+}
 Start-Process -FilePath $Python `
   -ArgumentList "app\backend\suite_app.py --port $Port" `
   -WorkingDirectory $Root `
@@ -168,4 +176,8 @@ if (-not $ready) {
 }
 
 Write-LauncherLog "Service ready on port $Port"
-Open-Suite -Port $Port
+if (-not $NoOpen) {
+  Open-Suite -Port $Port
+} else {
+  Write-LauncherLog "NoOpen requested; service is ready without opening browser"
+}

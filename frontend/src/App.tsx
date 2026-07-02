@@ -24,6 +24,11 @@ const { Sider, Content } = Layout;
 type PluginGroups = { system: PluginInfo[]; platform: PluginInfo[]; user: PluginInfo[] };
 const BomProcessWizard = lazy(() => import("./tools/BomProcessWizard").then((module) => ({ default: module.BomProcessWizard })));
 const LegacyToolPane = lazy(() => import("./tools/LegacyToolPane").then((module) => ({ default: module.LegacyToolPane })));
+const RECONNECT_PROTOCOL_URL = "insta360-hw://reconnect";
+
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
 
 export default function App() {
   const [tools, setTools] = useState<ToolInfo[]>([]);
@@ -33,6 +38,7 @@ export default function App() {
   const [status, setStatus] = useState<any>(null);
   const [serviceOnline, setServiceOnline] = useState(true);
   const [serviceError, setServiceError] = useState("");
+  const [serviceReconnecting, setServiceReconnecting] = useState(false);
   const [active, setActive] = useState("__home");
   const [loading, setLoading] = useState(true);
 
@@ -42,7 +48,7 @@ export default function App() {
     return payload;
   }
 
-  async function refreshRuntimeStatus() {
+  async function refreshRuntimeStatus(options: { preserveReconnectMessage?: boolean } = {}) {
     try {
       const [st, version] = await Promise.all([fetchPlatformStatus(), fetchVersion()]);
       setStatus((prev: any) => ({ ...(prev || {}), ...st, version: version || st?.version || prev?.version }));
@@ -51,8 +57,44 @@ export default function App() {
       return true;
     } catch (err: any) {
       setServiceOnline(false);
-      setServiceError(err?.message || "后端服务已断开，请重新启动平台或点击重新连接。");
+      if (!options.preserveReconnectMessage) {
+        setServiceError(err?.message || "后端服务已断开，请重新启动平台或点击重新连接。");
+      }
       return false;
+    }
+  }
+
+  function triggerReconnectProtocol() {
+    const frame = document.createElement("iframe");
+    frame.style.display = "none";
+    frame.src = RECONNECT_PROTOCOL_URL;
+    document.body.appendChild(frame);
+    window.setTimeout(() => frame.remove(), 2000);
+  }
+
+  async function pollBackendUntilReady() {
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      if (await refreshRuntimeStatus({ preserveReconnectMessage: true })) {
+        return true;
+      }
+      await sleep(1000);
+    }
+    return false;
+  }
+
+  async function restartBackendAndReconnect() {
+    if (serviceReconnecting) return;
+    setServiceReconnecting(true);
+    setServiceOnline(false);
+    setServiceError("正在重启服务，请稍候...");
+    triggerReconnectProtocol();
+    try {
+      const ready = await pollBackendUntilReady();
+      if (!ready) {
+        setServiceError("仍未连接到后端服务，请确认已安装 Insta360_HW，或从桌面图标重新打开平台。");
+      }
+    } finally {
+      setServiceReconnecting(false);
     }
   }
 
@@ -181,8 +223,8 @@ export default function App() {
               message="后端服务已断开"
               description={serviceError || "当前页面仍在浏览器中，但本地服务不可用，工具操作会失败。请重新启动平台或点击重新连接。"}
               action={
-                <Button size="small" danger onClick={refreshRuntimeStatus}>
-                  重新连接
+                <Button size="small" danger loading={serviceReconnecting} onClick={restartBackendAndReconnect}>
+                  {serviceReconnecting ? "正在重启服务" : "重新连接"}
                 </Button>
               }
             />

@@ -1892,6 +1892,17 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("Platform already ready, skipping browser open", launcher)
         self.assertIn("Platform not ready after wait, opening browser as usual", launcher)
 
+    def test_launcher_supports_reconnect_protocol_without_duplicate_browser_tabs(self) -> None:
+        launcher = (ROOT / "launcher" / "Insta360_HW.cs").read_text(encoding="utf-8")
+
+        self.assertIn("insta360-hw://reconnect", launcher)
+        self.assertIn("IsReconnectRequest", launcher)
+        self.assertIn("suppressBrowserOpen", launcher)
+        self.assertIn("Reconnect request detected", launcher)
+        self.assertIn("Skipping browser open for reconnect request", launcher)
+        self.assertIn("EnsureReconnectProtocolReady", launcher)
+        self.assertIn("Software\\\\Classes\\\\insta360-hw", launcher)
+
     def test_launcher_build_script_embeds_icon_and_targets_winexe(self) -> None:
         text = (ROOT / "launcher" / "build.ps1").read_text(encoding="utf-8")
 
@@ -2156,6 +2167,16 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn(r"UninstallDisplayIcon={app}\Insta360_HW.exe", text)
         # Installer runs the silent oneclick install.
         self.assertIn('oneclick_install.ps1"" -Silent', text)
+
+    def test_inno_setup_registers_reconnect_url_protocol(self) -> None:
+        text = (ROOT / "HWAgent_Setup.iss").read_text(encoding="utf-8")
+
+        self.assertIn("[Registry]", text)
+        self.assertIn('Subkey: "insta360-hw"', text)
+        self.assertIn("URL:Insta360_HW reconnect protocol", text)
+        self.assertIn('ValueName: "URL Protocol"', text)
+        self.assertIn('Subkey: "insta360-hw\\shell\\open\\command"', text)
+        self.assertIn('ValueData: """{app}\\Insta360_HW.exe"" ""%1"""', text)
 
     def test_inno_setup_version_matches_runtime_version(self) -> None:
         iss = ROOT / "HWAgent_Setup.iss"

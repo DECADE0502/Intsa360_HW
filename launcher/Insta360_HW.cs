@@ -21,11 +21,13 @@ using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
+using Microsoft.Win32;
 
 internal static class Program
 {
     private const string MutexName = "Global\\Insta360_HW.exe";
     private const string PlatformUrl = "http://127.0.0.1:8765";
+    private const string ReconnectProtocolUrl = "insta360-hw://reconnect";
     private const int MAX_LOG_BYTES = 512 * 1024;
     private const int MAX_LOG_FILES = 5;
 
@@ -47,6 +49,9 @@ internal static class Program
         string readyMarker = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "Insta360_HW", ".ready");
+        bool reconnectRequest = IsReconnectRequest(args);
+        bool suppressBrowserOpen = reconnectRequest;
+        EnsureReconnectProtocolReady();
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(readyMarker));
@@ -79,11 +84,19 @@ internal static class Program
                 // repeated ShellExecute of the same URL can spawn extra tabs
                 // on browsers that don't dedupe (e.g. Firefox).
                 WriteLog("Second instance detected");
+                if (reconnectRequest)
+                {
+                    WriteLog("Reconnect request detected");
+                }
                 if (!IsPlatformReady())
                 {
                     Thread.Sleep(2000);
                 }
-                if (!IsPlatformReady())
+                if (suppressBrowserOpen)
+                {
+                    WriteLog("Skipping browser open for reconnect request");
+                }
+                else if (!IsPlatformReady())
                 {
                     WriteLog("Platform not ready after wait, opening browser as usual");
                     OpenPlatformUrl();
@@ -98,7 +111,11 @@ internal static class Program
             try
             {
                 WriteLog("Launcher started. root=" + root);
-                if (!File.Exists(readyMarker))
+                if (reconnectRequest)
+                {
+                    WriteLog("Reconnect request detected");
+                }
+                if (!File.Exists(readyMarker) && !suppressBrowserOpen)
                 {
                     // First-run: open waiting.html (or fall back to a
                     // MessageBox) so the user sees something within a few
@@ -121,7 +138,8 @@ internal static class Program
                 ShowStartupFailure("Cadence loader repair failed", ex);
             }
 
-            int exitCode = RunPowerShellHidden(root, launchScript, string.Join(" ", QuoteArgs(args)));
+            string launchArgs = BuildLaunchArgs(args, suppressBrowserOpen);
+            int exitCode = RunPowerShellHidden(root, launchScript, launchArgs);
             if (exitCode != 0)
             {
                 string message =
@@ -305,6 +323,78 @@ internal static class Program
         catch
         {
             return false;
+        }
+    }
+
+    private static bool IsReconnectRequest(string[] args)
+    {
+        foreach (string arg in args)
+        {
+            if (arg != null && arg.StartsWith(ReconnectProtocolUrl, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static string BuildLaunchArgs(string[] args, bool suppressBrowserOpen)
+    {
+        string forwarded = string.Join(" ", QuoteArgs(FilterProtocolArgs(args)));
+        if (suppressBrowserOpen)
+        {
+            if (!string.IsNullOrWhiteSpace(forwarded))
+            {
+                forwarded += " ";
+            }
+            forwarded += "-NoOpen";
+        }
+        return forwarded;
+    }
+
+    private static string[] FilterProtocolArgs(string[] args)
+    {
+        var kept = new System.Collections.Generic.List<string>();
+        foreach (string arg in args)
+        {
+            if (arg == null || arg.StartsWith(ReconnectProtocolUrl, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            kept.Add(arg);
+        }
+        return kept.ToArray();
+    }
+
+    private static void EnsureReconnectProtocolReady()
+    {
+        try
+        {
+            string exePath = Assembly.GetExecutingAssembly().Location;
+            using (RegistryKey protocol = Registry.CurrentUser.CreateSubKey("Software\\Classes\\insta360-hw"))
+            {
+                if (protocol == null) return;
+                protocol.SetValue("", "URL:Insta360_HW reconnect protocol", RegistryValueKind.String);
+                protocol.SetValue("URL Protocol", "", RegistryValueKind.String);
+            }
+            using (RegistryKey icon = Registry.CurrentUser.CreateSubKey("Software\\Classes\\insta360-hw\\DefaultIcon"))
+            {
+                if (icon != null)
+                {
+                    icon.SetValue("", "\"" + exePath + "\",0", RegistryValueKind.String);
+                }
+            }
+            using (RegistryKey command = Registry.CurrentUser.CreateSubKey("Software\\Classes\\insta360-hw\\shell\\open\\command"))
+            {
+                if (command != null)
+                {
+                    command.SetValue("", "\"" + exePath + "\" \"%1\"", RegistryValueKind.String);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog("Reconnect protocol registration failed: " + ex.Message);
         }
     }
 

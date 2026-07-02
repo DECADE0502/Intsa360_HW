@@ -41,6 +41,12 @@ Type: files; Name: "{app}\Insta360_HW.exe"
 [Files]
 Source: "{#ReleaseDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion; Excludes: "data\*,uploads\*,outputs\*,history\*,config\local.json,plugins\user\*"
 
+[Registry]
+Root: HKCR; Subkey: "insta360-hw"; ValueType: string; ValueName: ""; ValueData: "URL:Insta360_HW reconnect protocol"; Flags: uninsdeletekey
+Root: HKCR; Subkey: "insta360-hw"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKCR; Subkey: "insta360-hw\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\Insta360_HW.exe"",0"
+Root: HKCR; Subkey: "insta360-hw\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\Insta360_HW.exe"" ""%1"""
+
 [Icons]
 Name: "{group}\Insta360_HW"; Filename: "{app}\Insta360_HW.exe"; WorkingDir: "{app}"
 Name: "{group}\Uninstall Insta360_HW"; Filename: "{uninstallexe}"
@@ -472,4 +478,3 @@ begin
     DelTree(ParentDir, True, True, True);
   end;
 end;
-
