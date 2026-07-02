@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import base64
 from pathlib import Path
@@ -286,7 +287,12 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("Invoke-HwAgentGitUpdate", combined)
         self.assertIn("git pull", combined)
         self.assertIn("build_frontend.ps1", combined)
-        self.assertIn("verify_all.ps1", combined)
+        # OTA must NOT execute verify_all.ps1: by the time verification would
+        # run the rollback transaction is already committed, so a failure just
+        # strands the tree updated-but-FAILED with the service never restarted.
+        self.assertNotIn("& $verify", update_text)
+        self.assertNotIn("__HWAGENT_PROGRESS__ 98 verifying update", update_text)
+        self.assertIn("pre_release_check.ps1", update_text)
         self.assertIn("empty_repo", combined)
         self.assertIn("scripts\\lib\\Cadence.ps1", update_text)
         self.assertIn("scripts\\lib\\TclScripts.ps1", update_text)
@@ -416,6 +422,14 @@ class DistributionInstallTests(unittest.TestCase):
             (target / "app").mkdir()
             (target / "app" / "code.py").write_text("old code")
 
+            # robocopy skips files with equal size + mtime. Real OTA source
+            # comes from a freshly extracted zip so mtimes are distinct from
+            # the installed tree, but tempfile.write in the same second traps
+            # this test. Push the target mtime a day back so the mirror sees
+            # a genuinely older file.
+            past = time.time() - 24 * 3600
+            os.utime(target / "app" / "code.py", (past, past))
+
             ps = (
                 f". '{ROOT / 'scripts' / 'lib' / 'Update.ps1'}'; "
                 f"Sync-HwAgentTree -SourceRoot '{source}' -TargetRoot '{target}'"
@@ -522,21 +536,28 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertFalse((backup / "frontend" / "node_modules").exists())
 
     @unittest.skipUnless(sys.platform == "win32", "windows only")
-    def test_copy_helper_excludes_nested_node_modules_by_directory_name(self) -> None:
+    def test_rollback_backup_includes_packaged_app_frontend(self) -> None:
+        """Rollback backup must include app/frontend (the packaged UI).
+
+        Regression: dev-only root dirs were passed to robocopy /XD as bare
+        names ("frontend"), which match at ANY depth, so app\\frontend was
+        silently dropped from the backup. A later restore would then revert
+        the backend but keep the new UI - a mixed-version tree.
+        """
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
-            source = tmp_path / "source"
-            target = tmp_path / "target"
-            nested = source / "frontend" / "node_modules" / "pkg"
-            nested.mkdir(parents=True)
-            (nested / "index.js").write_text("module", encoding="utf-8")
-            (source / "frontend" / "src").mkdir(parents=True)
-            (source / "frontend" / "src" / "keep.ts").write_text("keep", encoding="utf-8")
+            root = tmp_path / "root"
+            backup = tmp_path / "backup"
+            (root / "app" / "frontend" / "assets").mkdir(parents=True)
+            (root / "app" / "frontend" / "index.html").write_text("<html>ui</html>", encoding="utf-8")
+            (root / "app" / "frontend" / "assets" / "index.js").write_text("js", encoding="utf-8")
+            # Root-level dev tree must still be excluded.
+            (root / "frontend" / "src").mkdir(parents=True)
+            (root / "frontend" / "src" / "App.tsx").write_text("dev", encoding="utf-8")
 
             ps = (
                 f". '{ROOT / 'scripts' / 'lib' / 'Update.ps1'}'; "
-                f"Copy-HwAgentFilesForce -SourceRoot '{source}' -TargetRoot '{target}' "
-                "-ExcludeDirs @('node_modules') -ExcludeFiles @()"
+                f"Copy-HwAgentTreeForRollback -Root '{root}' -BackupRoot '{backup}'"
             )
             result = subprocess.run(
                 ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
@@ -544,8 +565,12 @@ class DistributionInstallTests(unittest.TestCase):
             )
 
             self.assertEqual(result.returncode, 0, f"stderr={result.stderr} stdout={result.stdout}")
-            self.assertTrue((target / "frontend" / "src" / "keep.ts").exists())
-            self.assertFalse((target / "frontend" / "node_modules" / "pkg" / "index.js").exists())
+            self.assertTrue(
+                (backup / "app" / "frontend" / "index.html").exists(),
+                "packaged app/frontend missing from rollback backup",
+            )
+            self.assertTrue((backup / "app" / "frontend" / "assets" / "index.js").exists())
+            self.assertFalse((backup / "frontend").exists(), "root dev frontend leaked into rollback backup")
 
     @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_rollback_restore_preserves_user_config_local_json(self) -> None:
@@ -570,6 +595,14 @@ class DistributionInstallTests(unittest.TestCase):
             (root / "config" / "local.json").write_text('{"live_user": true}')
             (root / "app").mkdir()
             (root / "app" / "code.py").write_text("bad code")  # reverted by restore
+
+            # robocopy sees same-size + same-mtime files as unchanged and skips
+            # them. Push the target's live app/code.py one day forward so the
+            # backup (older mtime, different content) is treated as different
+            # and copied back. In production the backup is the older snapshot
+            # so this mtime relationship holds naturally.
+            future = time.time() + 24 * 3600
+            os.utime(root / "app" / "code.py", (future, future))
 
             ps = (
                 f". '{ROOT / 'scripts' / 'lib' / 'Update.ps1'}'; "
@@ -1097,9 +1130,10 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("Invoke-HwAgentUpdate", update_text)
         self.assertIn("[switch]$BuildFrontend", update_text)
         self.assertIn("if ($BuildFrontend", update_text)
-        # verify_all is gated on tests/ existing — installed runtime copies
-        # lack the dev tree and must not hard-fail the update at verification.
-        self.assertIn('Join-Path $Root "tests"', update_text)
+        # Verification is a dev-machine pre-release gate, never an OTA step:
+        # installed runtimes lack tests/ and .git, and the rollback transaction
+        # is already committed before any verification could run.
+        self.assertNotIn("& $verify", update_text)
 
     def test_update_api_reports_git_availability_and_runs_zip_without_git(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2327,6 +2361,23 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertEqual(notice["version"], version, "UPDATE_NOTICE.version diverges")
         self.assertEqual(str(notice["revision"]).strip(), revision, "UPDATE_NOTICE.revision diverges")
         self.assertIn(f'#define MyAppVersion "{version}"', iss, "iss version diverges")
+
+        # REVISION is stamped by bump_version.ps1 BEFORE the release commit is
+        # created, so it always points at the parent of that commit - it can
+        # never equal HEAD. Requiring equality made every post-bump tree (and
+        # every installed runtime, which has no .git at all) fail verification.
+        # The invariant that matters: REVISION must be a commit on this branch.
+        if (ROOT / ".git").exists() and revision:
+            out = subprocess.run(
+                ["git", "-C", str(ROOT), "merge-base", "--is-ancestor", revision, "HEAD"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            self.assertEqual(
+                out.returncode, 0,
+                f"REVISION {revision} is not an ancestor of HEAD; run scripts/bump_version.ps1",
+            )
 
     @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_bump_version_script_updates_version_iss_revision_and_notice(self) -> None:

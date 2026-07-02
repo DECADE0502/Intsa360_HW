@@ -31,73 +31,20 @@ function Resolve-HwAgentExcludeFileArgs {
   return $result
 }
 
-function Get-HwAgentRelativePath {
-  param(
-    [Parameter(Mandatory=$true)][string]$Root,
-    [Parameter(Mandatory=$true)][string]$Path
-  )
-  $rootFull = (Resolve-Path -LiteralPath $Root).Path.TrimEnd("\", "/")
-  $pathFull = (Resolve-Path -LiteralPath $Path).Path
-  if ($pathFull.Length -le $rootFull.Length) { return "" }
-  return $pathFull.Substring($rootFull.Length).TrimStart("\", "/").Replace("/", "\")
-}
-
-function Test-HwAgentRelativePathExcluded {
-  param(
-    [Parameter(Mandatory=$true)][string]$RelativePath,
-    [Parameter(Mandatory=$true)][AllowEmptyCollection()][string[]]$ExcludeDirs,
-    [Parameter(Mandatory=$true)][AllowEmptyCollection()][string[]]$ExcludeFiles
-  )
-  $rel = $RelativePath.Replace("/", "\").TrimStart("\")
-  $segments = @($rel -split "\\") | Where-Object { $_ -ne "" }
-  foreach ($dir in $ExcludeDirs) {
-    if ([string]::IsNullOrWhiteSpace($dir)) { continue }
-    $normalized = $dir.Replace("/", "\").Trim("\")
-    if ([System.IO.Path]::IsPathRooted($normalized)) { continue }
-    if ($normalized.EndsWith("*")) {
-      foreach ($segment in $segments) {
-        if ($segment -like $normalized) { return $true }
-      }
-      continue
-    }
-    if ($segments | Where-Object { $_ -ieq $normalized }) {
-      return $true
-    }
-    if ($rel -ieq $normalized -or $rel.StartsWith($normalized + "\", [System.StringComparison]::OrdinalIgnoreCase)) {
-      return $true
+function Get-HwAgentRootExcludePaths {
+  # Dev-only top-level dirs (frontend/tests/docs/launcher) must be excluded as
+  # ABSOLUTE paths anchored at each root. Bare names in robocopy /XD match at
+  # ANY depth, which would wrongly exclude packaged dirs such as app\frontend
+  # from a backup/restore and leave a mixed-version tree after rollback.
+  param([Parameter(Mandatory=$true)][AllowEmptyCollection()][string[]]$Roots)
+  $paths = @()
+  foreach ($r in $Roots) {
+    if ([string]::IsNullOrWhiteSpace($r)) { continue }
+    foreach ($dir in $script:HwAgentRootExcludeDirs) {
+      $paths += (Join-Path $r $dir)
     }
   }
-  $name = Split-Path -Leaf $rel
-  foreach ($file in $ExcludeFiles) {
-    if ([string]::IsNullOrWhiteSpace($file)) { continue }
-    $normalized = $file.Replace("/", "\").Trim("\")
-    if ([System.IO.Path]::IsPathRooted($normalized)) { continue }
-    if ($normalized -match "\\") {
-      if ($rel -ieq $normalized) { return $true }
-    } elseif ($name -ieq $normalized) {
-      return $true
-    }
-  }
-  return $false
-}
-
-function Copy-HwAgentFilesForce {
-  param(
-    [Parameter(Mandatory=$true)][string]$SourceRoot,
-    [Parameter(Mandatory=$true)][string]$TargetRoot,
-    [Parameter(Mandatory=$true)][AllowEmptyCollection()][string[]]$ExcludeDirs,
-    [Parameter(Mandatory=$true)][AllowEmptyCollection()][string[]]$ExcludeFiles
-  )
-  foreach ($file in Get-ChildItem -LiteralPath $SourceRoot -Recurse -File -Force -ErrorAction SilentlyContinue) {
-    $relative = Get-HwAgentRelativePath -Root $SourceRoot -Path $file.FullName
-    if (Test-HwAgentRelativePathExcluded -RelativePath $relative -ExcludeDirs $ExcludeDirs -ExcludeFiles $ExcludeFiles) {
-      continue
-    }
-    $target = Join-Path $TargetRoot $relative
-    $parent = Split-Path -Parent $target
-    if ($parent) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
-    Copy-Item -LiteralPath $file.FullName -Destination $target -Force
-  }
+  return $paths
 }
 
 function Get-HwAgentUpdateStateDir {
@@ -161,12 +108,34 @@ function Restore-HwAgentInterruptedUpdate {
   }
 
   Write-Host "__HWAGENT_PROGRESS__ 5 restoring interrupted update"
-  if (Test-Path -LiteralPath $rollbackRoot) {
-    Restore-HwAgentTreeFromRollback -BackupRoot $rollbackRoot -Root $Root
+  try {
+    if (Test-Path -LiteralPath $rollbackRoot) {
+      Restore-HwAgentTreeFromRollback -BackupRoot $rollbackRoot -Root $Root
+    }
+    Complete-HwAgentUpdateTransaction -Root $Root
+    Write-Host "Recovered from an interrupted update by restoring previous runtime files."
+    return $true
+  } catch {
+    # Quarantine so the next launcher run does not repeatedly fail on the
+    # same corrupt transaction (user reports show the same "rollback restore
+    # failed: 11" every launch until the pending file was hand-deleted).
+    $quarantineStamp = Get-Date -Format "yyyyMMdd_HHmmss"
+    $quarantineDir = Join-Path (Get-HwAgentUpdateStateDir -Root $Root) "quarantine"
+    try {
+      New-Item -ItemType Directory -Force -Path $quarantineDir | Out-Null
+      if (Test-Path -LiteralPath $pendingPath) {
+        Move-Item -Force -LiteralPath $pendingPath -Destination (Join-Path $quarantineDir ("update_pending_" + $quarantineStamp + ".json"))
+      }
+      if (Test-Path -LiteralPath $rollbackRoot) {
+        Move-Item -Force -LiteralPath $rollbackRoot -Destination (Join-Path $quarantineDir ("rollback_" + $quarantineStamp))
+      }
+    } catch {
+      # Best-effort: even if the quarantine move fails, we must not keep the
+      # launcher wedged on a broken transaction.
+    }
+    Write-Host ("Interrupted-update recovery failed and was quarantined: " + $_.Exception.Message)
+    return $false
   }
-  Complete-HwAgentUpdateTransaction -Root $Root
-  Write-Host "Recovered from an interrupted update by restoring previous runtime files."
-  return $true
 }
 
 function Stop-HwAgentLauncherProcesses {
@@ -245,22 +214,16 @@ function Sync-HwAgentTree {
 
     Stop-HwAgentRuntimeLocks -Root $TargetRoot
 
-    $rootExcludePaths = @()
-    foreach ($dir in $script:HwAgentRootExcludeDirs) {
-      $rootExcludePaths += (Join-Path $SourceRoot $dir)
-      $rootExcludePaths += (Join-Path $TargetRoot $dir)
-    }
-    $excludeDirs = $script:HwAgentExcludeDirs + $rootExcludePaths
+    $excludeDirs = $script:HwAgentExcludeDirs + (Get-HwAgentRootExcludePaths -Roots @($SourceRoot, $TargetRoot))
     Write-Host ("MIR: keep excluded dirs=" + ($excludeDirs -join ","))
     # See Resolve-HwAgentExcludeFileArgs: subdir-scoped /XF entries must be
     # absolute paths anchored at SourceRoot; bare names remain filename globs.
     $excludeFiles = Resolve-HwAgentExcludeFileArgs -Root $SourceRoot -Files $script:HwAgentExcludeFiles
-    $args = @($SourceRoot, $TargetRoot, "/MIR", "/IS", "/IT", "/R:2", "/W:1", "/XD") + $excludeDirs + @("/XF") + $excludeFiles
+    $args = @($SourceRoot, $TargetRoot, "/MIR", "/R:2", "/W:1", "/XD") + $excludeDirs + @("/XF") + $excludeFiles
     & robocopy @args | Out-Null
     if ($LASTEXITCODE -ge 8) {
       throw ("robocopy failed: " + $LASTEXITCODE)
     }
-    Copy-HwAgentFilesForce -SourceRoot $SourceRoot -TargetRoot $TargetRoot -ExcludeDirs ($script:HwAgentExcludeDirs + $script:HwAgentRootExcludeDirs) -ExcludeFiles $script:HwAgentExcludeFiles
 
     foreach ($item in $script:HwAgentInstallerOwned) {
       $backupPath = Join-Path $installerBackupRoot $item
@@ -281,15 +244,16 @@ function Copy-HwAgentTreeForRollback {
     [Parameter(Mandatory=$true)][string]$BackupRoot
   )
   New-Item -ItemType Directory -Force -Path $BackupRoot | Out-Null
-  $rollbackExcludeDirs = $script:HwAgentExcludeDirs + $script:HwAgentRootExcludeDirs
+  # Dev-only root dirs are excluded via ABSOLUTE paths so packaged dirs like
+  # app\frontend still make it into the backup (bare /XD names match any depth).
+  $rollbackExcludeDirs = $script:HwAgentExcludeDirs + (Get-HwAgentRootExcludePaths -Roots @($Root, $BackupRoot))
   # Source = $Root, so subdir-scoped /XF entries must be absolute paths under $Root.
   $excludeFiles = Resolve-HwAgentExcludeFileArgs -Root $Root -Files @("config\local.json")
-  $args = @($Root, $BackupRoot, "/MIR", "/IS", "/IT", "/R:2", "/W:1", "/XD") + $rollbackExcludeDirs + @("/XF") + $excludeFiles
+  $args = @($Root, $BackupRoot, "/MIR", "/R:2", "/W:1", "/XD") + $rollbackExcludeDirs + @("/XF") + $excludeFiles
   & robocopy @args | Out-Null
   if ($LASTEXITCODE -ge 8) {
     throw ("rollback backup failed: " + $LASTEXITCODE)
   }
-  Copy-HwAgentFilesForce -SourceRoot $Root -TargetRoot $BackupRoot -ExcludeDirs $rollbackExcludeDirs -ExcludeFiles @("config\local.json")
 }
 
 function Restore-HwAgentTreeFromRollback {
@@ -298,17 +262,18 @@ function Restore-HwAgentTreeFromRollback {
     [Parameter(Mandatory=$true)][string]$Root
   )
   if (-not (Test-Path -LiteralPath $BackupRoot)) { return }
-  $rollbackExcludeDirs = $script:HwAgentExcludeDirs + $script:HwAgentRootExcludeDirs
+  # Same absolute-path scoping as the backup: bare names would shield packaged
+  # dirs (app\frontend) from restore and leave a mixed-version tree.
+  $rollbackExcludeDirs = $script:HwAgentExcludeDirs + (Get-HwAgentRootExcludePaths -Roots @($BackupRoot, $Root))
   # Source = $BackupRoot, so subdir-scoped /XF entries must be absolute paths under $BackupRoot.
   # This ensures the user's live config/local.json is preserved even if a stale copy
   # somehow ended up in the backup tree.
   $excludeFiles = Resolve-HwAgentExcludeFileArgs -Root $BackupRoot -Files @("config\local.json")
-  $args = @($BackupRoot, $Root, "/MIR", "/IS", "/IT", "/R:2", "/W:1", "/XD") + $rollbackExcludeDirs + @("/XF") + $excludeFiles
+  $args = @($BackupRoot, $Root, "/MIR", "/R:2", "/W:1", "/XD") + $rollbackExcludeDirs + @("/XF") + $excludeFiles
   & robocopy @args | Out-Null
   if ($LASTEXITCODE -ge 8) {
     throw ("rollback restore failed: " + $LASTEXITCODE)
   }
-  Copy-HwAgentFilesForce -SourceRoot $BackupRoot -TargetRoot $Root -ExcludeDirs $rollbackExcludeDirs -ExcludeFiles @("config\local.json")
 }
 
 function Invoke-HwAgentWithRollback {
