@@ -97,5 +97,25 @@ $bytes = [System.IO.File]::ReadAllBytes($ZipPath)
 Invoke-RestMethod -Method Post -Uri $assetUri -Headers $headers -Body $bytes -ContentType "application/zip" | Out-Null
 Write-Host ("Uploaded {0}" -f [System.IO.Path]::GetFileName($ZipPath)) -ForegroundColor Green
 
+# 6. Verify the asset URL the OTA client will hit actually resolves anonymously.
+# codex's 0.2.24 shipped with an assets URL that returned 404 because the
+# release was never published; without this gate the same class of bug can
+# recur silently on any future release.
+$expectedAssetUrl = "https://github.com/$Repo/releases/download/$tagName/$([System.IO.Path]::GetFileName($ZipPath))"
+try {
+  $probe = Invoke-WebRequest -Uri $expectedAssetUrl -Method Head -MaximumRedirection 5 -TimeoutSec 30 -UseBasicParsing -ErrorAction Stop
+  if ($probe.StatusCode -ge 200 -and $probe.StatusCode -lt 400) {
+    Write-Host ("[OK] Public asset URL reachable ({0}): {1}" -f $probe.StatusCode, $expectedAssetUrl) -ForegroundColor Green
+  } else {
+    throw "asset URL returned HTTP $($probe.StatusCode)"
+  }
+} catch {
+  Write-Host ""
+  Write-Host "PUBLISH FAILED verification: users cannot download this release." -ForegroundColor Red
+  Write-Host "  URL: $expectedAssetUrl" -ForegroundColor Red
+  Write-Host "  Error: $($_.Exception.Message)" -ForegroundColor Red
+  throw "Release asset unreachable after upload; do not tag this build."
+}
+
 Write-Host ""
 Write-Host "Published $tagName -> $($release.html_url)" -ForegroundColor Cyan

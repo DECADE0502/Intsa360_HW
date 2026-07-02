@@ -2835,6 +2835,22 @@ class DistributionInstallTests(unittest.TestCase):
         self.assertIn("Source REVISION", content)
         self.assertIn("is not an ancestor of git HEAD", content)
 
+    def test_pre_release_check_verifies_release_asset_urls_and_highlights_diff(self) -> None:
+        """Regression: codex's 0.2.24 shipped with a UPDATE_NOTICE.assets URL
+        that returned 404 and highlights identical to 0.2.19, and the
+        pre-release check let both through. Both gates must exist."""
+        content = (ROOT / "scripts" / "pre_release_check.ps1").read_text(encoding="utf-8")
+
+        # Release asset reachability
+        self.assertIn("Invoke-WebRequest", content)
+        self.assertIn("-Method Head", content)
+        self.assertIn("Release asset unreachable", content)
+        self.assertIn("HWAGENT_SKIP_RELEASE_ASSET_CHECK", content)
+
+        # Highlights must diff against HEAD~1's UPDATE_NOTICE.json
+        self.assertIn("HEAD~1:UPDATE_NOTICE.json", content)
+        self.assertIn("Users cannot tell what changed", content)
+
 
 if __name__ == "__main__":
     unittest.main()
