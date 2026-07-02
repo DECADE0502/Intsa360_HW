@@ -142,10 +142,15 @@ internal static class Program
             int exitCode = RunPowerShellHidden(root, launchScript, launchArgs);
             if (exitCode != 0)
             {
+                // The user often finds the launcher.log path empty because
+                // launch_tool_suite.ps1 writes to a second log inside the
+                // install tree. List both so the message stays actionable.
+                string suiteLog = Path.Combine(root, "data", "reports", "runtime", "launcher_latest.log");
                 string message =
                     "Insta360_HW startup failed\n\n" +
                     "Exit code: " + exitCode + "\n\n" +
-                    "Log: " + LogPath();
+                    "Log: " + LogPath() + "\n" +
+                    "Additional log: " + suiteLog;
                 WriteLog(message);
                 MessageBox.Show(message, "Insta360_HW", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
@@ -400,13 +405,30 @@ internal static class Program
 
     private static void ShowStartupFailure(string title, Exception ex)
     {
+        // Ensure LOCALAPPDATA\Insta360_HW\launcher.log exists BEFORE the
+        // MessageBox tells the user to look at it. Users have reported the
+        // pointed-to file being absent because early failures came out of the
+        // launcher before any WriteLog call had run.
+        WriteLog(title + ": " + ex);
+        string suiteLog = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Insta360_HW", "startup_failure_hint.txt");
+        try
+        {
+            File.WriteAllText(suiteLog,
+                "Startup failure captured at " + DateTime.Now.ToString("s") + "\n" +
+                title + "\n" + ex + "\n", Encoding.UTF8);
+        }
+        catch
+        {
+            // Logging must never prevent the launcher from surfacing an error.
+        }
         string message =
             "Insta360_HW startup warning\n\n" +
             title + "\n\n" +
             ex.Message + "\n\n" +
             "Log: " + LogPath() + "\n" +
             "Please send the log to the administrator.";
-        WriteLog(title + ": " + ex);
         MessageBox.Show(message, "Insta360_HW", MessageBoxButtons.OK, MessageBoxIcon.Warning);
     }
 

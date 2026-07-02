@@ -58,20 +58,14 @@ try {
   }
   Install-CadenceLoader -ToolRoot $Root -PythonPath $Python -AutoLoadDirs $AutoLoadDirs | Out-Null
 
-  $verify = Join-Path $Root "scripts\verify_all.ps1"
-  # verify_all needs tests/ and frontend/ source, which only exist in the dev
-  # repo. Installed runtime copies lack them, so updates there must not fail
-  # merely because the development verification tree is absent.
-  if ((Test-Path -LiteralPath $verify) -and (Test-Path -LiteralPath (Join-Path $Root "tests"))) {
-    Write-Host "__HWAGENT_PROGRESS__ 98 verifying update"
-    Write-Host "Starting verification..."
-    & $verify
-    if ($LASTEXITCODE -ne 0) { throw "Verification failed." }
-  } else {
-    Write-Host "Verification script or test tree not found; skipping verification."
-  }
+  # Release verification (verify_all.ps1) intentionally does NOT run here.
+  # It belongs to scripts/pre_release_check.ps1 on the dev machine, before
+  # tagging. Running it during OTA was a footgun: the rollback transaction is
+  # already committed by this point, so a verification failure could not roll
+  # anything back — it only left the tree updated but flagged FAILED, and the
+  # service below never restarted. Installed runtimes also lack .git, which
+  # made git-dependent consistency tests fail on every single update.
 
-  $Python = Find-Python -Root $Root
   Start-HwAgentService -Root $Root -PythonPath $Python | Out-Null
 
   Write-Host "Update flow complete."

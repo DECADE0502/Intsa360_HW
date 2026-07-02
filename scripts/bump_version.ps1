@@ -4,6 +4,18 @@ param(
   [string]$Revision = ""
 )
 
+# bump_version.ps1 stamps VERSION / REVISION / HWAgent_Setup.iss / UPDATE_NOTICE.json
+# with a single new version + revision so pre_release_check can trust these files
+# as a coherent set.
+#
+# IMPORTANT: REVISION captures the CURRENT HEAD, i.e. the PARENT of the release
+# commit that is about to be created after this script runs. It is NOT expected
+# to equal the release commit itself - that commit's SHA is unknowable until
+# it exists. The consistency invariant (see test_version_metadata_is_consistent)
+# is therefore "REVISION is an ancestor of HEAD", not equality. Do not "fix"
+# this by trying to rewrite REVISION after the commit is made - it would
+# only push the same off-by-one one step forward.
+
 $ErrorActionPreference = "Stop"
 
 if ($NewVersion -notmatch '^\d+\.\d+\.\d+(-[A-Za-z0-9.-]+)?$') {
