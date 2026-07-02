@@ -50,12 +50,21 @@ function Test-HwAgentRelativePathExcluded {
   )
   $rel = $RelativePath.Replace("/", "\").TrimStart("\")
   $first = ($rel -split "\\", 2)[0]
+  $segments = @($rel -split "\\") | Where-Object { $_ -ne "" }
   foreach ($dir in $ExcludeDirs) {
     if ([string]::IsNullOrWhiteSpace($dir)) { continue }
     $normalized = $dir.Replace("/", "\").Trim("\")
     if ([System.IO.Path]::IsPathRooted($normalized)) { continue }
     if ($normalized.EndsWith("*")) {
-      if ($first -like $normalized) { return $true }
+      foreach ($segment in $segments) {
+        if ($segment -like $normalized) { return $true }
+      }
+      continue
+    }
+    if ($normalized -notmatch "\\") {
+      foreach ($segment in $segments) {
+        if ($segment -ieq $normalized) { return $true }
+      }
       continue
     }
     if ($rel -ieq $normalized -or $rel.StartsWith($normalized + "\", [System.StringComparison]::OrdinalIgnoreCase)) {
@@ -278,12 +287,13 @@ function Copy-HwAgentTreeForRollback {
   New-Item -ItemType Directory -Force -Path $BackupRoot | Out-Null
   # Source = $Root, so subdir-scoped /XF entries must be absolute paths under $Root.
   $excludeFiles = Resolve-HwAgentExcludeFileArgs -Root $Root -Files @("config\local.json")
-  $args = @($Root, $BackupRoot, "/MIR", "/IS", "/IT", "/R:2", "/W:1", "/XD", "data", "plugins\user", ".git", "node_modules", "/XF") + $excludeFiles
+  $rollbackExcludeDirs = $script:HwAgentExcludeDirs + $script:HwAgentRootExcludeDirs
+  $args = @($Root, $BackupRoot, "/MIR", "/IS", "/IT", "/R:2", "/W:1", "/XD") + $rollbackExcludeDirs + @("/XF") + $excludeFiles
   & robocopy @args | Out-Null
   if ($LASTEXITCODE -ge 8) {
     throw ("rollback backup failed: " + $LASTEXITCODE)
   }
-  Copy-HwAgentFilesForce -SourceRoot $Root -TargetRoot $BackupRoot -ExcludeDirs @("data", "plugins\user", ".git", "node_modules") -ExcludeFiles @("config\local.json")
+  Copy-HwAgentFilesForce -SourceRoot $Root -TargetRoot $BackupRoot -ExcludeDirs $rollbackExcludeDirs -ExcludeFiles @("config\local.json")
 }
 
 function Restore-HwAgentTreeFromRollback {
@@ -296,12 +306,13 @@ function Restore-HwAgentTreeFromRollback {
   # This ensures the user's live config/local.json is preserved even if a stale copy
   # somehow ended up in the backup tree.
   $excludeFiles = Resolve-HwAgentExcludeFileArgs -Root $BackupRoot -Files @("config\local.json")
-  $args = @($BackupRoot, $Root, "/MIR", "/IS", "/IT", "/R:2", "/W:1", "/XD", "data", "plugins\user", ".git", "node_modules", "/XF") + $excludeFiles
+  $rollbackExcludeDirs = $script:HwAgentExcludeDirs + $script:HwAgentRootExcludeDirs
+  $args = @($BackupRoot, $Root, "/MIR", "/IS", "/IT", "/R:2", "/W:1", "/XD") + $rollbackExcludeDirs + @("/XF") + $excludeFiles
   & robocopy @args | Out-Null
   if ($LASTEXITCODE -ge 8) {
     throw ("rollback restore failed: " + $LASTEXITCODE)
   }
-  Copy-HwAgentFilesForce -SourceRoot $BackupRoot -TargetRoot $Root -ExcludeDirs @("data", "plugins\user", ".git", "node_modules") -ExcludeFiles @("config\local.json")
+  Copy-HwAgentFilesForce -SourceRoot $BackupRoot -TargetRoot $Root -ExcludeDirs $rollbackExcludeDirs -ExcludeFiles @("config\local.json")
 }
 
 function Invoke-HwAgentWithRollback {

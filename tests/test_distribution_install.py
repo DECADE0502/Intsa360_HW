@@ -487,6 +487,67 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertTrue((backup / "app" / "code.py").exists())
 
     @unittest.skipUnless(sys.platform == "win32", "windows only")
+    def test_rollback_backup_excludes_dev_frontend_and_nested_node_modules(self) -> None:
+        """Rollback backup must not copy dev-only frontend/node_modules trees.
+
+        Regression: source ZIP fallback can run from a development checkout. If
+        rollback backs up frontend/node_modules, Windows PowerShell Copy-Item may
+        fail on deep pnpm paths while trying to restore after an update failure.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            root = tmp_path / "root"
+            backup = tmp_path / "backup"
+            (root / "app" / "backend").mkdir(parents=True)
+            (root / "app" / "backend" / "suite_app.py").write_text("runtime", encoding="utf-8")
+            nested_pkg = root / "frontend" / "node_modules" / ".pnpm" / "@ant-design+fast-color@2.0.6" / "node_modules" / "@ant-design" / "fast-color" / "lib"
+            nested_pkg.mkdir(parents=True)
+            (nested_pkg / "FastColor.d.ts").write_text("declare class FastColor {}", encoding="utf-8")
+            (root / "tests").mkdir()
+            (root / "tests" / "test_probe.py").write_text("dev test", encoding="utf-8")
+
+            ps = (
+                f". '{ROOT / 'scripts' / 'lib' / 'Update.ps1'}'; "
+                f"Copy-HwAgentTreeForRollback -Root '{root}' -BackupRoot '{backup}'"
+            )
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
+                capture_output=True, text=True, timeout=60,
+            )
+
+            self.assertEqual(result.returncode, 0, f"stderr={result.stderr} stdout={result.stdout}")
+            self.assertTrue((backup / "app" / "backend" / "suite_app.py").exists())
+            self.assertFalse((backup / "frontend").exists(), "frontend dev tree leaked into rollback backup")
+            self.assertFalse((backup / "tests").exists(), "tests dev tree leaked into rollback backup")
+            self.assertFalse((backup / "frontend" / "node_modules").exists())
+
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
+    def test_copy_helper_excludes_nested_node_modules_by_directory_name(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            source = tmp_path / "source"
+            target = tmp_path / "target"
+            nested = source / "frontend" / "node_modules" / "pkg"
+            nested.mkdir(parents=True)
+            (nested / "index.js").write_text("module", encoding="utf-8")
+            (source / "frontend" / "src").mkdir(parents=True)
+            (source / "frontend" / "src" / "keep.ts").write_text("keep", encoding="utf-8")
+
+            ps = (
+                f". '{ROOT / 'scripts' / 'lib' / 'Update.ps1'}'; "
+                f"Copy-HwAgentFilesForce -SourceRoot '{source}' -TargetRoot '{target}' "
+                "-ExcludeDirs @('node_modules') -ExcludeFiles @()"
+            )
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
+                capture_output=True, text=True, timeout=60,
+            )
+
+            self.assertEqual(result.returncode, 0, f"stderr={result.stderr} stdout={result.stdout}")
+            self.assertTrue((target / "frontend" / "src" / "keep.ts").exists())
+            self.assertFalse((target / "frontend" / "node_modules" / "pkg" / "index.js").exists())
+
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_rollback_restore_preserves_user_config_local_json(self) -> None:
         """Restore from rollback must NOT overwrite user's live config/local.json.
 
