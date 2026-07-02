@@ -1,9 +1,11 @@
-0.2.25 OTA reliability hotfix — 2026-07-02
+0.2.26 OTA payload packaging hotfix — 2026-07-02
 
-This release restores end-to-end update reliability: rollback preserves the packaged UI, OTA no longer runs verify_all after committing the transaction, revision-only hotfixes reach installed runtimes, reconnect works on modern browsers, and pre-release checks now catch broken release assets before tagging.
+This release supersedes 0.2.25, whose release zip packed the runtime at the archive root — a layout no deployed updater could consume, so every OTA attempt failed at 40% before touching the installed tree. 0.2.26 restores the HWAgent_release wrapper inside the zip, teaches the payload detector to accept both layouts, and carries all 0.2.25 reliability fixes.
 
 ## Highlights
 
+- Release zips again wrap the runtime in a top-level HWAgent_release directory so the payload detector shipped on every installed version can locate it; 0.2.25's root-flat zip made OTA fail at 40% for all clients.
+- Find-HwAgentUpdatePayloadRoot now also accepts a runtime unpacked at the extraction root, so a future packaging layout change cannot strand deployed updaters again.
 - Rollback backup and restore now include app/frontend and every packaged runtime dir. Dev-only exclude names (frontend/tests/docs/launcher) are anchored as absolute paths so /XD no longer eats packaged directories at deeper levels.
 - OTA no longer runs verify_all: verification used to fire after the rollback transaction committed, so a failure could only strand the tree as FAILED without restarting the service.
 - Revision-only hotfixes now reach installed runtimes; check_update no longer requires local .git for the ancestor check, which meant hotfixes were silently invisible to every real user.
@@ -16,6 +18,6 @@ This release restores end-to-end update reliability: rollback preserves the pack
 
 | Asset | Size | SHA256 |
 |---|---|---|
-| `Insta360_HW_v0.2.25.zip` | 12,787,441 bytes | `6b164b70ecc9e9d439a37d536be3648912bc8962db3689497aff9828f2e9052f` |
+| `Insta360_HW_v0.2.26.zip` | 12,826,940 bytes | `b22311af80f3f6b0efd4ab99efbda24d3c4d5d2c19c0bb7ecb19668f2180efd3` |
 
 No data migration is required. Existing history, user plugins and local config are preserved.
