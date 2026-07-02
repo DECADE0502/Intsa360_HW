@@ -1,21 +1,21 @@
 ﻿{
-    "version":  "0.2.21",
-    "revision":  "b8a139c4db72c4f867c69eef7c5b6e2b9b7a2523",
+    "version":  "0.2.22",
+    "revision":  "c65eb3ca4a2c03e88a43661ebe6a9932e9241eab",
     "date":  "2026-07-02",
-    "title":  "0.2.21 reconnect recovery",
-    "summary":  "This update lets the offline reconnect button relaunch the local backend through Insta360_HW.exe, then poll the page back online automatically.",
+    "title":  "0.2.22 reconnect launch fix",
+    "summary":  "This update keeps the reconnect recovery flow and fixes the PowerShell launch script so encoded comments cannot swallow executable statements.",
     "highlights":  [
-                       "The offline banner now uses the local insta360-hw://reconnect protocol instead of only retrying failed fetches.",
-                       "The launcher recognizes reconnect requests, starts or reuses the backend, and suppresses duplicate browser tabs.",
-                       "The installer registers the reconnect URL protocol and the launcher repairs the current-user protocol registration on startup.",
-                       "The launch script supports a NoOpen mode so the existing page can reconnect without opening waiting or platform pages."
+                       "The offline banner still uses the local insta360-hw://reconnect protocol to relaunch the backend.",
+                       "launch_tool_suite.ps1 now keeps PowerShell statements on their own lines and uses ASCII comments for the sensitive startup sections.",
+                       "A regression test guards against function/if/process-start statements being accidentally commented out.",
+                       "The installer and release zip are rebuilt from the fixed launch script."
                    ],
     "assets":  [
                    {
                        "kind":  "release_zip",
-                       "url":  "https://github.com/DECADE0502/Intsa360_HW/releases/download/v0.2.21/Insta360_HW_v0.2.21.zip",
-                       "sha256":  "cd9ec8654d881ad80c78213e7db28e4a9d996b061b5c890c1bd1a6fbd794ee7b",
-                       "size_bytes":  12785722
+                       "url":  "https://github.com/DECADE0502/Intsa360_HW/releases/download/v0.2.22/Insta360_HW_v0.2.22.zip",
+                       "sha256":  "c262cc734b08fdb8de70335c7beac662afa7f7bbe2388a6db193b3141cee6daf",
+                       "size_bytes":  12785496
                    }
                ],
     "compatibility":  "No data migration is required. Existing history, user plugins and local config are preserved.",
