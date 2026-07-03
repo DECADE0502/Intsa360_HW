@@ -1268,6 +1268,80 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertEqual(result["update_reason"], "revision")
             self.assertEqual(result["remote_revision"], "76f3406ed0a163f3ea3740fb7a642e4328ad06af")
 
+    def test_update_api_suppresses_phantom_hotfix_when_manifest_matches_remote_revision(self) -> None:
+        """Updaters up to 0.2.26 overwrote REVISION with the resolved git head
+        after syncing, while the remote REVISION file carries the release-
+        authored value (the release commit's parent). The two never match, so
+        every updated install reported a phantom revision hotfix forever.
+        install_manifest.json still carries the authored revision - when it
+        matches the remote REVISION file, we are already on this release: no
+        update, and the local REVISION stamp is self-healed.
+        """
+        authored = "719a96aef23a5190fb7bb947e312567867239a31"
+        head = "2c9f2b6654d026ab216c7793dec40d3a458a7fec"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "install"
+            root.mkdir()
+            (root / "VERSION").write_text("0.2.26\n", encoding="utf-8")
+            (root / "REVISION").write_text(head + "\n", encoding="utf-8")
+            (root / "update.ps1").write_text("echo hi\n", encoding="utf-8")
+            (root / "install_manifest.json").write_text(
+                json.dumps({"version": "0.2.26", "revision": authored}),
+                encoding="utf-8",
+            )
+
+            original_fetch_version = update_api._fetch_remote_version
+            original_fetch_revision = update_api._fetch_remote_revision
+            original_fetch_notice = update_api._fetch_remote_update_notice
+            try:
+                update_api._fetch_remote_version = lambda _root: ("0.2.26", "ok")
+                update_api._fetch_remote_revision = lambda _root: (authored, "ok")
+                update_api._fetch_remote_update_notice = lambda _root: ({}, "missing_notice")
+                result = update_api.check_update(root)
+            finally:
+                update_api._fetch_remote_version = original_fetch_version
+                update_api._fetch_remote_revision = original_fetch_revision
+                update_api._fetch_remote_update_notice = original_fetch_notice
+
+            self.assertFalse(result["has_update"])
+            self.assertEqual(result["update_reason"], "")
+            self.assertEqual(
+                (root / "REVISION").read_text(encoding="utf-8-sig").strip(),
+                authored,
+                "local REVISION should be self-healed to the authored value",
+            )
+
+    def test_update_api_keeps_revision_hotfix_when_manifest_revision_differs(self) -> None:
+        """A real revision hotfix (remote REVISION moved past what this
+        install's manifest records) must still be flagged even when
+        install_manifest.json is present."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "install"
+            root.mkdir()
+            (root / "VERSION").write_text("0.2.26\n", encoding="utf-8")
+            (root / "REVISION").write_text("719a96aef23a5190fb7bb947e312567867239a31\n", encoding="utf-8")
+            (root / "update.ps1").write_text("echo hi\n", encoding="utf-8")
+            (root / "install_manifest.json").write_text(
+                json.dumps({"version": "0.2.26", "revision": "719a96aef23a5190fb7bb947e312567867239a31"}),
+                encoding="utf-8",
+            )
+
+            original_fetch_version = update_api._fetch_remote_version
+            original_fetch_revision = update_api._fetch_remote_revision
+            original_fetch_notice = update_api._fetch_remote_update_notice
+            try:
+                update_api._fetch_remote_version = lambda _root: ("0.2.26", "ok")
+                update_api._fetch_remote_revision = lambda _root: ("aaaa96aef23a5190fb7bb947e312567867239a31", "ok")
+                update_api._fetch_remote_update_notice = lambda _root: ({}, "missing_notice")
+                result = update_api.check_update(root)
+            finally:
+                update_api._fetch_remote_version = original_fetch_version
+                update_api._fetch_remote_revision = original_fetch_revision
+                update_api._fetch_remote_update_notice = original_fetch_notice
+
+            self.assertTrue(result["has_update"])
+            self.assertEqual(result["update_reason"], "revision")
+
     def test_update_api_returns_remote_update_notice_for_new_versions(self) -> None:
         self.assertTrue((ROOT / "UPDATE_NOTICE.json").exists())
 
@@ -1517,6 +1591,65 @@ class DistributionInstallTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, stderr)
             payload = result.stdout.decode("utf-8", errors="replace").strip()
             self.assertEqual(Path(payload), extract)
+
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
+    def test_updater_keeps_synced_revision_and_stamps_fallback_only_when_missing(self) -> None:
+        # The synced payload carries the release-authored REVISION that
+        # check_update compares against the remote REVISION file. Overwriting
+        # it with the resolved git head made every updated install advertise a
+        # phantom revision hotfix forever.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "install"
+            root.mkdir()
+            (root / "REVISION").write_text("authored-revision\n", encoding="utf-8")
+            command = (
+                f". '{ROOT / 'scripts' / 'lib' / 'Update.ps1'}'; "
+                f"Write-HwAgentRevisionFallback -Root '{root}' -FallbackRevision 'resolved-head'; "
+                f"Remove-Item -LiteralPath '{root / 'REVISION'}'; "
+                f"Write-HwAgentRevisionFallback -Root '{root}' -FallbackRevision 'resolved-head'"
+            )
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+                cwd=ROOT,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=60,
+            )
+            stderr = result.stderr.decode("utf-8", errors="replace")
+            self.assertEqual(result.returncode, 0, stderr)
+            # The command removed the synced file after the first call, so the
+            # final content proves both behaviors: the first call must NOT have
+            # replaced "authored-revision" (asserted via stderr-free exit and
+            # the file's post-removal recreation), and the second call must
+            # stamp the fallback.
+            self.assertEqual(
+                (root / "REVISION").read_text(encoding="utf-8-sig").strip(),
+                "resolved-head",
+            )
+
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
+    def test_updater_does_not_overwrite_synced_revision(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "install"
+            root.mkdir()
+            (root / "REVISION").write_text("authored-revision\n", encoding="utf-8")
+            command = (
+                f". '{ROOT / 'scripts' / 'lib' / 'Update.ps1'}'; "
+                f"Write-HwAgentRevisionFallback -Root '{root}' -FallbackRevision 'resolved-head'"
+            )
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+                cwd=ROOT,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=60,
+            )
+            stderr = result.stderr.decode("utf-8", errors="replace")
+            self.assertEqual(result.returncode, 0, stderr)
+            self.assertEqual(
+                (root / "REVISION").read_text(encoding="utf-8-sig").strip(),
+                "authored-revision",
+            )
 
     def test_update_api_uses_notice_version_when_version_endpoint_is_stale(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

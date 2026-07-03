@@ -481,6 +481,26 @@ function Write-HwAgentRevision {
   }
 }
 
+function Write-HwAgentRevisionFallback {
+  param(
+    [Parameter(Mandatory=$true)][string]$Root,
+    [string]$FallbackRevision = ""
+  )
+  # The synced payload carries the release-authored REVISION - the exact value
+  # check_update compares against the remote REVISION file. Overwriting it
+  # with the resolved git head (always the release commit, never its parent)
+  # made every updated install advertise a phantom revision hotfix forever.
+  # Stamp the fallback only when the payload did not provide REVISION.
+  $revisionPath = Join-Path $Root "REVISION"
+  $current = ""
+  if (Test-Path -LiteralPath $revisionPath) {
+    $current = [string](Get-Content -LiteralPath $revisionPath -Raw -ErrorAction SilentlyContinue)
+  }
+  if ([string]::IsNullOrWhiteSpace($current)) {
+    Write-HwAgentRevision -Root $Root -Revision $FallbackRevision
+  }
+}
+
 function Find-HwAgentUpdatePayloadRoot {
   param([Parameter(Mandatory=$true)][string]$ExtractRoot)
   $candidates = @()
@@ -606,7 +626,7 @@ function Invoke-HwAgentZipUpdate {
 
       Write-Host "__HWAGENT_PROGRESS__ 85 restoring user data"
       Restore-HwAgentProtectedItems -Root $Root -BackupRoot $backupRoot
-      Write-HwAgentRevision -Root $Root -Revision $remoteRevision
+      Write-HwAgentRevisionFallback -Root $Root -FallbackRevision $remoteRevision
     }
   } finally {
     if (Test-Path -LiteralPath $tempRoot) {
@@ -686,7 +706,7 @@ function Invoke-HwAgentGitUpdate {
           Copy-HwAgentProtectedItems -Root $Root -BackupRoot $backupRoot
           Sync-HwAgentTree -SourceRoot $cloneRoot -TargetRoot $Root
           Restore-HwAgentProtectedItems -Root $Root -BackupRoot $backupRoot
-          Write-HwAgentRevision -Root $Root -Revision $remoteRevision
+          Write-HwAgentRevisionFallback -Root $Root -FallbackRevision $remoteRevision
         }
       } finally {
         if (Test-Path -LiteralPath $tempRoot) {
