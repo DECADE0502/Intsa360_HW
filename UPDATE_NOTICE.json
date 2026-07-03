@@ -1,10 +1,12 @@
 ﻿{
-    "version":  "0.2.26",
-    "revision":  "719a96aef23a5190fb7bb947e312567867239a31",
-    "date":  "2026-07-02",
-    "title":  "0.2.26 OTA payload packaging hotfix",
-    "summary":  "This release supersedes 0.2.25, whose release zip packed the runtime at the archive root - a layout no deployed updater could consume, so every OTA attempt failed at 40% before touching the installed tree. 0.2.26 restores the HWAgent_release wrapper inside the zip, teaches the payload detector to accept both layouts, and carries all 0.2.25 reliability fixes.",
+    "version":  "0.2.27",
+    "revision":  "14b8747069d1cc9f03b918f67c6213cb5213089f",
+    "date":  "2026-07-03",
+    "title":  "0.2.27 phantom hotfix suppression",
+    "summary":  "Installs updated by any earlier updater permanently reported a phantom revision hotfix: the updater stamped REVISION with the git head while check_update compares against the release-authored REVISION file. 0.2.27 keeps the payload\u0027s authored REVISION during updates, and check_update now consults install_manifest.json to recognize an already-current install and self-heal its REVISION stamp. Also carries the 0.2.26 packaging fix and all 0.2.25 reliability fixes.",
     "highlights":  [
+                       "check_update no longer reports a phantom revision hotfix after a successful update: install_manifest.json (never rewritten by older updaters) confirms the installed release and the REVISION stamp self-heals.",
+                       "The updater keeps the release-authored REVISION delivered inside the payload instead of overwriting it with the resolved git head; the head is stamped only when the payload carries no REVISION.",
                        "Release zips again wrap the runtime in a top-level HWAgent_release directory so the payload detector shipped on every installed version can locate it; 0.2.25\u0027s root-flat zip made OTA fail at 40% for all clients.",
                        "Find-HwAgentUpdatePayloadRoot now also accepts a runtime unpacked at the extraction root, so a future packaging layout change cannot strand deployed updaters again.",
                        "Rollback backup and restore now include app/frontend and every packaged runtime dir. Dev-only exclude names (frontend/tests/docs/launcher) are anchored as absolute paths so /XD no longer eats packaged directories at deeper levels.",
@@ -18,9 +20,9 @@
     "assets":  [
                    {
                        "kind":  "release_zip",
-                       "url":  "https://github.com/DECADE0502/Intsa360_HW/releases/download/v0.2.26/Insta360_HW_v0.2.26.zip",
-                       "sha256":  "b22311af80f3f6b0efd4ab99efbda24d3c4d5d2c19c0bb7ecb19668f2180efd3",
-                       "size_bytes":  12826940
+                       "url":  "https://github.com/DECADE0502/Intsa360_HW/releases/download/v0.2.27/Insta360_HW_v0.2.27.zip",
+                       "sha256":  "da4525407b980316423384d904796680cb3bea986046a5d0c0618eec606a03f5",
+                       "size_bytes":  12827658
                    }
                ],
     "compatibility":  "No data migration is required. Existing history, user plugins and local config are preserved.",
