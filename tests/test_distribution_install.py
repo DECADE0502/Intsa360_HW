@@ -154,6 +154,13 @@ class DistributionLifecycleV2Tests(unittest.TestCase):
         self.assertIn('ToString("yyyy-MM-ddTHH:mm:ssZ")', publish)
         self.assertNotIn('ToString("o")', publish)
 
+    def test_publish_public_asset_check_accepts_multi_value_content_length_headers(self) -> None:
+        publish = (ROOT / "scripts" / "publish_release.ps1").read_text(encoding="utf-8")
+
+        self.assertIn('@($response.Headers["Content-Length"])', publish)
+        self.assertIn("[long]::TryParse", publish)
+        self.assertNotIn("[long]$lengthHeader -ne $ExpectedSize", publish)
+
     def test_publish_repair_is_revision_safe_and_verifies_latest_with_retry(self) -> None:
         publish = (ROOT / "scripts" / "publish_release.ps1").read_text(encoding="utf-8")
 

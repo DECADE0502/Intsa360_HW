@@ -196,9 +196,16 @@ function Assert-PublicAsset {
     if ($response.StatusCode -lt 200 -or $response.StatusCode -ge 400) {
       throw "HTTP $($response.StatusCode)"
     }
-    $lengthHeader = $response.Headers["Content-Length"]
-    if ($lengthHeader -and [long]$lengthHeader -ne $ExpectedSize) {
-      throw "content length $lengthHeader does not match $ExpectedSize"
+    $lengthValues = @($response.Headers["Content-Length"])
+    $lengthHeader = if ($lengthValues.Count -gt 0) { [string]$lengthValues[0] } else { "" }
+    $reportedLength = [long]0
+    if ($lengthHeader) {
+      if (-not [long]::TryParse($lengthHeader, [ref]$reportedLength)) {
+        throw "invalid content length $lengthHeader"
+      }
+      if ($reportedLength -ne $ExpectedSize) {
+        throw "content length $reportedLength does not match $ExpectedSize"
+      }
     }
   }
 }
