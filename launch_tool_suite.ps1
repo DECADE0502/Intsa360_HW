@@ -1,168 +1,188 @@
-param([string]$Source = "", [string]$Name = "", [switch]$Restart, [switch]$NoOpen)
+param(
+  [string]$Source = "",
+  [string]$Name = "",
+  [switch]$Restart,
+  [switch]$NoOpen,
+  [int]$PreferredPort = 0
+)
 
 $ErrorActionPreference = "Stop"
-
-$Root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$Root = (Split-Path -Parent $MyInvocation.MyCommand.Path).TrimEnd("\")
 . (Join-Path $Root "scripts\lib\Paths.ps1")
-. (Join-Path $Root "scripts\lib\Update.ps1")
 $Root = Get-HwAgentRoot -StartPath $Root
+. (Join-Path $Root "scripts\lifecycle\Contract.ps1")
+. (Join-Path $Root "scripts\lifecycle\Runtime.ps1")
+
 $Python = Find-Python -Root $Root
-$LogDir = Join-Path $Root "data\reports\runtime"
-$Stamp = Get-Date -Format "yyyyMMdd_HHmmss"
-$LogFile = Join-Path $LogDir "tool_suite_server_$Stamp.log"
-$ErrorLogFile = Join-Path $LogDir "tool_suite_server_error_$Stamp.log"
+$Python = [System.IO.Path]::GetFullPath($Python)
+$BackendScript = (Resolve-Path -LiteralPath (Join-Path $Root "app\backend\suite_app.py")).Path
+$StateRoot = Get-HwLifecycleStateRoot -RuntimeRoot $Root
+$env:INSTA360_HW_STATE_ROOT = $StateRoot
+$RuntimeStateDir = Join-Path $StateRoot "runtime"
+$LogDir = Join-Path $StateRoot "data\reports\runtime"
+$ServiceStatePath = Get-HwLifecycleServiceStatePath -StateRoot $StateRoot
 $LauncherLogFile = Join-Path $LogDir "launcher_latest.log"
+$Version = Get-HwLifecycleRuntimeVersion -RuntimeRoot $Root
 $PortRange = 8765..8775
-$Required = @("bom_process", "bom_compare", "bom_risk_check", "netlist_compare", "smt_package_check", "single_network_check")
-$BackendScript = Join-Path $Root "app\backend\suite_app.py"
-$BackendScriptResolved = (Resolve-Path -LiteralPath $BackendScript).Path
+$RequiredTools = @(
+  "bom_process",
+  "bom_compare",
+  "bom_risk_check",
+  "netlist_compare",
+  "smt_package_check",
+  "single_network_check"
+)
 
-New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
-Set-Location $Root
+if ([string]::IsNullOrWhiteSpace($Version)) { throw "Runtime VERSION is missing or empty." }
+New-Item -ItemType Directory -Force -Path $RuntimeStateDir, $LogDir | Out-Null
 
-function Write-LauncherLog {
-  param([string]$Message)
-  "[$(Get-Date -Format s)] $Message" | Out-File -FilePath $LauncherLogFile -Encoding utf8 -Append
+function Rotate-LauncherLog {
+  if (-not (Test-Path -LiteralPath $LauncherLogFile -PathType Leaf)) { return }
+  if ((Get-Item -LiteralPath $LauncherLogFile).Length -lt 1MB) { return }
+  for ($index = 4; $index -ge 1; $index--) {
+    $current = $LauncherLogFile + "." + $index
+    $next = $LauncherLogFile + "." + ($index + 1)
+    if (Test-Path -LiteralPath $current) { Move-Item -LiteralPath $current -Destination $next -Force }
+  }
+  Move-Item -LiteralPath $LauncherLogFile -Destination ($LauncherLogFile + ".1") -Force
 }
 
-# Pure .NET TCP probe, avoids Get-NetTCPConnection module startup cost.
+function Write-LauncherLog {
+  param([Parameter(Mandatory=$true)][string]$Message)
+  Rotate-LauncherLog
+  "[$(Get-Date -Format s)] $Message" | Out-File -LiteralPath $LauncherLogFile -Encoding UTF8 -Append
+}
+
 function Test-PortOpen {
-  param([int]$Port)
+  param([Parameter(Mandatory=$true)][int]$Port)
+  $client = $null
   try {
-    $client = [System.Net.Sockets.TcpClient]::new()
+    $client = New-Object System.Net.Sockets.TcpClient
     $async = $client.BeginConnect("127.0.0.1", $Port, $null, $null)
-    $ok = $async.AsyncWaitHandle.WaitOne(300)
-    if ($ok) { $client.EndConnect($async) }
-    $client.Close()
-    return $ok
+    $connected = $async.AsyncWaitHandle.WaitOne(250)
+    if ($connected) { $client.EndConnect($async) }
+    return $connected
   } catch {
     return $false
+  } finally {
+    if ($null -ne $client) { $client.Dispose() }
   }
 }
 
-# Pure .NET HttpWebRequest, avoids Invoke-WebRequest first-call overhead.
-function Test-HttpReady {
-  param([int]$Port)
+function Test-ToolsReady {
+  param([Parameter(Mandatory=$true)][int]$Port)
   try {
-    $request = [System.Net.HttpWebRequest]::Create("http://127.0.0.1:$Port/api/tools")
-    $request.Timeout = 2000
-    $response = $request.GetResponse()
-    $reader = [System.IO.StreamReader]::new($response.GetResponseStream())
-    $content = $reader.ReadToEnd()
-    $reader.Close()
-    $response.Close()
-    $tools = ($content | ConvertFrom-Json).tools
-    foreach ($toolId in $Required) {
-      $tool = $tools | Where-Object { $_.id -eq $toolId } | Select-Object -First 1
+    $payload = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/tools" -TimeoutSec 2
+    foreach ($toolId in $RequiredTools) {
+      $tool = @($payload.tools | Where-Object { $_.id -eq $toolId }) | Select-Object -First 1
       if ($null -eq $tool -or $tool.status -ne "available") { return $false }
     }
-    $pluginRequest = [System.Net.HttpWebRequest]::Create("http://127.0.0.1:$Port/api/plugins")
-    $pluginRequest.Timeout = 2000
-    $pluginResponse = $pluginRequest.GetResponse()
-    $pluginReader = [System.IO.StreamReader]::new($pluginResponse.GetResponseStream())
-    $pluginContent = $pluginReader.ReadToEnd()
-    $pluginReader.Close()
-    $pluginResponse.Close()
-    $pluginPayload = $pluginContent | ConvertFrom-Json
-    if ($null -eq $pluginPayload.groups -or $null -eq $pluginPayload.groups.system) { return $false }
     return $true
   } catch {
     return $false
   }
 }
 
-function Open-Suite {
-  param([int]$Port)
+function Get-SuiteUrl {
+  param([Parameter(Mandatory=$true)][int]$Port)
   $url = "http://127.0.0.1:$Port"
-  $params = @()
-  if ($Source -ne "") { $params += "source=$([uri]::EscapeDataString($Source))" }
-  if ($Name   -ne "") { $params += "name=$([uri]::EscapeDataString($Name))"   }
-  if ($params.Count -gt 0) { $url = "$url/?tool=bom_process&$($params -join '&')" }
+  $parameters = @()
+  if (-not [string]::IsNullOrWhiteSpace($Source)) { $parameters += "source=$([uri]::EscapeDataString($Source))" }
+  if (-not [string]::IsNullOrWhiteSpace($Name)) { $parameters += "name=$([uri]::EscapeDataString($Name))" }
+  if ($parameters.Count -gt 0) { $url += "/?tool=bom_process&" + ($parameters -join "&") }
+  return $url
+}
+
+function Open-Suite {
+  param([Parameter(Mandatory=$true)][int]$Port)
+  $url = Get-SuiteUrl -Port $Port
   Write-LauncherLog "Opening URL: $url"
-  Write-Host "Insta360 HW platform is ready: $url" -ForegroundColor Green
   Start-Process -FilePath "rundll32.exe" -ArgumentList "url.dll,FileProtocolHandler", $url | Out-Null
 }
 
 function Open-WaitingPage {
-  param([int]$Port)
-  $url = "http://127.0.0.1:$Port"
-  $params = @()
-  if ($Source -ne "") { $params += "source=$([uri]::EscapeDataString($Source))" }
-  if ($Name   -ne "") { $params += "name=$([uri]::EscapeDataString($Name))"   }
-  if ($params.Count -gt 0) { $url = "$url/?tool=bom_process&$($params -join '&')" }
-  $target = [uri]::EscapeDataString($url)
+  param([Parameter(Mandatory=$true)][int]$Port)
   $waitFile = Join-Path $Root "app\frontend\waiting.html"
-  $waitUrl = "file:///$($waitFile.Replace('\', '/'))?target=$target"
-  Write-LauncherLog "Opening waiting page for: $url"
-  Start-Process $waitUrl | Out-Null
+  if (-not (Test-Path -LiteralPath $waitFile -PathType Leaf)) { return $false }
+  $target = Get-SuiteUrl -Port $Port
+  $waitUrl = "file:///$($waitFile.Replace('\', '/'))?target=$([uri]::EscapeDataString($target))"
+  Write-LauncherLog "Opening startup wait page for: $target"
+  Start-Process -FilePath $waitUrl | Out-Null
+  return $true
 }
 
-Write-LauncherLog "Launch requested Source='$Source' Name='$Name' Restart='$Restart' NoOpen='$NoOpen'"
-
+$serviceMutex = New-Object System.Threading.Mutex($false, "Global\Insta360_HW_ServiceLaunch_V2")
+$serviceMutexHeld = $false
 try {
-  if (Restore-HwAgentInterruptedUpdate -Root $Root) {
-    Write-LauncherLog "Recovered interrupted update before launch."
+  try {
+    $serviceMutexHeld = $serviceMutex.WaitOne(120000)
+  } catch [System.Threading.AbandonedMutexException] {
+    $serviceMutexHeld = $true
   }
-} catch {
-  Write-LauncherLog ("Interrupted update recovery failed: " + $_.Exception.Message)
-}
+  if (-not $serviceMutexHeld) { throw "Timed out waiting for another platform launch to finish." }
 
-# 0) Reuse a healthy service unless restart is requested.
-if (-not $Restart) {
-  foreach ($candidate in $PortRange) {
-    if ((Test-PortOpen -Port $candidate) -and (Test-HttpReady -Port $candidate)) {
-      Write-LauncherLog "Reusing healthy service on port $candidate"
-      if (-not $NoOpen) {
-        Open-Suite -Port $candidate
-      } else {
-        Write-LauncherLog "NoOpen requested; leaving existing browser page to reconnect"
-      }
-      exit 0
-    }
-  }
-}
+  Write-LauncherLog "Launch requested Source='$Source' Name='$Name' Restart='$Restart' NoOpen='$NoOpen' state='$StateRoot'"
 
-# 1) Restart or unavailable service: stop old backend processes and start fresh.
-Get-CimInstance Win32_Process |
-  Where-Object { $_.Name -like "python*" -and $_.CommandLine -and ($_.CommandLine -like "*$BackendScriptResolved*") } |
-  ForEach-Object {
-    if ($_.ProcessId -ne $PID) {
-      Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
-    }
+  if (-not $Restart -and (Test-HwLifecycleService -RuntimeRoot $Root -StateRoot $StateRoot)) {
+    $existing = Read-HwLifecycleJson -Path $ServiceStatePath
+    Write-LauncherLog ("Reusing exact service PID {0} on port {1}" -f $existing.pid, $existing.port)
+    if (-not $NoOpen) { Open-Suite -Port ([int]$existing.port) }
+    return
   }
 
-# 2) Pick the first free port.
+  Stop-HwLifecycleService -RuntimeRoot $Root -StateRoot $StateRoot -AllowLegacyIdentity
+
 $Port = $null
-foreach ($candidate in $PortRange) {
-  if (-not (Test-PortOpen -Port $candidate)) {
-    $Port = $candidate
-    break
-  }
+if ($PreferredPort -ge 1 -and $PreferredPort -le 65535 -and -not (Test-PortOpen -Port $PreferredPort)) {
+  $Port = $PreferredPort
 }
 if ($null -eq $Port) {
-  Write-LauncherLog "No available port in 8765-8775"
-  throw "8765-8775 ports are all in use; cannot start."
+  foreach ($candidatePort in $PortRange) {
+    if (-not (Test-PortOpen -Port $candidatePort)) {
+      $Port = $candidatePort
+      break
+    }
+  }
 }
+if ($null -eq $Port) { throw "No free service port is available in 8765-8775." }
 
-# 3) Start a fresh backend in the background.
-"[$(Get-Date -Format s)] Starting hardware tool suite on port $Port" | Out-File -FilePath $LogFile -Encoding utf8 -Append
-Write-LauncherLog "Starting service on port $Port"
-if (-not $NoOpen) {
-  Open-WaitingPage -Port $Port
-} else {
-  Write-LauncherLog "NoOpen requested; suppressing waiting page"
-}
-Start-Process -FilePath $Python `
-  -ArgumentList "app\backend\suite_app.py --port $Port" `
+$Stamp = Get-Date -Format "yyyyMMdd_HHmmss"
+$LogFile = Join-Path $LogDir "tool_suite_server_$Stamp.log"
+$ErrorLogFile = Join-Path $LogDir "tool_suite_server_error_$Stamp.log"
+$Token = [guid]::NewGuid().ToString("N")
+$env:INSTA360_HW_INSTANCE_TOKEN = $Token
+$waitingPageOpened = $false
+if (-not $NoOpen) { $waitingPageOpened = Open-WaitingPage -Port $Port }
+
+Write-LauncherLog "Starting exact service on port $Port"
+$backendArgument = '"' + $BackendScript + '"'
+$process = Start-Process -FilePath $Python `
+  -ArgumentList @($backendArgument, "--port", [string]$Port) `
   -WorkingDirectory $Root `
   -WindowStyle Hidden `
   -RedirectStandardOutput $LogFile `
-  -RedirectStandardError $ErrorLogFile | Out-Null
+  -RedirectStandardError $ErrorLogFile `
+  -PassThru
 
-# 4) Poll readiness quickly, up to about 8 seconds.
+$identity = [ordered]@{
+  schema = 2
+  product = "Insta360_HW"
+  pid = $process.Id
+  port = $Port
+  executable = $Python
+  root = $Root
+  state_root = $StateRoot
+  version = $Version
+  instance_token = $Token
+  started_at = (Get-Date).ToUniversalTime().ToString("o")
+}
+Write-HwLifecycleJsonAtomic -Path $ServiceStatePath -Value $identity
+
 $ready = $false
-foreach ($i in 1..40) {
-  if (Test-HttpReady -Port $Port) {
+foreach ($attempt in 1..75) {
+  $process.Refresh()
+  if ($process.HasExited) { break }
+  if ((Test-HwLifecycleService -RuntimeRoot $Root -StateRoot $StateRoot) -and (Test-ToolsReady -Port $Port)) {
     $ready = $true
     break
   }
@@ -170,14 +190,15 @@ foreach ($i in 1..40) {
 }
 
 if (-not $ready) {
-  Write-LauncherLog "Startup failed on port $Port; error log: $ErrorLogFile"
-  Write-Host "Platform startup failed. See log: $ErrorLogFile" -ForegroundColor Red
-  exit 1
+  if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+  Remove-Item -LiteralPath $ServiceStatePath -Force -ErrorAction SilentlyContinue
+  Write-LauncherLog "Startup failed for PID $($process.Id); error log: $ErrorLogFile"
+  throw "Platform backend failed exact-instance health verification. See $ErrorLogFile"
 }
 
-Write-LauncherLog "Service ready on port $Port"
-if (-not $NoOpen) {
-  Open-Suite -Port $Port
-} else {
-  Write-LauncherLog "NoOpen requested; service is ready without opening browser"
+  Write-LauncherLog "Service verified PID $($process.Id) port $Port token $Token version $Version"
+  if (-not $NoOpen -and -not $waitingPageOpened) { Open-Suite -Port $Port }
+} finally {
+  if ($serviceMutexHeld) { $serviceMutex.ReleaseMutex() | Out-Null }
+  $serviceMutex.Dispose()
 }

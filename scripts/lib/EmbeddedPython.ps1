@@ -34,14 +34,55 @@ function Assert-HwAgentSha256 {
   }
 }
 
+function Get-HwAgentDownloadCacheRoot {
+  $base = $env:LOCALAPPDATA
+  if ([string]::IsNullOrWhiteSpace($base)) { $base = [System.IO.Path]::GetTempPath() }
+  return (Join-Path $base "Insta360_HW\build-cache\downloads")
+}
+
+function Get-HwAgentDownloadCachePath {
+  param(
+    [Parameter(Mandatory=$true)][string]$Url,
+    [Parameter(Mandatory=$true)][string]$Sha256
+  )
+  $name = [System.IO.Path]::GetFileName(([uri]$Url).AbsolutePath)
+  if ([string]::IsNullOrWhiteSpace($name)) { $name = "download.bin" }
+  $name = $name -replace '[^0-9A-Za-z._-]', '_'
+  return (Join-Path (Get-HwAgentDownloadCacheRoot) ($Sha256.ToLowerInvariant() + "-" + $name))
+}
+
 function Invoke-HwAgentDownload {
   param(
     [Parameter(Mandatory=$true)][string]$Url,
     [Parameter(Mandatory=$true)][string]$OutFile,
     [Parameter(Mandatory=$true)][string]$Sha256
   )
+  $cache = Get-HwAgentDownloadCachePath -Url $Url -Sha256 $Sha256
+  $cacheDir = Split-Path -Parent $cache
+  New-Item -ItemType Directory -Force -Path $cacheDir | Out-Null
+  $cacheValid = $false
+  if (Test-Path -LiteralPath $cache -PathType Leaf) {
+    try {
+      Assert-HwAgentSha256 -Path $cache -ExpectedSha256 $Sha256
+      $cacheValid = $true
+    } catch {
+      Remove-Item -LiteralPath $cache -Force -ErrorAction SilentlyContinue
+    }
+  }
+  if (-not $cacheValid) {
+    $partial = Join-Path $cacheDir ((Split-Path -Leaf $cache) + "." + [guid]::NewGuid().ToString("N") + ".part")
+    try {
+      Invoke-WebRequest -Uri $Url -OutFile $partial -UseBasicParsing
+      Assert-HwAgentSha256 -Path $partial -ExpectedSha256 $Sha256
+      Move-Item -LiteralPath $partial -Destination $cache -Force
+    } finally {
+      Remove-Item -LiteralPath $partial -Force -ErrorAction SilentlyContinue
+    }
+  } else {
+    Write-Host ("Using verified download cache: " + (Split-Path -Leaf $cache))
+  }
   New-Item -ItemType Directory -Force -Path (Split-Path -Parent $OutFile) | Out-Null
-  Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing
+  Copy-Item -LiteralPath $cache -Destination $OutFile -Force
   Assert-HwAgentSha256 -Path $OutFile -ExpectedSha256 $Sha256
 }
 

@@ -2,6 +2,15 @@ import { App, Button, Descriptions, Drawer, Empty, Popconfirm, Space, Table, Tag
 import { useState } from "react";
 import { clearHistory, deleteHistoryRun, fetchHistoryRun, type HistoryRun } from "../api/client";
 
+function outputHref(path: string) {
+  const normalized = path.replaceAll("\\", "/");
+  const marker = "/data/outputs/";
+  const index = normalized.indexOf(marker);
+  const rel = index >= 0 ? normalized.slice(index + marker.length) : normalized.replace(/^data\/outputs\//, "");
+  const encoded = rel.split("/").map((segment) => encodeURIComponent(segment)).join("/");
+  return `/outputs/${encoded}`;
+}
+
 function compactSummary(summary: unknown) {
   if (!summary || typeof summary !== "object") return "-";
   const entries = Object.entries(summary as Record<string, unknown>).slice(0, 4);
@@ -73,7 +82,7 @@ export function HistoryView({
         outputs.length ? (
           <Space size={4} wrap>
             {outputs.slice(0, 4).map((name) => (
-              <a key={name} href={`/outputs/${encodeURIComponent(name)}`}>{name}</a>
+              <a key={name} href={outputHref(name)}>{name}</a>
             ))}
             {outputs.length > 4 ? <Tag>+{outputs.length - 4}</Tag> : null}
           </Space>

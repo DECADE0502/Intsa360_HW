@@ -1,8 +1,10 @@
 ﻿from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from app.backend.config import load_config
@@ -44,4 +46,49 @@ class ConfigPathTests(unittest.TestCase):
             self.assertTrue(paths.inbox_dir.exists())
             self.assertTrue(paths.outputs_dir.exists())
             self.assertTrue(paths.runtime_log_dir.exists())
+
+    def test_installed_runtime_uses_local_app_data_state_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as local:
+            root = Path(tmp)
+            (root / "install_manifest.json").write_text(
+                json.dumps({"schema": 2, "product": "Insta360_HW", "layout": "runtime-v2"}),
+                encoding="utf-8",
+            )
+            with patch.dict(os.environ, {"LOCALAPPDATA": local}, clear=False):
+                paths = AppPaths(root)
+                self.assertEqual(paths.state_root, (Path(local) / "Insta360_HW").resolve())
+
+    def test_incomplete_install_manifest_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "install_manifest.json").write_text(
+                json.dumps({"product": "Insta360_HW"}),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "schema"):
+                _ = AppPaths(root).state_root
+
+    def test_development_root_keeps_in_tree_state_even_with_a_local_app_data_value(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as local:
+            root = Path(tmp)
+            (root / "pyproject.toml").write_text("[tool.pytest.ini_options]\n", encoding="utf-8")
+            with patch.dict(os.environ, {"LOCALAPPDATA": local}, clear=False):
+                paths = AppPaths(root)
+                self.assertTrue(paths.is_development)
+                self.assertEqual(paths.runtime_root, root.resolve())
+                self.assertEqual(paths.state_root, root.resolve())
+
+    def test_development_root_ignores_stale_install_manifest_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as local:
+            root = Path(tmp)
+            (root / "pyproject.toml").write_text("[tool.pytest.ini_options]\n", encoding="utf-8")
+            (root / "install_manifest.json").write_text("{not json", encoding="utf-8")
+            with patch.dict(os.environ, {"LOCALAPPDATA": local}, clear=False):
+                self.assertEqual(AppPaths(root).state_root, root.resolve())
+
+    def test_explicit_state_root_wins(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as state:
+            with patch.dict(os.environ, {"INSTA360_HW_STATE_ROOT": state}, clear=False):
+                self.assertEqual(AppPaths(Path(tmp)).state_root, Path(state).resolve())
 

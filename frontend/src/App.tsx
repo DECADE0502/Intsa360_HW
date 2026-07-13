@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { Alert, Button, ConfigProvider, Layout, Menu, Spin, Typography } from "antd";
+import { Alert, App as AntdApp, Button, ConfigProvider, Layout, Menu, Spin, Typography } from "antd";
 import zhCN from "antd/locale/zh_CN";
 import {
   fetchCapabilities,
@@ -8,6 +8,7 @@ import {
   fetchPlugins,
   fetchTools,
   fetchVersion,
+  HISTORY_UPDATED_EVENT,
   type Capability,
   type HistoryRun,
   type PluginInfo,
@@ -44,8 +45,13 @@ export default function App() {
 
   async function refreshPlugins() {
     const payload = await fetchPlugins();
-    setPlugins({ system: [], platform: [], user: [], ...(payload.groups || {}) });
+    const groups = payload.groups || {};
+    setPlugins({ system: groups.system || [], platform: groups.platform || [], user: groups.user || [] });
     return payload;
+  }
+
+  async function refreshHistory() {
+    setHistoryRuns(await fetchHistory());
   }
 
   async function refreshRuntimeStatus(options: { preserveReconnectMessage?: boolean } = {}) {
@@ -150,7 +156,12 @@ export default function App() {
         const version = versionResult.status === "fulfilled" ? versionResult.value : "";
         setTools(tls);
         setCaps(cp.capabilities || []);
-        setPlugins({ system: [], platform: [], user: [], ...(pl.groups || {}) });
+        const pluginGroups = pl.groups || {};
+        setPlugins({
+          system: pluginGroups.system || [],
+          platform: pluginGroups.platform || [],
+          user: pluginGroups.user || [],
+        });
         setHistoryRuns(historyResult.status === "fulfilled" ? historyResult.value : []);
         setStatus({ ...st, version: version || st?.version });
         setServiceOnline(statusResult.status === "fulfilled" && versionResult.status === "fulfilled");
@@ -172,6 +183,14 @@ export default function App() {
       refreshRuntimeStatus();
     }, 5000);
     return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const onHistoryUpdated = () => {
+      void refreshHistory().catch(() => {});
+    };
+    window.addEventListener(HISTORY_UPDATED_EVENT, onHistoryUpdated);
+    return () => window.removeEventListener(HISTORY_UPDATED_EVENT, onHistoryUpdated);
   }, []);
 
   const bom = tools.filter((t) => ["bom_process", "bom_compare", "bom_risk_check"].includes(t.id));
@@ -207,7 +226,8 @@ export default function App() {
 
   return (
     <ConfigProvider locale={zhCN}>
-      <Layout className="app-shell">
+      <AntdApp>
+        <Layout className="app-shell">
         <Sider width={232} className="app-sider">
           <div className="app-brand">
             <img className="app-brand-logo" src="/assets/insta360_logo.png" alt="Insta360" />
@@ -271,7 +291,8 @@ export default function App() {
               ))}
           </Suspense>
         </Content>
-      </Layout>
+        </Layout>
+      </AntdApp>
     </ConfigProvider>
   );
 }

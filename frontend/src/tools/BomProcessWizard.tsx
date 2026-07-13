@@ -23,6 +23,7 @@ import {
   FileTextOutlined,
   InboxOutlined,
   ReloadOutlined,
+  RollbackOutlined,
   RightOutlined,
   SafetyCertificateOutlined,
   WarningOutlined,
@@ -44,6 +45,15 @@ type Extra = { code: string; model: string; desc: string; qty: string; refs: str
 
 function fname(p: string) {
   return p.split(/[\\/]/).pop() || p;
+}
+
+function outputHref(path: string) {
+  const normalized = path.replaceAll("\\", "/");
+  const marker = "/data/outputs/";
+  const index = normalized.indexOf(marker);
+  const rel = index >= 0 ? normalized.slice(index + marker.length) : normalized.replace(/^data\/outputs\//, "");
+  const encoded = rel.split("/").map((segment) => encodeURIComponent(segment)).join("/");
+  return `/outputs/${encoded}`;
 }
 
 function bname(p: string) {
@@ -264,8 +274,8 @@ export function BomProcessWizard() {
     }
   }
 
-  function finishAndStartNewBom() {
-    notifyAssetsUpdated();
+  function clearBomWorkflow(options: { notifyHistory?: boolean; successMessage?: string } = {}) {
+    if (options.notifyHistory) notifyAssetsUpdated();
     resetWorkspace();
     setPresetConsumed(true);
     setStage("source");
@@ -283,7 +293,18 @@ export function BomProcessWizard() {
     setConfirmShields(false);
     const cleanUrl = `${window.location.pathname}?tool=bom_process`;
     window.history.replaceState({}, "", cleanUrl);
-    message.success("已同步历史 BOM，可以处理新的 BOM");
+    if (options.successMessage) message.success(options.successMessage);
+  }
+
+  function clearAndReturnToSource() {
+    clearBomWorkflow({ successMessage: "已清空当前 BOM" });
+  }
+
+  function finishAndStartNewBom() {
+    clearBomWorkflow({
+      notifyHistory: true,
+      successMessage: "已同步历史 BOM，可以处理新的 BOM",
+    });
   }
 
   return (
@@ -303,6 +324,7 @@ export function BomProcessWizard() {
           setFmts={setFmts}
           extras={extras}
           setExtras={setExtras}
+          onClear={clearAndReturnToSource}
           onNext={() => setStage("process")}
         />
       )}
@@ -369,7 +391,7 @@ function SourceView({ presetSource, onFile, onUsePreset }: any) {
 }
 
 function ReviewView(props: any) {
-  const { sp, name, setName, pcode, setPcode, pdesc, setPdesc, fmts, setFmts, extras, setExtras, onNext } = props;
+  const { sp, name, setName, pcode, setPcode, pdesc, setPdesc, fmts, setFmts, extras, setExtras, onClear, onNext } = props;
   const [copied, setCopied] = useState(false);
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
@@ -410,9 +432,14 @@ function ReviewView(props: any) {
           },
         ]}
       />
-      <Button type="primary" size="large" block onClick={onNext} icon={<RightOutlined />}>
-        确认无误，开始处理
-      </Button>
+      <div className="bom-review-actions">
+        <Button danger size="large" onClick={onClear} icon={<RollbackOutlined />}>
+          返回并清空
+        </Button>
+        <Button type="primary" size="large" onClick={onNext} icon={<RightOutlined />}>
+          确认无误，开始处理
+        </Button>
+      </div>
     </Space>
   );
 }
@@ -711,7 +738,7 @@ function DeliverView({ pres, rres, name, onDownload, onFinish, onReset }: any) {
           size="small"
           dataSource={all}
           renderItem={(p: string) => (
-            <List.Item actions={[<Button key="dl" type="link" icon={<DownloadOutlined />} href={`/outputs/${encodeURIComponent(fname(p))}`}>下载</Button>]}>
+            <List.Item actions={[<Button key="dl" type="link" icon={<DownloadOutlined />} href={outputHref(p)}>下载</Button>]}>
               <FileTextOutlined style={{ marginRight: 8, color: "#1677ff" }} />
               {fname(p)}
             </List.Item>

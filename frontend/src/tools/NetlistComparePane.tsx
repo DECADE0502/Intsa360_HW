@@ -21,6 +21,7 @@ import {
   SearchOutlined,
 } from "@ant-design/icons";
 import { runTool, uploadFiles, type ToolInfo } from "../api/client";
+import { useToolWorkspace } from "../state/toolWorkspace";
 
 type ReviewItem = {
   key: string;
@@ -80,8 +81,7 @@ function NetlistUploadSlot({
       <Typography.Text className="netlist-upload-title">{title}</Typography.Text>
       <Upload
         accept=".dat"
-        directory="true"
-        webkitdirectory="true"
+        directory
         multiple
         fileList={files.map((file, index) => ({ uid: String(index), name: file.name, status: "done" as const }))}
         beforeUpload={(file) => {
@@ -152,13 +152,19 @@ function SimpleTable({ table }: { table?: any }) {
 }
 
 export function NetlistComparePane({ tool }: { tool: ToolInfo }) {
+  const [workspace, setWorkspace, resetWorkspace] = useToolWorkspace("netlist_compare", {
+    filter: "focus",
+    query: "",
+    selectedKey: "",
+    result: null as any,
+  });
   const [leftFiles, setLeftFiles] = useState<File[]>([]);
   const [rightFiles, setRightFiles] = useState<File[]>([]);
   const [running, setRunning] = useState(false);
-  const [result, setResult] = useState<any>(null);
-  const [filter, setFilter] = useState("focus");
-  const [query, setQuery] = useState("");
-  const [selectedKey, setSelectedKey] = useState("");
+  const [result, setResult] = useState<any>(workspace.result || null);
+  const [filter, setFilter] = useState(String(workspace.filter || "focus"));
+  const [query, setQuery] = useState(String(workspace.query || ""));
+  const [selectedKey, setSelectedKey] = useState(String(workspace.selectedKey || ""));
 
   const review = result?.netlist_review;
   const items: ReviewItem[] = review?.items || [];
@@ -183,6 +189,10 @@ export function NetlistComparePane({ tool }: { tool: ToolInfo }) {
       });
     }
   }, [review]);
+
+  useEffect(() => {
+    setWorkspace({ filter, query, selectedKey, result });
+  }, [filter, query, selectedKey, result]);
 
   async function handleRun() {
     if (!leftFiles.some((file) => file.name.toLowerCase() === "pstxnet.dat") || !rightFiles.some((file) => file.name.toLowerCase() === "pstxnet.dat")) {
@@ -237,6 +247,10 @@ export function NetlistComparePane({ tool }: { tool: ToolInfo }) {
                 setLeftFiles([]);
                 setRightFiles([]);
                 setResult(null);
+                setFilter("focus");
+                setQuery("");
+                setSelectedKey("");
+                resetWorkspace();
               }}
               icon={<DeleteOutlined />}
             >

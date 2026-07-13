@@ -198,6 +198,18 @@ NODE_NAME C1 2
             self.assertEqual(result["summary"]["passed_count"], 1)
             self.assertEqual(result["table"]["rows"][0][-2], "机器初筛通过")
 
+    def test_smt_package_match_rejects_conflicting_sizes_before_generic_tokens(self) -> None:
+        matched, note = analysis_tools._package_matches("RES_R0402", "RES_R0603")
+
+        self.assertFalse(matched)
+        self.assertIn("尺寸", note)
+
+    def test_smt_package_match_keeps_vendor_size_approximation(self) -> None:
+        matched, note = analysis_tools._package_matches("CAP_NP_C0201-0P4-B", "GJM03")
+
+        self.assertTrue(matched)
+        self.assertIn("尺寸码", note)
+
     def test_netlist_tools_module_exposes_compatible_runner(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

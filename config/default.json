@@ -8,10 +8,10 @@
     "autoload_dirs": []
   },
   "update": {
-    "mode": "git",
-    "repo": "",
-    "branch": "main",
-    "preserve_dirs": ["data", "config/local.json"]
+    "schema": 2,
+    "channel": "stable",
+    "manifest_url": "https://github.com/DECADE0502/Intsa360_HW/releases/latest/download/update-manifest.json",
+    "download_strategy": "release_runtime_zip"
   }
 }
 

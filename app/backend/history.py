@@ -49,7 +49,34 @@ def _extract_summary(result: dict[str, object]) -> object:
     return summary if summary is not None else {}
 
 
-def _extract_output_names(result: dict[str, object]) -> list[str]:
+def output_relative_path(root: Path, value: object) -> str | None:
+    outputs_root = (root / "data" / "outputs").resolve()
+    text = str(value or "").strip()
+    if not text:
+        return None
+
+    path = Path(text)
+    if path.is_absolute():
+        candidate = path
+    else:
+        parts = [part for part in text.replace("\\", "/").split("/") if part and part != "."]
+        if not parts or ".." in parts:
+            return None
+        for index in range(len(parts) - 1):
+            if [part.lower() for part in parts[index:index + 2]] == ["data", "outputs"]:
+                parts = parts[index + 2:]
+                break
+        if not parts:
+            return None
+        candidate = outputs_root.joinpath(*parts)
+
+    try:
+        return candidate.resolve().relative_to(outputs_root).as_posix()
+    except (OSError, ValueError):
+        return None
+
+
+def _extract_output_paths(root: Path, result: dict[str, object]) -> list[str]:
     outputs = result.get("outputs") or []
     if not outputs and isinstance(result.get("result"), dict):
         nested = result["result"].get("outputs")
@@ -59,17 +86,27 @@ def _extract_output_names(result: dict[str, object]) -> list[str]:
                 + (nested.get("nc_summaries") or [])
                 + ([nested["summary"]] if nested.get("summary") else [])
             )
-    return [Path(str(path)).name for path in outputs]
+    if not isinstance(outputs, list):
+        return []
+    return [relative for path in outputs if (relative := output_relative_path(root, path)) is not None]
 
 
-def _entry_from_payload(payload: dict[str, object]) -> dict[str, object] | None:
+def _payload_with_relative_outputs(root: Path, result: dict[str, object]) -> dict[str, object]:
+    payload = dict(result)
+    outputs = payload.get("outputs")
+    if isinstance(outputs, list):
+        payload["outputs"] = [relative for path in outputs if (relative := output_relative_path(root, path)) is not None]
+    return payload
+
+
+def _entry_from_payload(root: Path, payload: dict[str, object]) -> dict[str, object] | None:
     meta = payload.get("_meta")
     if not isinstance(meta, dict) or not meta.get("id"):
         return None
     return {
         **meta,
         "summary": _extract_summary(payload),
-        "outputs": _extract_output_names(payload),
+        "outputs": _extract_output_paths(root, payload),
     }
 
 
@@ -82,7 +119,7 @@ def _rebuild_index_from_runs(root: Path) -> list[dict[str, object]]:
         except (ValueError, OSError):
             continue
         if isinstance(payload, dict):
-            entry = _entry_from_payload(payload)
+            entry = _entry_from_payload(root, payload)
             if entry is not None:
                 entries.append(entry)
     entries.sort(key=lambda item: str(item.get("time", "")), reverse=True)
@@ -121,14 +158,14 @@ def record(
         "inputs": _input_names(params or {}),
     }
 
-    payload = dict(result)
+    payload = _payload_with_relative_outputs(root, result)
     payload["_meta"] = meta
     (runs / f"{run_id}.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
     entry = {
         **meta,
         "summary": _extract_summary(result),
-        "outputs": _extract_output_names(result),
+        "outputs": _extract_output_paths(root, payload),
     }
     with _LOCK:
         path = _index_path(root)

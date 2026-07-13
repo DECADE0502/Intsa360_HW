@@ -5,6 +5,8 @@ import os
 import shutil
 from pathlib import Path
 
+from app.backend.paths import AppPaths
+
 
 def _check(check_id: str, name: str, ok: bool, message: str, severity: str = "fail") -> dict[str, object]:
     return {
@@ -37,6 +39,7 @@ def _cadence_autoload_candidates() -> list[Path]:
 
 def run_self_check(root: Path) -> dict[str, object]:
     manifest = _read_manifest(root)
+    paths = AppPaths(root)
     checks: list[dict[str, object]] = []
 
     checks.append(_check("install_root", "安装目录", root.exists() and root.is_dir(), str(root)))
@@ -51,11 +54,19 @@ def run_self_check(root: Path) -> dict[str, object]:
     python_ok = bool(shutil.which("python")) or (root / "runtime" / "python" / "python.exe").exists() or (root / ".venv" / "Scripts" / "python.exe").exists()
     checks.append(_check("python", "Python 运行时", python_ok, "找到 Python 运行时" if python_ok else "未找到 Python 运行时"))
 
-    required_dirs = ["data", "data/uploads", "data/outputs", "data/history", "data/reports/runtime", "plugins/user/scripts"]
-    missing_dirs = [item for item in required_dirs if not (root / item).exists()]
+    required_dirs = [
+        paths.data_dir,
+        paths.uploads_dir,
+        paths.outputs_dir,
+        paths.history_dir,
+        paths.runtime_log_dir,
+        paths.user_plugins_dir / "scripts",
+        paths.lifecycle_jobs_dir,
+    ]
+    missing_dirs = [str(item) for item in required_dirs if not item.exists()]
     checks.append(_check("data_dirs", "用户数据目录", not missing_dirs, "用户数据目录完整" if not missing_dirs else "缺少: " + ", ".join(missing_dirs), "warn"))
 
-    config = root / "config" / "local.json"
+    config = paths.local_config_path
     checks.append(_check("local_config", "本机配置", config.exists(), str(config), "warn"))
 
     cadence_dirs = _cadence_autoload_candidates()

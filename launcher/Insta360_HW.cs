@@ -1,208 +1,137 @@
-// Insta360_HW launcher — thin shell that locates the platform root (its own
-// directory), runs first-run readiness once, then launches the suite.
-//
-// It deliberately keeps NO business logic: Python discovery, port selection,
-// service start and browser open all live in launch_tool_suite.ps1, which is
-// already exercised by the test suite. This exe only:
-//   1. Finds its sibling scripts next to itself.
-//   2. On first run, runs oneclick_install.ps1 -Silent (install openpyxl, deploy
-//      the Cadence loader, init config) and writes a .ready marker.
-//   3. On every run, repairs the Cadence loader if it was removed or the real
-//      Capture HOME differs from the installer assumption.
-//   4. On every run, runs launch_tool_suite.ps1 hidden, forwarding CLI args so
-//      Cadence menu deep-links (Source/Name/-Restart) keep working.
-//
-// Built with: csc.exe /target:winexe /win32icon:<icon> /out:Insta360_HW.exe
 using System;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
-using System.Reflection;
+using System.Runtime.Serialization;
+using System.Runtime.Serialization.Json;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
-using Microsoft.Win32;
+
+[DataContract]
+internal sealed class ServiceIdentity
+{
+    [DataMember(Name = "schema")] public int Schema { get; set; }
+    [DataMember(Name = "product")] public string Product { get; set; }
+    [DataMember(Name = "pid")] public int Pid { get; set; }
+    [DataMember(Name = "port")] public int Port { get; set; }
+    [DataMember(Name = "executable")] public string Executable { get; set; }
+    [DataMember(Name = "root")] public string Root { get; set; }
+    [DataMember(Name = "state_root")] public string StateRoot { get; set; }
+    [DataMember(Name = "version")] public string Version { get; set; }
+    [DataMember(Name = "instance_token")] public string InstanceToken { get; set; }
+}
+
+[DataContract]
+internal sealed class HealthIdentity
+{
+    [DataMember(Name = "status")] public string Status { get; set; }
+    [DataMember(Name = "product")] public string Product { get; set; }
+    [DataMember(Name = "root")] public string Root { get; set; }
+    [DataMember(Name = "state_root")] public string StateRoot { get; set; }
+    [DataMember(Name = "version")] public string Version { get; set; }
+    [DataMember(Name = "instance_token")] public string InstanceToken { get; set; }
+    [DataMember(Name = "pid")] public int Pid { get; set; }
+}
 
 internal static class Program
 {
-    private const string MutexName = "Global\\Insta360_HW.exe";
-    private const string PlatformUrl = "http://127.0.0.1:8765";
+    private const string MutexName = "Local\\Insta360_HW.Launcher";
     private const string ReconnectProtocolUrl = "insta360-hw://reconnect";
-    private const int MAX_LOG_BYTES = 512 * 1024;
-    private const int MAX_LOG_FILES = 5;
+    private const int MaxLogBytes = 512 * 1024;
+    private const int MaxLogFiles = 5;
+    private const int ScriptTimeoutMilliseconds = 120000;
 
     [STAThread]
     private static int Main(string[] args)
     {
-        // The exe sits at the platform root, scripts are siblings.
-        string exeDir = AppDomain.CurrentDomain.BaseDirectory;
-        // Normalize: when launched from another CWD, BaseDirectory is still the
-        // exe folder, which is exactly the platform root.
-        string root = exeDir.TrimEnd('\\', '/');
-
-        string installScript = Path.Combine(root, "oneclick_install.ps1");
-        string redeployScript = Path.Combine(root, "scripts", "redeploy_cadence_loader.ps1");
-        string launchScript = Path.Combine(root, "launch_tool_suite.ps1");
-        // The .ready marker lives under %LOCALAPPDATA%\Insta360_HW so read-only
-        // install locations (Program Files, network mounts) do not break the
-        // first-run gate. Any prior data\.ready copy is ignored.
-        string readyMarker = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Insta360_HW", ".ready");
-        bool reconnectRequest = IsReconnectRequest(args);
-        bool suppressBrowserOpen = reconnectRequest;
-        EnsureReconnectProtocolReady();
-        try
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(readyMarker));
-        }
-        catch
-        {
-            // Marker directory is a convenience; failure will surface at write time.
-        }
+        string root = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\', '/');
+        string stateRoot = ResolveStateRoot(root);
+        Environment.SetEnvironmentVariable("INSTA360_HW_STATE_ROOT", stateRoot, EnvironmentVariableTarget.Process);
+        bool reconnect = IsReconnectRequest(args);
 
         bool createdNew;
-        Mutex mutex = null;
-        try
+        using (var mutex = new Mutex(true, MutexName, out createdNew))
         {
-            try
-            {
-                mutex = new Mutex(true, MutexName, out createdNew);
-            }
-            catch (AbandonedMutexException ex)
-            {
-                WriteLog("Recovered abandoned launcher mutex: " + ex.Message);
-                createdNew = true;
-                mutex = new Mutex(true, MutexName);
-            }
-
             if (!createdNew)
             {
-                // The first instance owns the mutex and is either already
-                // serving or still coming up. Give it a brief grace period
-                // before deciding whether to open a browser tab, since
-                // repeated ShellExecute of the same URL can spawn extra tabs
-                // on browsers that don't dedupe (e.g. Firefox).
-                WriteLog("Second instance detected");
-                if (reconnectRequest)
+                WriteLog(stateRoot, "Another launcher instance is starting the platform.");
+                string existingUrl;
+                for (int attempt = 0; attempt < 25; attempt++)
                 {
-                    WriteLog("Reconnect request detected");
-                }
-                if (!IsPlatformReady())
-                {
-                    Thread.Sleep(2000);
-                }
-                if (suppressBrowserOpen)
-                {
-                    WriteLog("Skipping browser open for reconnect request");
-                }
-                else if (!IsPlatformReady())
-                {
-                    WriteLog("Platform not ready after wait, opening browser as usual");
-                    OpenPlatformUrl();
-                }
-                else
-                {
-                    WriteLog("Platform already ready, skipping browser open");
+                    if (TryGetHealthyPlatform(root, stateRoot, out existingUrl))
+                    {
+                        if (!reconnect) OpenPlatformUrl(existingUrl);
+                        return 0;
+                    }
+                    Thread.Sleep(200);
                 }
                 return 0;
             }
 
             try
             {
-                WriteLog("Launcher started. root=" + root);
-                if (reconnectRequest)
+                WriteLog(stateRoot, "Launcher started. root=" + root + " state=" + stateRoot);
+                int recoveryCode = RunRecovery(root, stateRoot);
+                if (recoveryCode != 0)
                 {
-                    WriteLog("Reconnect request detected");
+                    if (recoveryCode == 23)
+                    {
+                        throw new InvalidOperationException("平台正在完成版本切换，请稍候片刻再重新打开。");
+                    }
+                    throw new InvalidOperationException("Interrupted update recovery failed with exit code " + recoveryCode + ".");
                 }
-                if (!File.Exists(readyMarker) && !suppressBrowserOpen)
+
+                string launchScript = Path.Combine(root, "launch_tool_suite.ps1");
+                string launchArgs = BuildLaunchArgs(args, reconnect);
+                int exitCode = RunPowerShellHidden(root, launchScript, launchArgs, stateRoot);
+                if (exitCode != 0)
                 {
-                    // First-run: open waiting.html (or fall back to a
-                    // MessageBox) so the user sees something within a few
-                    // seconds while the ~30-60s silent installer runs.
-                    OpenWaitingPage(root);
+                    throw new InvalidOperationException("Platform service launch failed with exit code " + exitCode + ".");
                 }
-                EnsureFirstRunReady(root, installScript, readyMarker);
+                return 0;
             }
             catch (Exception ex)
             {
-                ShowStartupFailure("First-run readiness failed", ex);
-            }
-
-            try
-            {
-                EnsureCadenceLoaderReady(root, redeployScript);
-            }
-            catch (Exception ex)
-            {
-                ShowStartupFailure("Cadence loader repair failed", ex);
-            }
-
-            string launchArgs = BuildLaunchArgs(args, suppressBrowserOpen);
-            int exitCode = RunPowerShellHidden(root, launchScript, launchArgs);
-            if (exitCode != 0)
-            {
-                // The user often finds the launcher.log path empty because
-                // launch_tool_suite.ps1 writes to a second log inside the
-                // install tree. List both so the message stays actionable.
-                string suiteLog = Path.Combine(root, "data", "reports", "runtime", "launcher_latest.log");
-                string message =
-                    "Insta360_HW startup failed\n\n" +
-                    "Exit code: " + exitCode + "\n\n" +
-                    "Log: " + LogPath() + "\n" +
-                    "Additional log: " + suiteLog;
-                WriteLog(message);
-                MessageBox.Show(message, "Insta360_HW", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-            return exitCode;
-        }
-        finally
-        {
-            if (mutex != null)
-            {
-                mutex.Dispose();
+                WriteLog(stateRoot, "Startup failed: " + ex);
+                MessageBox.Show(
+                    "Insta360_HW 启动失败。\n\n" + ex.Message + "\n\n日志：" + LogPath(stateRoot),
+                    "Insta360_HW",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+                return 1;
             }
         }
     }
 
-    private static void EnsureFirstRunReady(string root, string installScript, string readyMarker)
+    private static string ResolveStateRoot(string root)
     {
-        if (File.Exists(readyMarker)) return;
-        if (!File.Exists(installScript)) return;
-
-        // Only trigger first-run readiness once per machine to avoid looping on
-        // a setup that keeps failing. The marker is written even on partial
-        // success so the user always reaches the platform.
-        RunPowerShellHidden(root, installScript, "-Silent");
-        try
+        string explicitRoot = Environment.GetEnvironmentVariable("INSTA360_HW_STATE_ROOT") ?? "";
+        if (!string.IsNullOrWhiteSpace(explicitRoot)) return Path.GetFullPath(explicitRoot).TrimEnd('\\');
+        string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        if (File.Exists(Path.Combine(root, "install_manifest.json")) && !string.IsNullOrWhiteSpace(local))
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(readyMarker));
-            File.WriteAllText(readyMarker, DateTime.Now.ToString("s") + "\n");
+            return Path.Combine(local, "Insta360_HW");
         }
-        catch
-        {
-            // Marker is a convenience, not a requirement.
-        }
+        return root;
     }
 
-    private static void EnsureCadenceLoaderReady(string root, string redeployScript)
+    private static int RunRecovery(string root, string stateRoot)
     {
-        if (!File.Exists(redeployScript)) return;
-        RunPowerShellHidden(root, redeployScript, "");
+        string script = Path.Combine(root, "scripts", "lifecycle", "Recover.ps1");
+        if (!File.Exists(script)) return 0;
+        string args = "-InstallRoot " + Quote(root) + " -StateRoot " + Quote(stateRoot) + " -NoRestart";
+        return RunPowerShellHidden(root, script, args, stateRoot);
     }
 
-    private static int RunPowerShellHidden(string workingDir, string script, string extraArgs)
+    private static int RunPowerShellHidden(string workingDir, string script, string extraArgs, string stateRoot)
     {
-        if (!File.Exists(script))
-        {
-            WriteLog("Missing script: " + script);
-            return 2;
-        }
-        var psi = new ProcessStartInfo
+        if (!File.Exists(script)) throw new FileNotFoundException("Missing platform script", script);
+        var info = new ProcessStartInfo
         {
             FileName = "powershell.exe",
-            Arguments =
-                "-NoProfile -ExecutionPolicy Bypass -File \"" + script + "\" " + extraArgs,
+            Arguments = "-NoProfile -ExecutionPolicy Bypass -File " + Quote(script) + " " + extraArgs,
             WorkingDirectory = workingDir,
             UseShellExecute = false,
             WindowStyle = ProcessWindowStyle.Hidden,
@@ -212,280 +141,175 @@ internal static class Program
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8,
         };
-        using (var proc = Process.Start(psi))
+        info.EnvironmentVariables["INSTA360_HW_STATE_ROOT"] = stateRoot;
+        using (var process = Process.Start(info))
         {
-            if (proc == null) return 1;
-            var output = new StringBuilder();
-            var error = new StringBuilder();
-            proc.OutputDataReceived += (sender, e) =>
+            if (process == null) return 1;
+            Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
+            Task<string> stderrTask = process.StandardError.ReadToEndAsync();
+            if (!process.WaitForExit(ScriptTimeoutMilliseconds))
             {
-                if (e.Data != null) output.AppendLine(e.Data);
-            };
-            proc.ErrorDataReceived += (sender, e) =>
-            {
-                if (e.Data != null) error.AppendLine(e.Data);
-            };
-            proc.BeginOutputReadLine();
-            proc.BeginErrorReadLine();
-            proc.WaitForExit();
-            string outputText = output.ToString();
-            string errorText = error.ToString();
-            if (!string.IsNullOrWhiteSpace(outputText))
-            {
-                WriteLog("[stdout] " + outputText.Trim());
+                try { process.Kill(); } catch { }
+                WriteLog(stateRoot, "PowerShell command timed out: " + script);
+                return 1460;
             }
-            if (!string.IsNullOrWhiteSpace(errorText))
-            {
-                WriteLog("[stderr] " + errorText.Trim());
-            }
-            WriteLog("PowerShell exited " + proc.ExitCode + ": " + script);
-            return proc.ExitCode;
+            Task.WaitAll(stdoutTask, stderrTask);
+            string stdout = stdoutTask.Result;
+            string stderr = stderrTask.Result;
+            if (!string.IsNullOrWhiteSpace(stdout)) WriteLog(stateRoot, "[stdout] " + stdout.Trim());
+            if (!string.IsNullOrWhiteSpace(stderr)) WriteLog(stateRoot, "[stderr] " + stderr.Trim());
+            return process.ExitCode;
         }
     }
 
-    private static void OpenWaitingPage(string root)
+    private static bool TryGetHealthyPlatform(string root, string stateRoot, out string url)
     {
+        url = "";
+        ServiceIdentity identity = ReadJson<ServiceIdentity>(Path.Combine(stateRoot, "runtime", "service.json"));
+        if (!IsCompleteIdentity(identity, root, stateRoot)) return false;
+
         try
         {
-            string waitFile = Path.Combine(root, "app", "frontend", "waiting.html");
-            if (File.Exists(waitFile))
+            using (Process process = Process.GetProcessById(identity.Pid))
             {
-                // file:/// URL so the default browser opens the local page.
-                string url = "file:///" + waitFile.Replace('\\', '/');
-                Process.Start(new ProcessStartInfo
-                {
-                    FileName = url,
-                    UseShellExecute = true,
-                });
-                WriteLog("Opened first-run waiting page: " + waitFile);
-                return;
+                string actualExecutable = process.MainModule == null ? "" : process.MainModule.FileName;
+                if (!SamePath(identity.Executable, actualExecutable)) return false;
             }
-            WriteLog("waiting.html not found at " + waitFile + "; falling back to MessageBox.");
         }
-        catch (Exception ex)
-        {
-            WriteLog("OpenWaitingPage failed, falling back to MessageBox: " + ex);
-        }
+        catch { return false; }
 
-        // Fallback: show a non-blocking MessageBox on a background thread so
-        // Main can proceed to the ~30-60s silent installer.
         try
         {
-            var thread = new Thread(() =>
-            {
-                try
-                {
-                    MessageBox.Show(
-                        "Insta360_HW is initializing. Please wait 30-60 seconds.\n\nFirst run deploys the runtime and OrCAD integration.",
-                        "Insta360 HW",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Information);
-                }
-                catch
-                {
-                    // Never let UI failure block first-run install.
-                }
-            });
-            thread.IsBackground = true;
-            thread.SetApartmentState(ApartmentState.STA);
-            thread.Start();
-        }
-        catch (Exception ex)
-        {
-            WriteLog("OpenWaitingPage MessageBox fallback failed: " + ex);
-        }
-    }
-
-    private static void OpenPlatformUrl()
-    {
-        try
-        {
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = PlatformUrl,
-                UseShellExecute = true,
-            });
-        }
-        catch (Exception ex)
-        {
-            WriteLog("OpenPlatformUrl failed: " + ex);
-        }
-    }
-
-    private static bool IsPlatformReady()
-    {
-        try
-        {
-            var request = (HttpWebRequest)WebRequest.Create(PlatformUrl + "/api/health");
-            request.Method = "GET";
-            request.Timeout = 800;
-            request.ReadWriteTimeout = 800;
+            var request = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:" + identity.Port + "/api/health");
+            request.Timeout = 900;
+            request.ReadWriteTimeout = 900;
             using (var response = (HttpWebResponse)request.GetResponse())
+            using (var stream = response.GetResponseStream())
             {
-                return (int)response.StatusCode >= 200 && (int)response.StatusCode < 500;
+                var serializer = new DataContractJsonSerializer(typeof(HealthIdentity));
+                var health = (HealthIdentity)serializer.ReadObject(stream);
+                if (health == null || health.Status != "ok" || health.Product != "Insta360_HW") return false;
+                if (health.Pid != identity.Pid || health.InstanceToken != identity.InstanceToken) return false;
+                if (health.Version != identity.Version) return false;
+                if (!SamePath(root, health.Root)) return false;
+                if (!SamePath(stateRoot, health.StateRoot)) return false;
+                url = "http://127.0.0.1:" + identity.Port;
+                return true;
             }
         }
-        catch
+        catch { return false; }
+    }
+
+    private static bool IsCompleteIdentity(ServiceIdentity identity, string root, string stateRoot)
+    {
+        if (identity == null || identity.Schema != 2 || identity.Product != "Insta360_HW") return false;
+        if (identity.Pid <= 0 || identity.Port <= 0 || identity.Port > 65535) return false;
+        if (string.IsNullOrWhiteSpace(identity.Executable) || !File.Exists(identity.Executable)) return false;
+        if (string.IsNullOrWhiteSpace(identity.InstanceToken) || identity.InstanceToken.Length != 32) return false;
+        if (!SamePath(root, identity.Root) || !SamePath(stateRoot, identity.StateRoot)) return false;
+        string version = ReadText(Path.Combine(root, "VERSION"));
+        return !string.IsNullOrWhiteSpace(version) && version == identity.Version;
+    }
+
+    private static T ReadJson<T>(string path) where T : class
+    {
+        try
         {
-            return false;
+            if (!File.Exists(path)) return null;
+            using (var stream = File.OpenRead(path))
+            {
+                var serializer = new DataContractJsonSerializer(typeof(T));
+                return serializer.ReadObject(stream) as T;
+            }
         }
+        catch { return null; }
+    }
+
+    private static string ReadText(string path)
+    {
+        try { return File.ReadAllText(path, Encoding.UTF8).Trim(); }
+        catch { return ""; }
+    }
+
+    private static bool SamePath(string left, string right)
+    {
+        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right)) return false;
+        try
+        {
+            return string.Equals(
+                Path.GetFullPath(left).TrimEnd('\\'),
+                Path.GetFullPath(right).TrimEnd('\\'),
+                StringComparison.OrdinalIgnoreCase);
+        }
+        catch { return false; }
+    }
+
+    private static string BuildLaunchArgs(string[] args, bool reconnect)
+    {
+        var values = new System.Collections.Generic.List<string>();
+        foreach (string arg in args)
+        {
+            if (arg == null || arg.StartsWith(ReconnectProtocolUrl, StringComparison.OrdinalIgnoreCase)) continue;
+            values.Add(Quote(arg));
+        }
+        if (reconnect)
+        {
+            values.Add("-Restart");
+            values.Add("-NoOpen");
+        }
+        return string.Join(" ", values.ToArray());
     }
 
     private static bool IsReconnectRequest(string[] args)
     {
         foreach (string arg in args)
         {
-            if (arg != null && arg.StartsWith(ReconnectProtocolUrl, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
+            if (arg != null && arg.StartsWith(ReconnectProtocolUrl, StringComparison.OrdinalIgnoreCase)) return true;
         }
         return false;
     }
 
-    private static string BuildLaunchArgs(string[] args, bool suppressBrowserOpen)
+    private static string Quote(string value)
     {
-        string forwarded = string.Join(" ", QuoteArgs(FilterProtocolArgs(args)));
-        if (suppressBrowserOpen)
-        {
-            if (!string.IsNullOrWhiteSpace(forwarded))
-            {
-                forwarded += " ";
-            }
-            forwarded += "-NoOpen";
-        }
-        return forwarded;
+        return "\"" + (value ?? "").Replace("\"", "`\"") + "\"";
     }
 
-    private static string[] FilterProtocolArgs(string[] args)
+    private static void OpenPlatformUrl(string url)
     {
-        var kept = new System.Collections.Generic.List<string>();
-        foreach (string arg in args)
-        {
-            if (arg == null || arg.StartsWith(ReconnectProtocolUrl, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-            kept.Add(arg);
-        }
-        return kept.ToArray();
+        Process.Start(new ProcessStartInfo { FileName = url, UseShellExecute = true });
     }
 
-    private static void EnsureReconnectProtocolReady()
+    private static string LogPath(string stateRoot)
+    {
+        return Path.Combine(stateRoot, "logs", "launcher.log");
+    }
+
+    private static void WriteLog(string stateRoot, string message)
     {
         try
         {
-            string exePath = Assembly.GetExecutingAssembly().Location;
-            using (RegistryKey protocol = Registry.CurrentUser.CreateSubKey("Software\\Classes\\insta360-hw"))
-            {
-                if (protocol == null) return;
-                protocol.SetValue("", "URL:Insta360_HW reconnect protocol", RegistryValueKind.String);
-                protocol.SetValue("URL Protocol", "", RegistryValueKind.String);
-            }
-            using (RegistryKey icon = Registry.CurrentUser.CreateSubKey("Software\\Classes\\insta360-hw\\DefaultIcon"))
-            {
-                if (icon != null)
-                {
-                    icon.SetValue("", "\"" + exePath + "\",0", RegistryValueKind.String);
-                }
-            }
-            using (RegistryKey command = Registry.CurrentUser.CreateSubKey("Software\\Classes\\insta360-hw\\shell\\open\\command"))
-            {
-                if (command != null)
-                {
-                    command.SetValue("", "\"" + exePath + "\" \"%1\"", RegistryValueKind.String);
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            WriteLog("Reconnect protocol registration failed: " + ex.Message);
-        }
-    }
-
-    private static void ShowStartupFailure(string title, Exception ex)
-    {
-        // Ensure LOCALAPPDATA\Insta360_HW\launcher.log exists BEFORE the
-        // MessageBox tells the user to look at it. Users have reported the
-        // pointed-to file being absent because early failures came out of the
-        // launcher before any WriteLog call had run.
-        WriteLog(title + ": " + ex);
-        string suiteLog = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Insta360_HW", "startup_failure_hint.txt");
-        try
-        {
-            File.WriteAllText(suiteLog,
-                "Startup failure captured at " + DateTime.Now.ToString("s") + "\n" +
-                title + "\n" + ex + "\n", Encoding.UTF8);
-        }
-        catch
-        {
-            // Logging must never prevent the launcher from surfacing an error.
-        }
-        string message =
-            "Insta360_HW startup warning\n\n" +
-            title + "\n\n" +
-            ex.Message + "\n\n" +
-            "Log: " + LogPath() + "\n" +
-            "Please send the log to the administrator.";
-        MessageBox.Show(message, "Insta360_HW", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-    }
-
-    private static string LogPath()
-    {
-        string dir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Insta360_HW");
-        return Path.Combine(dir, "launcher.log");
-    }
-
-    private static void WriteLog(string message)
-    {
-        try
-        {
-            string path = LogPath();
+            string path = LogPath(stateRoot);
             Directory.CreateDirectory(Path.GetDirectoryName(path));
             RotateIfNeeded(path);
             File.AppendAllText(path, DateTime.Now.ToString("s") + " " + message + Environment.NewLine, Encoding.UTF8);
         }
-        catch
-        {
-            // Logging must never prevent the platform from opening.
-        }
+        catch { }
     }
 
     private static void RotateIfNeeded(string path)
     {
         var info = new FileInfo(path);
-        if (!info.Exists || info.Length < MAX_LOG_BYTES) return;
-
-        string oldest = path + "." + MAX_LOG_FILES;
+        if (!info.Exists || info.Length < MaxLogBytes) return;
+        string oldest = path + "." + MaxLogFiles;
         if (File.Exists(oldest)) File.Delete(oldest);
-        for (int i = MAX_LOG_FILES - 1; i >= 1; i--)
+        for (int index = MaxLogFiles - 1; index >= 1; index--)
         {
-            string current = path + "." + i;
-            string next = path + "." + (i + 1);
-            if (File.Exists(current))
-            {
-                if (File.Exists(next)) File.Delete(next);
-                File.Move(current, next);
-            }
+            string current = path + "." + index;
+            string next = path + "." + (index + 1);
+            if (!File.Exists(current)) continue;
+            if (File.Exists(next)) File.Delete(next);
+            File.Move(current, next);
         }
         File.Move(path, path + ".1");
-    }
-
-    // Quote each CLI arg for PowerShell so paths/spaces survive forwarding.
-    private static string[] QuoteArgs(string[] args)
-    {
-        var quoted = new string[args.Length];
-        for (int i = 0; i < args.Length; i++)
-        {
-            string a = args[i];
-            quoted[i] = a.Contains(" ") || a.Contains("\"")
-                ? "\"" + a.Replace("\"", "`\"") + "\""
-                : a;
-        }
-        return quoted;
     }
 }

@@ -31,21 +31,12 @@ if (-not $SkipFrontend) {
   & (Join-Path $Root "scripts\build_frontend.ps1")
 }
 
-# 3. Recreate runtime directories from source.
+# 3. Recreate the immutable runtime tree from an empty directory. A complete
+# rebuild prevents unknown files from an older layout entering the release ZIP.
+if (Test-Path -LiteralPath $Release) {
+  Remove-Item -LiteralPath $Release -Recurse -Force
+}
 New-Item -ItemType Directory -Force -Path $Release | Out-Null
-
-# Remove known runtime directories before mirroring so deleted files do not
-# linger. Remove dev-only top-level dirs if a previous bad build copied them.
-foreach ($dir in @("app", "cadence", "config", "plugins", "scripts", "tools", "frontend", "tests", "docs", "uploads", "outputs", "history")) {
-  $dst = Join-Path $Release $dir
-  if (Test-Path -LiteralPath $dst) { Remove-Item -LiteralPath $dst -Recurse -Force }
-}
-foreach ($file in @(".gitignore")) {
-  $dst = Join-Path $Release $file
-  if (Test-Path -LiteralPath $dst) { Remove-Item -LiteralPath $dst -Force }
-}
-Get-ChildItem -LiteralPath $Release -Directory -Filter "BOM*" -ErrorAction SilentlyContinue |
-  ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force }
 
 foreach ($dir in @("app", "cadence", "config", "plugins", "scripts", "tools")) {
   $src = Join-Path $Root $dir
@@ -55,8 +46,12 @@ foreach ($dir in @("app", "cadence", "config", "plugins", "scripts", "tools")) {
   if ($LASTEXITCODE -ge 8) { throw "robocopy failed for $dir (exit $LASTEXITCODE)" }
 }
 
-foreach ($devScript in @("build_frontend.ps1", "build_installer.ps1", "build_release.ps1", "publish_release.ps1", "verify_all.ps1")) {
+foreach ($devScript in @("build_frontend.ps1", "build_installer.ps1", "build_release.ps1", "bump_version.ps1", "pre_release_check.ps1", "publish_release.ps1", "verify_all.ps1")) {
   $path = Join-Path $Release ("scripts\" + $devScript)
+  if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force }
+}
+foreach ($devPath in @("scripts\lib\EmbeddedPython.ps1")) {
+  $path = Join-Path $Release $devPath
   if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force }
 }
 
@@ -66,15 +61,9 @@ $keepFiles = @(
   "launch_tool_suite.ps1",
   "launch_tool_suite_hidden.vbs",
   "iac_jump.bat",
-  "run_tool_suite.ps1",
-  "install.ps1",
-  "uninstall.ps1",
-  "update.ps1",
-  "oneclick_install.ps1",
-  "oneclick_uninstall.ps1",
-  "oneclick_update.ps1",
   "VERSION",
-  "REVISION"
+  "REVISION",
+  "UPDATE_NOTICE.json"
 )
 foreach ($name in $keepFiles) {
   $src = Join-Path $Root $name
@@ -86,8 +75,9 @@ if (-not [string]::IsNullOrWhiteSpace($Revision)) {
   Set-Content -LiteralPath (Join-Path $Release "REVISION") -Value $Revision -Encoding UTF8
 }
 
-# 5. Ensure runtime-owned data directories exist.
-foreach ($d in @("runtime", "data", "data\uploads", "data\outputs", "data\history", "data\reports\runtime", "plugins\user\scripts")) {
+# 5. Prepare the immutable embedded runtime. Mutable user state is created
+# under %LOCALAPPDATA% by lifecycle V2 and is never packaged in the runtime.
+foreach ($d in @("runtime")) {
   New-Item -ItemType Directory -Force -Path (Join-Path $Release $d) | Out-Null
 }
 
@@ -97,15 +87,22 @@ Download-EmbeddedPython -OutDir $runtimePyDir
 Install-OpenpyxlWheel -PythonDir $runtimePyDir
 & (Join-Path $runtimePyDir "python.exe") -c "import openpyxl; print('openpyxl', openpyxl.__version__)"
 if ($LASTEXITCODE -ne 0) { throw "Embedded Python openpyxl verification failed" }
+Get-ChildItem -LiteralPath $Release -Directory -Filter "__pycache__" -Recurse -ErrorAction SilentlyContinue |
+  Sort-Object { $_.FullName.Length } -Descending |
+  ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force }
+Get-ChildItem -LiteralPath $Release -File -Filter "*.pyc" -Recurse -ErrorAction SilentlyContinue |
+  ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force }
 
 # 6. Write a factual manifest for install/update/uninstall/self-check.
 $manifest = [ordered]@{
   product = "Insta360_HW"
   version = $Version
   revision = $Revision
-  layout = "runtime"
+  schema = 2
+  layout = "runtime-v2"
   generated_at = (Get-Date).ToString("s")
-  preserved_paths = @("data", "config/local.json", "plugins/user")
+  state_root = "%LOCALAPPDATA%\Insta360_HW"
+  mutable_paths = @("data", "config/local.json", "plugins/user", "logs", "lifecycle")
   runtime_paths = @("app/backend", "app/frontend", "cadence", "config", "plugins", "scripts", "tools", "runtime", "Insta360_HW.exe")
   excluded_dev_paths = @("frontend", "frontend/src", "frontend/node_modules", "tests", "docs", "BOM*", ".git")
 }

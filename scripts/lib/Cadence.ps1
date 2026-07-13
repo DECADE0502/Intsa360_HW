@@ -1,5 +1,7 @@
 ﻿$ErrorActionPreference = "Stop"
 
+$script:HwAgentCadenceLoaderMarker = "# Insta360_HW Cadence Loader | schema=2 | managed=true"
+
 function Get-HwAgentText {
   param([Parameter(Mandatory=$true)][string]$Base64)
   return [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($Base64))
@@ -201,6 +203,7 @@ function Write-CadenceLoader {
   if ($template -match '\{\{[A-Z_]+\}\}') {
     throw ("Unrendered placeholder in Cadence loader: " + $Matches[0])
   }
+  $template = $script:HwAgentCadenceLoaderMarker + "`r`n" + $template
   $encoding = [System.Text.Encoding]::GetEncoding(936)
   [System.IO.File]::WriteAllText($OutputPath, $template, $encoding)
   return $OutputPath
@@ -217,6 +220,18 @@ function Install-CadenceLoader {
     if (-not $dir) { continue }
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
     $target = Join-Path $dir "iac_bom_tool.tcl"
+    if (Test-Path -LiteralPath $target -PathType Leaf) {
+      $owned = $false
+      if (Get-Command Test-HwAgentOwnedCadenceLoader -ErrorAction SilentlyContinue) {
+        $owned = Test-HwAgentOwnedCadenceLoader -LoaderPath $target
+      } else {
+        $existing = [System.IO.File]::ReadAllText($target)
+        $owned = $existing.IndexOf($script:HwAgentCadenceLoaderMarker, [System.StringComparison]::Ordinal) -ge 0
+      }
+      if (-not $owned) {
+        throw "Refusing to overwrite an unowned Cadence loader: $target"
+      }
+    }
     Write-CadenceLoader -ToolRoot $ToolRoot -PythonPath $PythonPath -OutputPath $target | Out-Null
     Write-Host ((Get-HwAgentText "5bey5a6J6KOFIENhZGVuY2Ug6I+c5Y2V6ISa5pys77ya") + $target)
     $installed += $target

@@ -10,6 +10,7 @@ $Root = Split-Path -Parent $ScriptDir
 $RepoRoot = Split-Path -Parent $Root
 $Iss = Join-Path $Root "HWAgent_Setup.iss"
 $Output = Join-Path $RepoRoot "Insta360_HW_Setup.exe"
+$Version = (Get-Content -LiteralPath (Join-Path $Root "VERSION") -Raw -Encoding UTF8).Trim()
 
 function Find-InnoCompiler {
   param([string]$ExplicitPath = "")
@@ -53,7 +54,7 @@ if (Test-Path -LiteralPath $Output) {
   Remove-Item -LiteralPath $Output -Force
 }
 
-& $Iscc $Iss
+& $Iscc ("/DMyAppVersion=" + $Version) $Iss
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup build failed." }
 
 if (-not (Test-Path -LiteralPath $Output)) {

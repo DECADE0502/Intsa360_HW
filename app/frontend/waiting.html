@@ -16,24 +16,27 @@
         display: grid;
         place-items: center;
       }
-      .card {
+      main {
         width: min(460px, calc(100vw - 40px));
+        box-sizing: border-box;
         background: #fff;
-        border-radius: 16px;
+        border: 1px solid rgba(0, 0, 0, 0.08);
+        border-radius: 8px;
         padding: 34px 30px;
-        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 14px 36px rgba(0, 0, 0, 0.08);
+        box-shadow: 0 14px 36px rgba(0, 0, 0, 0.08);
         text-align: center;
       }
       .mark {
         width: 56px;
         height: 56px;
         margin: 0 auto 18px;
-        border-radius: 14px;
+        border-radius: 8px;
         display: grid;
         place-items: center;
         background: #007aff;
         color: #fff;
         font-size: 28px;
+        font-weight: 700;
       }
       .spinner {
         width: 36px;
@@ -47,6 +50,7 @@
       h1 {
         margin: 0 0 8px;
         font-size: 22px;
+        letter-spacing: 0;
       }
       p {
         margin: 0;
@@ -58,17 +62,15 @@
         font-size: 13px;
       }
       @keyframes spin {
-        to {
-          transform: rotate(360deg);
-        }
+        to { transform: rotate(360deg); }
       }
     </style>
   </head>
   <body>
-    <main class="card">
-      <div class="mark">启</div>
+    <main>
+      <div class="mark" aria-hidden="true">HW</div>
       <h1>正在启动 Insta360硬件提效平台</h1>
-      <p>首次启动需要几秒钟，服务就绪后会自动打开平台页面。</p>
+      <p>首次启动需要几秒钟，服务就绪后会自动进入平台。</p>
       <div class="spinner" aria-hidden="true"></div>
       <p class="hint" id="status">正在连接本地服务...</p>
     </main>
@@ -82,13 +84,12 @@
         attempts += 1;
         try {
           const base = new URL(target);
-          await fetch(`${base.origin}/api/tools`, { cache: "no-store", mode: "no-cors" });
+          await fetch(`${base.origin}/api/health`, { cache: "no-store", mode: "no-cors" });
           location.replace(target);
           return;
-        } catch (err) {
-          // 服务仍在启动中。
+        } catch (_error) {
+          statusEl.textContent = attempts > 20 ? "服务仍在启动，请稍候..." : "正在连接本地服务...";
         }
-        statusEl.textContent = attempts > 20 ? "仍在等待服务启动，请稍候..." : "正在连接本地服务...";
         setTimeout(check, 700);
       }
 

@@ -76,8 +76,7 @@ function SmtUploadSlot({
       <Typography.Text className="smt-upload-title">{title}</Typography.Text>
       <Upload
         accept=".dat"
-        directory="true"
-        webkitdirectory="true"
+        directory
         multiple
         fileList={files.map((file, index) => ({ uid: String(index), name: file.name, status: "done" as const }))}
         beforeUpload={(file) => {

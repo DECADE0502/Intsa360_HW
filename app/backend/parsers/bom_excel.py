@@ -98,30 +98,33 @@ def read_bom_rows(path: Path, require_refs: bool = True) -> list[dict[str, objec
     from openpyxl import load_workbook
 
     wb = load_workbook(path, data_only=True)
-    ws = wb.active
-    header_row, mapping = find_header(ws, ["reference", "part_number", "description", "quantity"])
-    mapping = refine_bom_mapping(ws, header_row, mapping)
-    rows: list[dict[str, object]] = []
-    for row in range(header_row + 1, ws.max_row + 1):
-        refs = split_refs(ws.cell(row, mapping["reference"]).value)
-        part_number = str(ws.cell(row, mapping["part_number"]).value or "").strip()
-        if require_refs and not refs:
-            continue
-        if not refs and not part_number:
-            continue
-        rows.append(
-            {
-                "source_row": row,
-                "reference": ",".join(refs),
-                "refs": refs,
-                "part_number": part_number,
-                "model": str(ws.cell(row, mapping["model"]).value or "").strip() if "model" in mapping else "",
-                "grade": str(ws.cell(row, mapping["grade"]).value or "").strip() if "grade" in mapping else "",
-                "description": str(ws.cell(row, mapping["description"]).value or "").strip(),
-                "quantity": ws.cell(row, mapping["quantity"]).value,
-                "name": str(ws.cell(row, mapping.get("name", mapping["description"])).value or "").strip(),
-                "package": str(ws.cell(row, mapping.get("package", mapping["description"])).value or "").strip(),
-                "value": str(ws.cell(row, mapping.get("value", mapping["description"])).value or "").strip(),
-            }
-        )
-    return rows
+    try:
+        ws = wb.active
+        header_row, mapping = find_header(ws, ["reference", "part_number", "description", "quantity"])
+        mapping = refine_bom_mapping(ws, header_row, mapping)
+        rows: list[dict[str, object]] = []
+        for row in range(header_row + 1, ws.max_row + 1):
+            refs = split_refs(ws.cell(row, mapping["reference"]).value)
+            part_number = str(ws.cell(row, mapping["part_number"]).value or "").strip()
+            if require_refs and not refs:
+                continue
+            if not refs and not part_number:
+                continue
+            rows.append(
+                {
+                    "source_row": row,
+                    "reference": ",".join(refs),
+                    "refs": refs,
+                    "part_number": part_number,
+                    "model": str(ws.cell(row, mapping["model"]).value or "").strip() if "model" in mapping else "",
+                    "grade": str(ws.cell(row, mapping["grade"]).value or "").strip() if "grade" in mapping else "",
+                    "description": str(ws.cell(row, mapping["description"]).value or "").strip(),
+                    "quantity": ws.cell(row, mapping["quantity"]).value,
+                    "name": str(ws.cell(row, mapping.get("name", mapping["description"])).value or "").strip(),
+                    "package": str(ws.cell(row, mapping.get("package", mapping["description"])).value or "").strip(),
+                    "value": str(ws.cell(row, mapping.get("value", mapping["description"])).value or "").strip(),
+                }
+            )
+        return rows
+    finally:
+        wb.close()

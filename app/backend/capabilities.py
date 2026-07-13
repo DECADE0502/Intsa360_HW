@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any, Optional
 
+from app.backend.paths import AppPaths
+
 
 REQUIRED_KEYS = {
     "id",
@@ -21,6 +23,18 @@ def load_capabilities(root: Path) -> dict[str, Any]:
     path = root / "config" / "capabilities.json"
     data = json.loads(path.read_text(encoding="utf-8"))
     validate_capabilities(data)
+    overrides_path = AppPaths(root).capability_overrides_path
+    if overrides_path.exists():
+        try:
+            overrides = json.loads(overrides_path.read_text(encoding="utf-8-sig"))
+        except (OSError, json.JSONDecodeError):
+            overrides = {}
+        if isinstance(overrides, dict):
+            for item in data["capabilities"]:
+                override = overrides.get(str(item["id"]))
+                if isinstance(override, bool) and item.get("type") == "cadence_tcl":
+                    item["show_in_cadence"] = override
+                    item["status"] = "available" if override else "disabled"
     return data
 
 
@@ -50,9 +64,7 @@ def validate_capabilities(data: dict[str, Any]) -> None:
 
 
 def set_cadence_menu_visibility(root: Path, capability_id: str, show_in_cadence: bool) -> dict[str, Any]:
-    path = root / "config" / "capabilities.json"
-    data = json.loads(path.read_text(encoding="utf-8"))
-    validate_capabilities(data)
+    data = load_capabilities(root)
 
     target: Optional[dict[str, Any]] = None
     for item in data["capabilities"]:
@@ -68,5 +80,14 @@ def set_cadence_menu_visibility(root: Path, capability_id: str, show_in_cadence:
 
     target["show_in_cadence"] = bool(show_in_cadence)
     target["status"] = "available" if show_in_cadence else "disabled"
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    overrides_path = AppPaths(root).capability_overrides_path
+    overrides_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        overrides = json.loads(overrides_path.read_text(encoding="utf-8-sig")) if overrides_path.exists() else {}
+    except (OSError, json.JSONDecodeError):
+        overrides = {}
+    if not isinstance(overrides, dict):
+        overrides = {}
+    overrides[capability_id] = bool(show_in_cadence)
+    overrides_path.write_text(json.dumps(overrides, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return target

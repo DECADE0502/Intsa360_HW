@@ -23,12 +23,18 @@ def _is_processed_bom(path: Path) -> bool:
     return "_PLM_BOM" in name or "_OA_BOM" in name
 
 
-def _output_path(root: Path, name: str) -> Path | None:
-    direct = root / "data" / "outputs" / name
-    if direct.is_file():
-        return direct
-    matches = list((root / "data" / "outputs").rglob(name)) if (root / "data" / "outputs").exists() else []
-    return matches[0] if matches else None
+def _output_path(root: Path, value: str) -> Path | None:
+    relative = history.output_relative_path(root, value)
+    if relative is None:
+        return None
+    outputs_root = root / "data" / "outputs"
+    candidate = outputs_root / relative
+    if candidate.is_file():
+        return candidate
+    if "/" in relative:
+        return None
+    matches = [path for path in outputs_root.rglob(relative) if path.is_file()]
+    return matches[0] if len(matches) == 1 else None
 
 
 def list_assets(root: Path) -> dict[str, object]:

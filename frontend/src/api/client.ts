@@ -118,6 +118,7 @@ export type AssetItem = {
 
 export type AssetsPayload = {
   status: string;
+  error?: string;
   groups: { processed_bom: AssetItem[]; [key: string]: AssetItem[] };
   summary: Record<string, number>;
 };
@@ -131,10 +132,13 @@ export type LifecycleCheck = {
 
 export type LifecyclePayload = {
   status: string;
+  error?: string;
   summary: { failed: number; warnings: number; ok: number; total: number };
   manifest: Record<string, unknown>;
   checks: LifecycleCheck[];
 };
+
+export const HISTORY_UPDATED_EVENT = "insta360_hw:history-updated";
 
 async function requestJson<T = any>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
   let res: Response;
@@ -248,7 +252,7 @@ export async function uploadFiles(files: File[]): Promise<{ files: Array<{ path:
 
 export async function runTool(tool: string, params: Record<string, unknown>, opts?: ApiOpts) {
   // 5 minutes for long tool runs; caller can override
-  return apiCall<any>(
+  const result = await apiCall<any>(
     `/api/tools/${tool}/run`,
     {
       method: "POST",
@@ -257,6 +261,8 @@ export async function runTool(tool: string, params: Record<string, unknown>, opt
     },
     { timeoutMs: 300_000, ...opts },
   );
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(HISTORY_UPDATED_EVENT));
+  return result;
 }
 
 export async function fetchVersion(): Promise<string> {
@@ -265,30 +271,77 @@ export async function fetchVersion(): Promise<string> {
   return payload.version;
 }
 
-export async function startUpdate() {
-  const payload = await requestJson<any>("/api/update/run", { method: "POST" });
+export type LifecycleJobPhase =
+  | "idle"
+  | "checking"
+  | "queued"
+  | "downloading"
+  | "verifying"
+  | "staging"
+  | "awaiting_elevation"
+  | "committing"
+  | "switching"
+  | "integrating"
+  | "verifying_runtime"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export type UpdateStartResponse = {
+  status: "ok" | "error";
+  job_id: string;
+  version: string;
+  message: string;
+  error: string;
+};
+
+export type UpdateCancelResponse = {
+  status: "ok" | "error";
+  job_id: string;
+  phase: LifecycleJobPhase;
+  cancellable: boolean;
+  message: string;
+  error: string;
+};
+
+export async function startUpdate(): Promise<UpdateStartResponse> {
+  const payload = await requestJson<UpdateStartResponse>("/api/update/run", { method: "POST" });
   if (payload.status !== "ok") throw new Error(payload.error || "更新启动失败");
   return payload;
 }
 
+export async function cancelUpdate(jobId?: string): Promise<UpdateCancelResponse> {
+  const payload = await requestJson<UpdateCancelResponse>("/api/update/cancel", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ job_id: jobId || "" }),
+  });
+  if (payload.status !== "ok") throw new Error(payload.error || "取消更新失败");
+  return payload;
+}
+
 export type UpdateCheck = {
+  status: "ok";
   version: string;
   revision: string;
   remote_version: string;
   remote_revision: string;
-  update_notice?: UpdateNotice;
+  update_notice: UpdateNotice;
   notice_status: string;
   display_remote: string;
   has_update: boolean;
   can_update: boolean;
+  installed_runtime: boolean;
+  minimum_launcher_version: string;
   update_reason: string;
   remote_status: string;
   remote_revision_status: string;
-  expected_sha256?: string;
-  integrity_verified?: boolean;
-  integrity_status?: string;
-  download_strategy?: string;
+  expected_sha256: string;
+  integrity_verified: boolean;
+  integrity_status: string;
+  download_strategy: "release_runtime_zip" | "none";
   message: string;
+  error: string;
 };
 
 export type UpdateNotice = {
@@ -308,17 +361,38 @@ export async function checkUpdate(opts?: ApiOpts): Promise<UpdateCheck> {
 }
 
 export type UpdateStatusInfo = {
+  status: "ok";
+  job_id: string;
   running: boolean;
   done: boolean;
   failed: boolean;
+  cancelled: boolean;
+  phase: LifecycleJobPhase;
   progress: number;
   step: string;
   message: string;
   log_tail: string[];
+  cancellable: boolean;
+  bytes_total: number;
+  bytes_downloaded: number;
+  bytes_per_second: number;
+  rolled_back: boolean;
+  rollback_error: string;
+  cleanup_pending: boolean;
+  cleanup_warning: string;
+  interrupted: boolean;
+  recovery_required: boolean;
+  error: string;
 };
 
 export async function fetchUpdateStatus(opts?: ApiOpts): Promise<UpdateStatusInfo> {
   return apiCall<UpdateStatusInfo>("/api/update/status", undefined, opts);
+}
+
+export type UpdateReconnectResponse = UpdateStatusInfo & { reconnected: true };
+
+export async function reconnectUpdate(opts?: ApiOpts): Promise<UpdateReconnectResponse> {
+  return apiCall<UpdateReconnectResponse>("/api/update/reconnect", undefined, opts);
 }
 
 export type UninstallCheck = {
@@ -333,7 +407,9 @@ export async function checkUninstall(): Promise<UninstallCheck> {
   return payload;
 }
 
-export async function fetchDiagnosticReport(opts?: ApiOpts): Promise<Blob> {
+export type DiagnosticReport = Blob;
+
+export async function fetchDiagnosticReport(opts?: ApiOpts): Promise<DiagnosticReport> {
   // The endpoint returns text/plain (not JSON), so we bypass apiCall and grab
   // the raw response body as a Blob for direct download.
   const res = await fetch("/api/diagnostic/report", { signal: opts?.signal });

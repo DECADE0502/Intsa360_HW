@@ -1,18 +1,22 @@
 from __future__ import annotations
 
+import io
 import json
 import shutil
 import threading
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request
 from urllib.request import urlopen
+from unittest.mock import patch
 
+from app.backend import assets
 from app.backend import history
 from app.backend import update_api
-from app.backend.suite_app import create_server
+from app.backend.suite_app import _cadence_hot_reload_command, _parse_cadence_loader_paths, create_server
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,6 +31,22 @@ def _make_temp_root() -> Path:
 
 
 class PlatformApiTests(unittest.TestCase):
+    def test_cadence_hot_reload_uses_the_deployed_loader_path(self) -> None:
+        output = (
+            "noise\n"
+            "__HWAGENT_CADENCE_LOADER__ D:\\Cadence Data\\cdssetup\\OrCAD_Capture\\tclscripts\\capAutoLoad\\iac_bom_tool.tcl\n"
+        )
+
+        installed = _parse_cadence_loader_paths(output)
+        command = _cadence_hot_reload_command(installed)
+
+        self.assertEqual(len(installed), 1)
+        self.assertEqual(
+            command,
+            "source {D:/Cadence Data/cdssetup/OrCAD_Capture/tclscripts/capAutoLoad/iac_bom_tool.tcl}",
+        )
+        self.assertNotIn("$env(HOME)", command)
+
     def test_capabilities_endpoint_returns_platform_and_scripts(self) -> None:
         server = create_server(ROOT, port=0)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -399,6 +419,114 @@ class PlatformApiTests(unittest.TestCase):
         finally:
             shutil.rmtree(root, ignore_errors=True)
 
+    def test_history_keeps_output_paths_relative_to_outputs_root(self) -> None:
+        root = _make_temp_root()
+        try:
+            output = root / "data" / "outputs" / "bom" / "BOARD_A_PLM_BOM.xlsx"
+            output.parent.mkdir(parents=True)
+            output.write_bytes(b"plm")
+
+            run_id = history.record(
+                root,
+                "bom_process",
+                "BOM processing",
+                {},
+                {"status": "ok", "outputs": [str(output)]},
+            )
+
+            self.assertIsNotNone(run_id)
+            self.assertEqual(history.list_runs(root)[0]["outputs"], ["bom/BOARD_A_PLM_BOM.xlsx"])
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+    def test_assets_use_recorded_subdirectories_for_duplicate_output_names(self) -> None:
+        root = _make_temp_root()
+        try:
+            first = root / "data" / "outputs" / "alpha" / "BOARD_PLM_BOM.xlsx"
+            second = root / "data" / "outputs" / "beta" / "BOARD_PLM_BOM.xlsx"
+            first.parent.mkdir(parents=True)
+            second.parent.mkdir(parents=True)
+            first.write_bytes(b"first")
+            second.write_bytes(b"second")
+
+            first_run = history.record(root, "bom_process", "BOM processing", {}, {"status": "ok", "outputs": [str(first)]})
+            second_run = history.record(root, "bom_process", "BOM processing", {}, {"status": "ok", "outputs": [str(second)]})
+
+            processed = assets.list_assets(root)["groups"]["processed_bom"]
+            by_path = {item["path"]: item for item in processed}
+
+            self.assertEqual(set(by_path), {str(first), str(second)})
+            self.assertEqual(by_path[str(first)]["run_id"], first_run)
+            self.assertEqual(by_path[str(second)]["run_id"], second_run)
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+    def test_assets_accept_legacy_basename_history_output(self) -> None:
+        root = _make_temp_root()
+        try:
+            output = root / "data" / "outputs" / "LEGACY_PLM_BOM.xlsx"
+            output.parent.mkdir(parents=True)
+            output.write_bytes(b"legacy")
+            index = root / "data" / "history" / "index.json"
+            index.parent.mkdir(parents=True)
+            index.write_text(
+                json.dumps(
+                    [{"id": "legacy", "outputs": [output.name], "tool": "bom_process", "time": "2026-01-01 00:00:00"}]
+                ),
+                encoding="utf-8",
+            )
+
+            processed = assets.list_assets(root)["groups"]["processed_bom"]
+
+            self.assertEqual([item["path"] for item in processed], [str(output)])
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+    def test_assets_accept_legacy_basename_for_unique_nested_output(self) -> None:
+        root = _make_temp_root()
+        try:
+            output = root / "data" / "outputs" / "bom" / "LEGACY_NESTED_PLM_BOM.xlsx"
+            output.parent.mkdir(parents=True)
+            output.write_bytes(b"legacy")
+            index = root / "data" / "history" / "index.json"
+            index.parent.mkdir(parents=True)
+            index.write_text(
+                json.dumps(
+                    [{"id": "legacy", "outputs": [output.name], "tool": "bom_process", "time": "2026-01-01 00:00:00"}]
+                ),
+                encoding="utf-8",
+            )
+
+            processed = assets.list_assets(root)["groups"]["processed_bom"]
+
+            self.assertEqual([item["path"] for item in processed], [str(output)])
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+    def test_assets_do_not_choose_ambiguous_legacy_nested_basename(self) -> None:
+        root = _make_temp_root()
+        try:
+            first = root / "data" / "outputs" / "bom" / "LEGACY_DUPLICATE_PLM_BOM.xlsx"
+            second = root / "data" / "outputs" / "risk" / "LEGACY_DUPLICATE_PLM_BOM.xlsx"
+            first.parent.mkdir(parents=True)
+            second.parent.mkdir(parents=True)
+            first.write_bytes(b"first")
+            second.write_bytes(b"second")
+            index = root / "data" / "history" / "index.json"
+            index.parent.mkdir(parents=True)
+            index.write_text(
+                json.dumps(
+                    [{"id": "legacy", "outputs": [first.name], "tool": "bom_process", "time": "2026-01-01 00:00:00"}]
+                ),
+                encoding="utf-8",
+            )
+
+            processed = assets.list_assets(root)["groups"]["processed_bom"]
+
+            self.assertEqual(processed, [])
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
     def test_outputs_and_package_endpoints_use_server_root(self) -> None:
         root = _make_temp_root()
         try:
@@ -432,6 +560,40 @@ class PlatformApiTests(unittest.TestCase):
             self.assertEqual(downloaded, "server-root-output")
             self.assertEqual(package_type, "application/zip")
             self.assertGreater(len(package_body), 20)
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+    def test_output_download_and_package_preserve_subdirectories(self) -> None:
+        root = _make_temp_root()
+        try:
+            output_file = root / "data" / "outputs" / "bom" / "review" / "demo.txt"
+            output_file.parent.mkdir(parents=True)
+            output_file.write_text("server-root-output", encoding="utf-8")
+
+            server = create_server(root, port=0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                host, port = server.server_address
+                with urlopen(f"http://{host}:{port}/outputs/bom/review/demo.txt", timeout=5) as response:
+                    downloaded = response.read().decode("utf-8")
+
+                body = json.dumps({"name": "demo", "files": ["bom/review/demo.txt"]}).encode("utf-8")
+                request = Request(
+                    f"http://{host}:{port}/api/package",
+                    data=body,
+                    method="POST",
+                    headers={"Content-Type": "application/json"},
+                )
+                with urlopen(request, timeout=5) as response:
+                    archive = response.read()
+            finally:
+                server.shutdown()
+                server.server_close()
+
+            self.assertEqual(downloaded, "server-root-output")
+            with zipfile.ZipFile(io.BytesIO(archive)) as packaged:
+                self.assertEqual(packaged.namelist(), ["bom/review/demo.txt"])
         finally:
             shutil.rmtree(root, ignore_errors=True)
 
@@ -639,9 +801,8 @@ class PlatformApiTests(unittest.TestCase):
             self.assertTrue(payload["capability"]["show_in_cadence"])
             self.assertFalse(payload["redeployed"])
 
-            saved = json.loads((root / "config" / "capabilities.json").read_text(encoding="utf-8"))
-            enabled = [item for item in saved["capabilities"] if item["id"] == "cadence_nc_toggle"][0]
-            self.assertTrue(enabled["show_in_cadence"])
+            overrides = json.loads((root / "config" / "capability_overrides.json").read_text(encoding="utf-8"))
+            self.assertTrue(overrides["cadence_nc_toggle"])
         finally:
             shutil.rmtree(root, ignore_errors=True)
 
@@ -745,6 +906,18 @@ class PlatformApiTests(unittest.TestCase):
         # Report should be non-trivial and end with the sentinel.
         self.assertGreater(len(report), 500)
         self.assertIn("=== End of Report ===", report)
+
+    def test_diagnostic_report_is_populated_without_a_remote_update_request(self) -> None:
+        root = _make_temp_root()
+        try:
+            with patch("app.backend.lifecycle_update.urlopen", side_effect=AssertionError("diagnostics must stay offline")):
+                report = update_api.collect_diagnostic_report(root)
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+        self.assertIn("## GitHub Reachability", report)
+        self.assertIn("not probed", report)
+        self.assertIn("## Filesystem Permissions", report)
 
     def test_diagnostic_report_endpoint_returns_populated_text(self) -> None:
         root = _make_temp_root()

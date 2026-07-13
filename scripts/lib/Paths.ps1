@@ -42,16 +42,39 @@ function Find-Git {
 }
 
 function Find-CadenceAutoLoadDirs {
-  $dirs = New-Object System.Collections.Generic.List[string]
   $known = @(
-    "D:\CADENCE\Cadence\SPB_Data\cdssetup\OrCAD_Capture\tclscripts\capAutoLoad",
-    (Join-Path $env:USERPROFILE "cdssetup\OrCAD_Capture\tclscripts\capAutoLoad"),
-    (Join-Path $env:HOME "cdssetup\OrCAD_Capture\tclscripts\capAutoLoad")
+    "D:\CADENCE\Cadence\SPB_Data",
+    "C:\Cadence\Cadence\SPB_Data",
+    "C:\Cadence\SPB_Data",
+    "D:\Cadence\SPB_Data"
   )
-  foreach ($dir in $known) {
-    if ($dir -and -not $dirs.Contains($dir)) { $dirs.Add($dir) | Out-Null }
+  $candidates = New-Object System.Collections.Generic.List[string]
+  $seen = @{}
+  foreach ($candidate in @($env:SPB_DATA, $env:CDS_DATA, $env:HOME) + $known) {
+    if ([string]::IsNullOrWhiteSpace($candidate)) { continue }
+    try { $full = [System.IO.Path]::GetFullPath($candidate).TrimEnd("\") } catch { continue }
+    if (-not $seen.ContainsKey($full)) {
+      $seen[$full] = $true
+      $candidates.Add($full) | Out-Null
+    }
   }
-  return $dirs.ToArray()
+
+  $base = ""
+  foreach ($candidate in $candidates) {
+    $captureConfig = Join-Path $candidate "cdssetup\OrCAD_Capture"
+    if (Test-Path -LiteralPath $captureConfig -PathType Container) {
+      $base = $candidate
+      break
+    }
+  }
+  if ([string]::IsNullOrWhiteSpace($base) -and $candidates.Count -gt 0) {
+    $base = $candidates[0]
+  }
+  if ([string]::IsNullOrWhiteSpace($base) -and -not [string]::IsNullOrWhiteSpace($env:USERPROFILE)) {
+    $base = [System.IO.Path]::GetFullPath($env:USERPROFILE).TrimEnd("\")
+  }
+  if ([string]::IsNullOrWhiteSpace($base)) { return @() }
+  return @([System.IO.Path]::GetFullPath((Join-Path $base "cdssetup\OrCAD_Capture\tclscripts\capAutoLoad")))
 }
 
 function Find-CadenceVendorAutoLoadDirs {
@@ -77,14 +100,7 @@ function Find-CadenceVendorAutoLoadDirs {
 }
 
 function Find-CadenceLoaderInstallDirs {
-  $dirs = New-Object System.Collections.Generic.List[string]
-  foreach ($dir in Find-CadenceAutoLoadDirs) {
-    if ($dir -and -not $dirs.Contains($dir)) { $dirs.Add($dir) | Out-Null }
-  }
-  foreach ($dir in Find-CadenceVendorAutoLoadDirs) {
-    if ($dir -and -not $dirs.Contains($dir)) { $dirs.Add($dir) | Out-Null }
-  }
-  return $dirs.ToArray()
+  return @(Find-CadenceAutoLoadDirs)
 }
 
 function Ensure-Directory {

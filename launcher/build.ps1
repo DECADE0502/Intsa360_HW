@@ -1,4 +1,4 @@
-param(
+﻿param(
   [switch]$DryRun
 )
 
@@ -70,7 +70,7 @@ if ($DryRun) {
 }
 
 # /target:winexe -> GUI subsystem, no console window on launch.
-& $csc /nologo /target:winexe /optimize+ /reference:System.Windows.Forms.dll /win32icon:"$Icon" /out:"$Output" "$Source" "$AssemblyInfo"
+& $csc /nologo /target:winexe /optimize+ /reference:System.Windows.Forms.dll /reference:System.Runtime.Serialization.dll /win32icon:"$Icon" /out:"$Output" "$Source" "$AssemblyInfo"
 if ($LASTEXITCODE -ne 0) { throw "csc failed with exit code $LASTEXITCODE" }
 
 if (-not (Test-Path -LiteralPath $Output)) { throw "Build did not produce $Output" }

@@ -4,7 +4,9 @@ import json
 import threading
 import unittest
 from urllib.request import urlopen
+from unittest.mock import patch
 
+from app.backend import lifecycle_update
 from app.backend.suite_app import ROOT, create_server
 
 
@@ -40,6 +42,26 @@ class BackendRefactorApiTests(unittest.TestCase):
             lifecycle_text = json.dumps(lifecycle, ensure_ascii=False)
             for bad in ["瀹", "鍓", "绔", "鐩", "鏃"]:
                 self.assertNotIn(bad, lifecycle_text)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+    def test_update_check_keeps_a_stable_payload_when_the_manifest_is_offline(self) -> None:
+        server = create_server(ROOT, port=0)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            host, port = server.server_address
+            with patch.object(lifecycle_update, "_fetch_manifest", side_effect=OSError("offline for test")):
+                with urlopen(f"http://{host}:{port}/api/update/check", timeout=5) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+
+            self.assertEqual(payload["status"], "ok")
+            self.assertFalse(payload["has_update"])
+            self.assertEqual(payload["remote_status"], "error")
+            self.assertEqual(payload["update_reason"], "manifest_unavailable")
+            self.assertIn("error", payload)
         finally:
             server.shutdown()
             server.server_close()

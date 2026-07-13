@@ -100,16 +100,18 @@ class PluginRegistryTests(unittest.TestCase):
         finally:
             shutil.rmtree(root, ignore_errors=True)
 
-    def test_platform_capability_plugin_toggle_persists_to_capabilities_registry(self) -> None:
+    def test_platform_capability_plugin_toggle_persists_to_mutable_overrides(self) -> None:
         root = _copy_minimal_root()
         try:
             updated = set_plugin_cadence_menu_visibility(root, "cadence_nc_toggle", True)
-            saved = json.loads((root / "config" / "capabilities.json").read_text(encoding="utf-8"))
-            enabled = [item for item in saved["capabilities"] if item["id"] == "cadence_nc_toggle"][0]
+            overrides = json.loads((root / "config" / "capability_overrides.json").read_text(encoding="utf-8"))
+            reloaded = load_plugins(root, system_script_dirs=[])
+            enabled = [item for item in reloaded["groups"]["platform"] if item["id"] == "cadence_nc_toggle"][0]
 
             self.assertEqual(updated["id"], "cadence_nc_toggle")
             self.assertEqual(updated["source"], "platform")
             self.assertTrue(updated["show_in_cadence"])
+            self.assertTrue(overrides["cadence_nc_toggle"])
             self.assertTrue(enabled["show_in_cadence"])
             self.assertEqual(enabled["status"], "available")
         finally:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import os
 import sys
 import argparse
 import uuid
@@ -27,11 +28,34 @@ from app.backend import lifecycle
 from app.backend import update_api
 from app.backend.capabilities import load_capabilities, set_cadence_menu_visibility
 from app.backend.plugins import load_plugins, set_plugin_cadence_menu_visibility
+from app.backend.paths import AppPaths
 from app.backend.tool_registry import ToolRegistry, build_registry
 
 
 FRONTEND_DIR = ROOT / "app" / "frontend"
 USER_INPUT_ERROR_PATTERNS = ("缺少", "输入", "表头识别失败")
+CADENCE_LOADER_MARKER = "__HWAGENT_CADENCE_LOADER__ "
+
+
+def _parse_cadence_loader_paths(output: str) -> list[str]:
+    paths: list[str] = []
+    seen: set[str] = set()
+    for line in output.splitlines():
+        if not line.startswith(CADENCE_LOADER_MARKER):
+            continue
+        value = line[len(CADENCE_LOADER_MARKER):].strip()
+        key = value.casefold()
+        if value and key not in seen:
+            seen.add(key)
+            paths.append(value)
+    return paths
+
+
+def _cadence_hot_reload_command(installed: list[str]) -> str:
+    if not installed:
+        return ""
+    path = installed[0].replace("\\", "/").replace("{", r"\{").replace("}", r"\}")
+    return f"source {{{path}}}"
 
 
 def json_response(payload: dict[str, object], status: int = 200) -> tuple[bytes, dict[str, str]]:
@@ -212,10 +236,10 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
         self._send(status, body, headers)
 
     def _outputs_dir(self) -> Path:
-        return self.root / "data" / "outputs"
+        return AppPaths(self.root).outputs_dir
 
     def _uploads_dir(self) -> Path:
-        return self.root / "data" / "uploads"
+        return AppPaths(self.root).uploads_dir
 
     def _validate_output_dir_param(self, params: dict[str, object]) -> None:
         raw = params.get("output_dir")
@@ -239,6 +263,20 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path == "/api/health":
+            self._send_json(
+                {
+                    "status": "ok",
+                    "product": "Insta360_HW",
+                    "root": str(self.root.resolve()),
+                    "state_root": str(AppPaths(self.root).state_root),
+                    "version": update_api.read_version(self.root),
+                    "revision": update_api.read_revision(self.root),
+                    "instance_token": os.environ.get("INSTA360_HW_INSTANCE_TOKEN", ""),
+                    "pid": os.getpid(),
+                }
+            )
+            return
         if parsed.path == "/api/tools":
             self._send_json({"tools": self.registry.list_tools()})
             return
@@ -268,7 +306,7 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
             self._send_json(lifecycle.run_self_check(self.root))
             return
         if parsed.path == "/api/logs":
-            log_dir = self.root / "data" / "reports" / "runtime"
+            log_dir = AppPaths(self.root).runtime_log_dir
             files = sorted(
                 [{"name": item.name, "size": item.stat().st_size, "mtime": item.stat().st_mtime} for item in log_dir.iterdir() if item.is_file()],
                 key=lambda item: item["mtime"], reverse=True,
@@ -276,7 +314,7 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
             self._send_json({"files": files})
             return
         if parsed.path == "/api/logs/download":
-            log_dir = self.root / "data" / "reports" / "runtime"
+            log_dir = AppPaths(self.root).runtime_log_dir
             buf = io.BytesIO()
             with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
                 for item in sorted(log_dir.iterdir()) if log_dir.exists() else []:
@@ -312,6 +350,9 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/update/status":
             self._send_json(update_api.update_status(self.root))
+            return
+        if parsed.path == "/api/update/reconnect":
+            self._send_json(update_api.reconnect_update(self.root))
             return
         if parsed.path == "/api/uninstall/check":
             self._send_json(update_api.check_uninstall(self.root))
@@ -391,6 +432,13 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/update/run":
             self._send_json(update_api.run_update(self.root))
+            return
+        if parsed.path == "/api/update/cancel":
+            try:
+                params = self._read_json_body()
+            except Exception:
+                params = {}
+            self._send_json(update_api.cancel_update(self.root, str(params.get("job_id") or "")))
             return
         if parsed.path == "/api/cadence/install":
             self._handle_cadence_install()
@@ -478,13 +526,7 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
         if completed.returncode != 0:
             raise RuntimeError((completed.stderr or completed.stdout or "Cadence 菜单重新部署失败").strip())
         output = "\n".join(part for part in [completed.stdout, completed.stderr] if part)
-        installed = []
-        for line in output.splitlines():
-            if "iac_bom_tool.tcl" in line:
-                if "：" in line:
-                    installed.append(line.rsplit("：", 1)[-1].strip())
-                elif ": " in line:
-                    installed.append(line.rsplit(": ", 1)[-1].strip())
+        installed = _parse_cadence_loader_paths(output)
         return True, installed, output
 
     def _handle_cadence_install(self) -> None:
@@ -500,7 +542,7 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
                 "installed": installed,
                 "output": output,
                 "message": "Cadence 集成已重新安装",
-                "hot_reload_command": 'source [file join $env(HOME) "cdssetup/OrCAD_Capture/tclscripts/capAutoLoad/iac_bom_tool.tcl"]',
+                "hot_reload_command": _cadence_hot_reload_command(installed),
             }
         )
 
@@ -572,9 +614,10 @@ class SuiteRequestHandler(BaseHTTPRequestHandler):
             self._send_json({"error": "no files to package"}, 404)
             return
         buffer = io.BytesIO()
+        outputs_dir = self._outputs_dir().resolve()
         with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
             for member in members:
-                zf.write(member, arcname=member.name)
+                zf.write(member, arcname=member.relative_to(outputs_dir).as_posix())
         data = buffer.getvalue()
         stamp = _timestamp_for_filename()
         self._send(200, data, {

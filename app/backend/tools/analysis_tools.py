@@ -978,6 +978,11 @@ def _package_size_codes(value: str) -> set[str]:
 
 
 def _package_matches(net_package: str, bom_text: str) -> tuple[bool, str]:
+    net_sizes = _package_size_codes(net_package)
+    bom_sizes = _package_size_codes(bom_text)
+    if net_sizes and bom_sizes and not (net_sizes & bom_sizes):
+        return False, "封装尺寸码冲突: 网表=" + ",".join(sorted(net_sizes, key=natural_key)) + "; BOM=" + ",".join(sorted(bom_sizes, key=natural_key))
+
     net_tokens = _package_tokens(net_package)
     bom_tokens = _package_tokens(bom_text)
     if not net_tokens or not bom_tokens:
@@ -991,7 +996,7 @@ def _package_matches(net_package: str, bom_text: str) -> tuple[bool, str]:
         for b in long_bom:
             if a in b or b in a:
                 return True, f"封装字段近似匹配: {a}/{b}"
-    common_sizes = _package_size_codes(net_package) & _package_size_codes(bom_text)
+    common_sizes = net_sizes & bom_sizes
     if common_sizes:
         return True, "匹配到封装尺寸码: " + ",".join(sorted(common_sizes, key=natural_key)[:5])
     return False, "网表封装未出现在 BOM 描述/名称/封装字段"

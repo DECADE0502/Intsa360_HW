@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from app.backend.capabilities import load_capabilities, set_cadence_menu_visibility
+from app.backend.paths import AppPaths
 
 
 PLUGIN_MENU = "insta360_HW"
@@ -135,7 +136,7 @@ def _load_manifest(path: Path, source: str) -> dict[str, Any]:
 
 
 def _manifest_plugins(root: Path, source: str, warnings: list[dict[str, str]] | None = None) -> list[dict[str, Any]]:
-    directory = root / "plugins" / source
+    directory = AppPaths(root).user_plugins_dir if source == "user" else root / "plugins" / source
     if not directory.exists():
         return []
     plugins: list[dict[str, Any]] = []
@@ -170,7 +171,7 @@ def load_plugins(root: Path, system_script_dirs: Iterable[Path] | None = None) -
 
 
 def _find_user_manifest(root: Path, plugin_id: str) -> tuple[Path, dict[str, Any]]:
-    directory = root / "plugins" / "user"
+    directory = AppPaths(root).user_plugins_dir
     if directory.exists():
         for path in sorted(directory.glob("*.json")):
             try:

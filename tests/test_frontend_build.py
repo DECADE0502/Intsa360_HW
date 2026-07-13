@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -12,6 +13,18 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class FrontendBuildTests(unittest.TestCase):
+    def test_bom_review_can_return_to_source_and_clear_the_current_workflow(self) -> None:
+        wizard = (ROOT / "frontend" / "src" / "tools" / "BomProcessWizard.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("function clearBomWorkflow", wizard)
+        self.assertIn("function clearAndReturnToSource", wizard)
+        self.assertIn("onClear={clearAndReturnToSource}", wizard)
+        self.assertIn("onClear", wizard)
+        self.assertIn("返回并清空", wizard)
+        self.assertIn("setPresetConsumed(true)", wizard)
+        self.assertIn('window.history.replaceState({}, "", cleanUrl)', wizard)
+        self.assertIn("bom-review-actions", wizard)
+
     def test_frontend_package_uses_required_stack(self) -> None:
         package = json.loads((ROOT / "frontend" / "package.json").read_text(encoding="utf-8"))
         dependencies = package["dependencies"]
@@ -20,6 +33,13 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn("antd", dependencies)
         self.assertIn("@ant-design/icons", dependencies)
         self.assertIn("lucide-react", dependencies)
+
+    def test_vite_build_separates_stable_vendor_chunks(self) -> None:
+        config = (ROOT / "frontend" / "vite.config.ts").read_text(encoding="utf-8")
+
+        self.assertIn("manualChunks", config)
+        self.assertIn('return "vendor-react"', config)
+        self.assertIn('return "vendor-antd"', config)
 
     def test_frontend_lazy_loads_large_workbench_views(self) -> None:
         app = (ROOT / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
@@ -129,8 +149,106 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn("integrity_status", client)
         self.assertIn("download_strategy", client)
         self.assertIn("integrityStatus", text)
-        self.assertIn("runtime_release_sha_pending", text)
-        self.assertIn("source_zip_fallback", text)
+        self.assertIn("manifest_sha256_required", text)
+        self.assertNotIn("source_zip_fallback", text)
+
+    def test_update_ui_rehydrates_active_jobs_and_respects_update_eligibility(self) -> None:
+        text = (ROOT / "frontend" / "src" / "components" / "UpdateStatus.tsx").read_text(encoding="utf-8")
+        client = (ROOT / "frontend" / "src" / "api" / "client.ts").read_text(encoding="utf-8")
+
+        self.assertIn("setCanUpdate", text)
+        self.assertIn("disabled={!canUpdate}", text)
+        self.assertIn("info.can_update", text)
+        self.assertIn("info.remote_status", text)
+        self.assertIn("fetchUpdateStatus", text)
+        self.assertIn("status.running", text)
+        self.assertIn("setProgressOpen(true)", text)
+        self.assertIn('updateStatus?.phase === "cancelled"', text)
+        self.assertIn("cancelled: boolean", client)
+
+    def test_update_ui_treats_missing_release_manifest_as_unpublished_and_links_windows_apps(self) -> None:
+        text = (ROOT / "frontend" / "src" / "components" / "UpdateStatus.tsx").read_text(encoding="utf-8")
+        client = (ROOT / "frontend" / "src" / "api" / "client.ts").read_text(encoding="utf-8")
+
+        self.assertIn('info.remote_status === "not_published"', text)
+        self.assertIn('window.location.href = "ms-settings:appsfeatures"', text)
+        self.assertIn("打开 Windows 应用列表", text)
+        self.assertIn("maint-uninstall", text)
+        self.assertIn('"release_runtime_zip" | "none"', client)
+
+    def test_frontend_regressions_keep_context_paths_history_and_typecheck_gate(self) -> None:
+        app = (ROOT / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
+        client = (ROOT / "frontend" / "src" / "api" / "client.ts").read_text(encoding="utf-8")
+        update = (ROOT / "frontend" / "src" / "components" / "UpdateStatus.tsx").read_text(encoding="utf-8")
+        history = (ROOT / "frontend" / "src" / "platform" / "HistoryView.tsx").read_text(encoding="utf-8")
+        wizard = (ROOT / "frontend" / "src" / "tools" / "BomProcessWizard.tsx").read_text(encoding="utf-8")
+        netlist = (ROOT / "frontend" / "src" / "tools" / "NetlistComparePane.tsx").read_text(encoding="utf-8")
+        package = json.loads((ROOT / "frontend" / "package.json").read_text(encoding="utf-8"))
+
+        self.assertIn("App as AntdApp", app)
+        self.assertIn("<AntdApp>", app)
+        self.assertIn("</AntdApp>", app)
+        self.assertIn("App.useApp()", update)
+        self.assertIn("App.useApp()", history)
+
+        update_start = update.index("async function onUpdate()")
+        notice_close = update.index("setNoticeOpen(false);", update_start)
+        progress_open = update.index("setProgressOpen(true);", update_start)
+        self.assertLess(notice_close, progress_open)
+
+        self.assertIn("function outputHref", history)
+        self.assertIn("href={outputHref(name)}", history)
+        self.assertIn("function outputHref", wizard)
+        self.assertIn("href={outputHref(p)}", wizard)
+
+        self.assertIn('HISTORY_UPDATED_EVENT = "insta360_hw:history-updated"', client)
+        self.assertIn("window.dispatchEvent(new Event(HISTORY_UPDATED_EVENT))", client)
+        self.assertIn("HISTORY_UPDATED_EVENT", app)
+        self.assertIn("window.addEventListener(HISTORY_UPDATED_EVENT", app)
+        self.assertIn("window.removeEventListener(HISTORY_UPDATED_EVENT", app)
+        self.assertIn("setHistoryRuns(await fetchHistory())", app)
+
+        self.assertIn("useToolWorkspace", netlist)
+        self.assertIn('"netlist_compare"', netlist)
+        self.assertIn("setWorkspace({ filter, query, selectedKey, result })", netlist)
+        self.assertIn("resetWorkspace()", netlist)
+
+        self.assertEqual(package["scripts"].get("typecheck"), "tsc --noEmit")
+        self.assertIn("npm run typecheck", package["scripts"].get("build", ""))
+
+    def test_output_download_urls_encode_each_relative_path_segment(self) -> None:
+        cases = [
+            [r"C:\workspace\data\outputs\子目录 A\嵌套#层\报告 100%?.xlsx", "子目录 A/嵌套#层/报告 100%?.xlsx"],
+            ["data/outputs/项目 #1/版本 50%/检查?.csv", "项目 #1/版本 50%/检查?.csv"],
+        ]
+        for relative_path in [
+            "frontend/src/platform/HistoryView.tsx",
+            "frontend/src/tools/BomProcessWizard.tsx",
+        ]:
+            source = (ROOT / relative_path).read_text(encoding="utf-8")
+            helper = re.search(r"function outputHref\(path: string\) \{(?P<body>[\s\S]+?)\n\}", source)
+            self.assertIsNotNone(helper, relative_path)
+            script = (
+                f"function outputHref(path) {{{helper.group('body')}\n}}\n"
+                f"const cases = {json.dumps(cases, ensure_ascii=False)};\n"
+                "for (const [input, relative] of cases) {\n"
+                "  const expected = `/outputs/${relative.split('/').map(encodeURIComponent).join('/')}`;\n"
+                "  const actual = outputHref(input);\n"
+                "  if (actual !== expected) {\n"
+                "    console.error(JSON.stringify({ input, expected, actual }));\n"
+                "    process.exit(1);\n"
+                "  }\n"
+                "}\n"
+            )
+            completed = subprocess.run(
+                ["node", "-e", script],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                check=False,
+            )
+            self.assertEqual(0, completed.returncode, f"{relative_path}: {completed.stderr or completed.stdout}")
 
     def test_frontend_marks_backend_offline_when_health_check_fails(self) -> None:
         app = (ROOT / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
@@ -459,8 +577,9 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn("关键网络变化", pane)
         self.assertIn("result.warnings", pane)
         self.assertIn("pstxprt.dat 可选", pane)
-        self.assertIn('directory="true"', pane)
-        self.assertIn('webkitdirectory="true"', pane)
+        self.assertIn("directory", pane)
+        self.assertNotIn('directory="true"', pane)
+        self.assertNotIn("webkitdirectory", pane)
         self.assertIn("Allegro", pane)
         self.assertIn("pstxnet.dat", pane)
         self.assertIn(".netlist-shell", css)
@@ -493,8 +612,9 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn("smt-filter-chip", pane)
         self.assertIn("smt-focus-package", pane)
         self.assertNotIn("<Segmented", pane)
-        self.assertIn('directory="true"', pane)
-        self.assertIn('webkitdirectory="true"', pane)
+        self.assertIn("directory", pane)
+        self.assertNotIn('directory="true"', pane)
+        self.assertNotIn("webkitdirectory", pane)
         self.assertIn("pstxprt.dat", pane)
         self.assertIn("选择 Allegro 目录", pane)
         self.assertIn(".smt-shell", css)
@@ -520,8 +640,9 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn("机械/安装孔", pane)
         self.assertIn("测试点/工艺", pane)
         self.assertIn("电源/地", pane)
-        self.assertIn('directory="true"', pane)
-        self.assertIn('webkitdirectory="true"', pane)
+        self.assertIn("directory", pane)
+        self.assertNotIn('directory="true"', pane)
+        self.assertNotIn("webkitdirectory", pane)
         self.assertIn("pstxnet.dat", pane)
         self.assertIn("下载单网络检查报告", pane)
         self.assertIn(".single-network-shell", css)

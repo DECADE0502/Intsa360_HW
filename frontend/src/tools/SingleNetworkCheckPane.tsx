@@ -86,8 +86,7 @@ function NetlistUploadSlot({
       <Typography.Text className="single-network-upload-title">Allegro 网表目录</Typography.Text>
       <Upload
         accept=".dat"
-        directory="true"
-        webkitdirectory="true"
+        directory
         multiple
         fileList={files.map((file, index) => ({ uid: String(index), name: file.name, status: "done" as const }))}
         beforeUpload={(file) => {

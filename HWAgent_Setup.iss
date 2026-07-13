@@ -1,6 +1,9 @@
-#define MyAppName "Insta360_HW"
-#define MyAppVersion "0.2.27"
+#define MyAppName "Insta360硬件提效平台"
+#ifndef MyAppVersion
+  #define MyAppVersion "0.3.1"
+#endif
 #define MyAppPublisher "Insta360"
+#define MyAppExeName "Insta360_HW.exe"
 #define ReleaseDir "..\HWAgent_release"
 #define IconFile "..\HWAgent_release\app\frontend\assets\insta360_icon.ico"
 
@@ -21,460 +24,546 @@ WizardStyle=modern
 PrivilegesRequired=admin
 ArchitecturesInstallIn64BitMode=x64compatible
 ArchitecturesAllowed=x64compatible
-UninstallDisplayIcon={app}\Insta360_HW.exe
+UninstallDisplayName={#MyAppName}
+UninstallDisplayIcon={app}\{#MyAppExeName}
+Uninstallable=yes
+CreateUninstallRegKey=yes
 SetupIconFile={#IconFile}
 ShowLanguageDialog=no
 LanguageDetectionMethod=none
 CloseApplications=yes
+RestartApplications=no
 RestartIfNeededByRun=no
+ChangesAssociations=yes
+SetupLogging=yes
+UsePreviousAppDir=yes
 
 [Languages]
 Name: "chinesesimp"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
 
-[InstallDelete]
-Type: filesandordirs; Name: "{app}\app"
-Type: filesandordirs; Name: "{app}\cadence"
-Type: filesandordirs; Name: "{app}\scripts"
-Type: filesandordirs; Name: "{app}\tools"
-Type: files; Name: "{app}\Insta360_HW.exe"
-
 [Files]
-Source: "{#ReleaseDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion; Excludes: "data\*,uploads\*,outputs\*,history\*,config\local.json,plugins\user\*"
+Source: "{#ReleaseDir}\scripts\lifecycle\SetupTransaction.ps1"; DestName: "SetupTransaction.ps1"; Flags: dontcopy
+Source: "{#ReleaseDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion; Excludes: "data\*,config\local.json,plugins\user\*"
 
 [Registry]
-Root: HKCR; Subkey: "insta360-hw"; ValueType: string; ValueName: ""; ValueData: "URL:Insta360_HW reconnect protocol"; Flags: uninsdeletekey
-Root: HKCR; Subkey: "insta360-hw"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
-Root: HKCR; Subkey: "insta360-hw\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\Insta360_HW.exe"",0"
-Root: HKCR; Subkey: "insta360-hw\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\Insta360_HW.exe"" ""%1"""
+Root: HKLM; Subkey: "Software\Classes\insta360-hw"; ValueType: string; ValueName: ""; ValueData: "URL:Insta360_HW reconnect protocol"; Flags: uninsdeletekey
+Root: HKLM; Subkey: "Software\Classes\insta360-hw"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKLM; Subkey: "Software\Classes\insta360-hw"; ValueType: string; ValueName: "Owner"; ValueData: "Insta360_HW"
+Root: HKLM; Subkey: "Software\Classes\insta360-hw\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"",0"
+Root: HKLM; Subkey: "Software\Classes\insta360-hw\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""
 
 [Icons]
-Name: "{group}\Insta360_HW"; Filename: "{app}\Insta360_HW.exe"; WorkingDir: "{app}"
-Name: "{group}\Uninstall Insta360_HW"; Filename: "{uninstallexe}"
-Name: "{commondesktop}\Insta360_HW"; Filename: "{app}\Insta360_HW.exe"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
+Name: "{group}\卸载 {#MyAppName}"; Filename: "{uninstallexe}"
+Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Tasks]
-Name: "desktopicon"; Description: "Create desktop shortcut"; GroupDescription: "Additional options:"
+Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加选项："
 
 [Run]
-Filename: "powershell.exe"; \
-    Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\oneclick_install.ps1"" -Silent -NoStart"; \
-    WorkingDir: "{app}"; \
-    StatusMsg: "Initializing platform configuration and Cadence integration..."; \
-    Flags: runhidden
+Filename: "{app}\{#MyAppExeName}"; Description: "启动 {#MyAppName}"; Flags: nowait postinstall skipifsilent unchecked; Check: ShouldLaunchPlatform
 
-[UninstallRun]
-Filename: "powershell.exe"; \
-    Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\uninstall.ps1"" -Mode Detach -InstallDir ""{app}"" -Force"; \
-    WorkingDir: "{app}"; \
-    Flags: runhidden; RunOnceId: "StopService"
+[UninstallDelete]
+Type: filesandordirs; Name: "{app}"
 
 [Code]
-var
-  AlreadyInstalled: Boolean;
-  ActionPage: TInputOptionWizardPage;
-  // Marquee progress page shown while the existing version is being uninstalled.
-  UninstallProgressPage: TOutputProgressWizardPage;
-  // When True, the wizard closes itself silently (no "Exit Setup?" prompt).
-  // Set right before WizardForm.Close for programmatic exits.
-  ForceSilentClose: Boolean;
-  // Set by InitializeUninstall when the user chooses to keep user data. When
-  // True, StashUserDataForKeepMode moves data\, config\local.json and
-  // plugins\user out of {app} into %LOCALAPPDATA%\Insta360_HW\keep_data\ BEFORE
-  // Inno starts deleting the install tree. Inno's [UninstallDelete] is
-  // additive-only (it can add more deletions, not carve out exclusions), so
-  // moving the data out of {app} is the only reliable way to preserve it.
-  UninstallKeepData: Boolean;
-
 const
-  // Index into ActionPage.Values for the three radio options. Kept as named
-  // constants so the single-select radio semantics read clearly at each call
-  // site — Inno's radio buttons enforce mutual exclusion, but the logic below
-  // still checks one index per branch.
-  OPT_REINSTALL = 0;
-  OPT_UNINSTALL = 1;
-  OPT_CANCEL    = 2;
+  UninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{B7F3AC9E-2D5E-4A8C-9F6E-1A3D4E5F6B72}_is1';
+  MAINTENANCE_REPAIR = 0;
+  MAINTENANCE_UNINSTALL = 1;
+  MAINTENANCE_CANCEL = 2;
 
-function GetUninstallRegPath(): String;
-begin
-  Result := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{B7F3AC9E-2D5E-4A8C-9F6E-1A3D4E5F6B72}_is1';
-end;
-
-function GetUninstallString(): String;
 var
-  sUnInst: String;
-begin
-  Result := '';
-  sUnInst := '';
-  if RegQueryStringValue(HKLM, GetUninstallRegPath(), 'UninstallString', sUnInst) then
-    Result := sUnInst;
-  if (Result = '') and RegQueryStringValue(HKCU, GetUninstallRegPath(), 'UninstallString', sUnInst) then
-    Result := sUnInst;
-end;
+  PreserveUserData: Boolean;
+  UninstallCleanupRan: Boolean;
+  ExistingInstallDetected: Boolean;
+  ExistingRuntimeHealthy: Boolean;
+  ExistingVersion: String;
+  ExistingInstallDir: String;
+  ExistingUninstaller: String;
+  ExistingInstallPage: TInputOptionWizardPage;
+  MaintenanceCloseRequested: Boolean;
+  MaintenanceUninstallRequested: Boolean;
+  SetupTransactionHelper: String;
+  SetupTransactionStarted: Boolean;
+  SetupLifecycleSucceeded: Boolean;
 
-function GetInstallLocation(): String;
+function DetectExistingInstall(): Boolean;
 var
-  sInstallLocation: String;
+  FoundRegistry: Boolean;
+  RegisteredUninstaller: String;
 begin
-  Result := '';
-  sInstallLocation := '';
-  if RegQueryStringValue(HKLM, GetUninstallRegPath(), 'InstallLocation', sInstallLocation) then
-    Result := sInstallLocation;
-  if (Result = '') and RegQueryStringValue(HKCU, GetUninstallRegPath(), 'InstallLocation', sInstallLocation) then
-    Result := sInstallLocation;
-end;
+  ExistingVersion := '';
+  ExistingInstallDir := '';
+  ExistingUninstaller := '';
+  FoundRegistry := RegKeyExists(HKLM64, UninstallKey);
+  if not FoundRegistry then
+    FoundRegistry := RegKeyExists(HKLM32, UninstallKey);
 
-function UninstallExeExists(UninstallString: String): Boolean;
-var
-  exePath: String;
-begin
-  exePath := RemoveQuotes(UninstallString);
-  Result := (exePath <> '') and FileExists(exePath);
-end;
+  if FoundRegistry then begin
+    if not RegQueryStringValue(HKLM64, UninstallKey, 'InstallLocation', ExistingInstallDir) then
+      RegQueryStringValue(HKLM32, UninstallKey, 'InstallLocation', ExistingInstallDir);
+    if not RegQueryStringValue(HKLM64, UninstallKey, 'DisplayVersion', ExistingVersion) then
+      RegQueryStringValue(HKLM32, UninstallKey, 'DisplayVersion', ExistingVersion);
+  end;
+  if ExistingInstallDir = '' then
+    ExistingInstallDir := ExpandConstant('{autopf}\Insta360\HWAgent');
 
-procedure CleanupBrokenInstallRegistration();
-var
-  uninst: String;
-  installDir: String;
-begin
-  uninst := GetUninstallString();
-  if (uninst = '') or UninstallExeExists(uninst) then
+  ExistingUninstaller := AddBackslash(ExistingInstallDir) + 'unins000.exe';
+  if FoundRegistry and (not FileExists(ExistingUninstaller)) then begin
+    RegisteredUninstaller := '';
+    if not RegQueryStringValue(HKLM64, UninstallKey, 'UninstallString', RegisteredUninstaller) then
+      RegQueryStringValue(HKLM32, UninstallKey, 'UninstallString', RegisteredUninstaller);
+    if RegisteredUninstaller <> '' then
+      ExistingUninstaller := RemoveQuotes(RegisteredUninstaller);
+  end;
+
+  Result := FoundRegistry or DirExists(ExistingInstallDir);
+  if not Result then
     Exit;
 
-  installDir := RemoveBackslashUnlessRoot(GetInstallLocation());
-  if (installDir <> '') and DirExists(installDir) then begin
-    DelTree(installDir, True, True, True);
-  end;
-
-  RegDeleteKeyIncludingSubkeys(HKLM, GetUninstallRegPath());
-  RegDeleteKeyIncludingSubkeys(HKCU, GetUninstallRegPath());
-end;
-
-function PopVersionPart(var V: String): Integer;
-var
-  Dot: Integer;
-  Part: String;
-begin
-  Dot := Pos('.', V);
-  if Dot > 0 then begin
-    Part := Copy(V, 1, Dot - 1);
-    Delete(V, 1, Dot);
-  end else begin
-    Part := V;
-    V := '';
-  end;
-  Result := StrToIntDef(Part, 0);
-end;
-
-function CompareSemver(A, B: String): Integer;
-var
-  I: Integer;
-  PA: Integer;
-  PB: Integer;
-begin
-  Result := 0;
-  for I := 1 to 3 do begin
-    PA := PopVersionPart(A);
-    PB := PopVersionPart(B);
-    if PA < PB then begin
-      Result := -1;
-      Exit;
-    end;
-    if PA > PB then begin
-      Result := 1;
-      Exit;
-    end;
-  end;
-end;
-
-function InitializeSetup(): Boolean;
-var
-  Installed: String;
-begin
-  Result := True;
-  CleanupBrokenInstallRegistration();
-  Installed := '';
-  if RegQueryStringValue(HKLM, GetUninstallRegPath(), 'DisplayVersion', Installed) or
-     RegQueryStringValue(HKCU, GetUninstallRegPath(), 'DisplayVersion', Installed) then begin
-    if CompareSemver(Installed, '{#MyAppVersion}') > 0 then begin
-      Result := (MsgBox('A newer version ' + Installed + ' is already installed. Continue downgrading to {#MyAppVersion}?', mbConfirmation, MB_YESNO) = IDYES);
-    end;
-  end;
+  if ExistingVersion = '' then
+    ExistingVersion := '未知';
+  ExistingRuntimeHealthy :=
+    FileExists(AddBackslash(ExistingInstallDir) + 'Insta360_HW.exe') and
+    FileExists(AddBackslash(ExistingInstallDir) + 'VERSION') and
+    FileExists(AddBackslash(ExistingInstallDir) + 'install_manifest.json') and
+    FileExists(AddBackslash(ExistingInstallDir) + 'scripts\lifecycle\Install.ps1') and
+    FileExists(ExistingUninstaller);
 end;
 
 procedure InitializeWizard();
-begin
-  AlreadyInstalled := (GetUninstallString() <> '');
-  if AlreadyInstalled then begin
-    // The 5th arg (Exclusive) is True -> radio buttons, exactly one selectable.
-    ActionPage := CreateInputOptionPage(wpWelcome,
-      'Existing installation detected',
-      'Choose what you want to do:',
-      'These options control this setup run.', True, False);
-    ActionPage.Add('Reinstall and keep local data');
-    ActionPage.Add('Uninstall existing version');
-    ActionPage.Add('Cancel');
-    ActionPage.Values[OPT_REINSTALL] := True;
-  end;
-
-  // A marquee (indeterminate) progress page for the uninstall phase. We cannot
-  // know how long removal takes, so an animated bar + status text is the right
-  // signal — far better than a frozen window. Created unconditionally; only
-  // shown when the user picks Uninstall.
-  UninstallProgressPage := CreateOutputProgressPage('Uninstalling existing version', '');
-end;
-
-function StopHwAgentServices(): Boolean;
 var
-  ResultCode: Integer;
+  Detail: String;
+  RepairLabel: String;
 begin
-  Exec('powershell.exe',
-       '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}') + '\uninstall.ps1" -PreUpgrade -InstallDir "' + ExpandConstant('{app}') + '" -Force',
-       '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Result := (ResultCode = 0);
-end;
-
-function PrepareToInstall(var NeedsRestart: Boolean): String;
-begin
-  Result := '';
-  if AlreadyInstalled then begin
-    if not StopHwAgentServices() then
-      Result := 'Failed to stop existing Insta360 HW services. Please close the platform and retry.';
+  ExistingInstallDetected := DetectExistingInstall();
+  if ExistingInstallDetected then begin
+    if not ExistingRuntimeHealthy then begin
+      Detail :=
+        '已检测到已安装版本 ' + ExistingVersion + '。' + #13#10 + #13#10 +
+        '安装记录存在，但程序文件不完整。建议先执行修复/重装，以恢复完整程序和标准卸载器。';
+    end else if ExistingVersion = '{#MyAppVersion}' then begin
+      Detail :=
+        '已检测到已安装版本 ' + ExistingVersion + '。' + #13#10 + #13#10 +
+        '当前安装包版本相同，可以修复/重装，也可以直接卸载。';
+    end else begin
+      Detail :=
+        '已检测到已安装版本 ' + ExistingVersion + '。' + #13#10 + #13#10 +
+        '可以安装版本 {#MyAppVersion}，也可以直接卸载当前版本。';
+    end;
+  end else begin
+    Detail := '未检测到已有安装，将执行全新安装。';
   end;
-end;
 
-// Suppress the "Exit Setup?" confirmation when we close the wizard
-// programmatically (via ForceSilentClose). Without this, calling
-// WizardForm.Close on the Uninstall/Cancel paths pops the "are you sure you
-// want to exit" box, which made uninstall look like it was cancelled.
-procedure CancelButtonClick(CurPageID: Integer; var Cancel, Confirm: Boolean);
-begin
-  if ForceSilentClose then begin
-    Confirm := False;  // skip the "Exit Setup?" message box
-  end;
+  RepairLabel := '修复/重装 Insta360硬件提效平台 {#MyAppVersion}（保留用户数据）';
+  ExistingInstallPage := CreateInputOptionPage(
+    wpWelcome,
+    '维护 Insta360硬件提效平台',
+    Detail,
+    '请选择要执行的操作：',
+    True,
+    False);
+  ExistingInstallPage.Add(RepairLabel);
+  ExistingInstallPage.Add('卸载 Insta360硬件提效平台（将先修复卸载组件）');
+  ExistingInstallPage.Add('取消，不做任何更改');
+  ExistingInstallPage.SelectedValueIndex := MAINTENANCE_REPAIR;
 end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
-  Result := False;
-  // For the Uninstall and Cancel choices we never reach the normal install
-  // pages; only Reinstall continues through the standard wizard flow.
-  if AlreadyInstalled and Assigned(ActionPage) then begin
-    if (PageID <> ActionPage.ID) and
-       (ActionPage.Values[OPT_UNINSTALL] or ActionPage.Values[OPT_CANCEL]) then
-      Result := True;
-  end;
-end;
-
-// Launch the existing uninstaller as a fully detached process, then close this
-// installer immediately. The uninstaller copies itself to TEMP and runs that
-// copy, so it survives this installer exiting. We do NOT wait here: waiting
-// blocked the wizard window (looked frozen) for up to 60s. Detaching means the
-// user sees the installer close promptly while removal finishes on its own.
-procedure CloseWizardSilently();
-begin
-  ForceSilentClose := True;
-  WizardForm.Close();
+  Result := (PageID = ExistingInstallPage.ID) and (not ExistingInstallDetected);
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
-var
-  Uninst: String;
-  UninstExe: String;
-  ResultCode: Integer;
-  Waited: Integer;
 begin
   Result := True;
-  if not (AlreadyInstalled and Assigned(ActionPage) and (CurPageID = ActionPage.ID)) then
+  if (not ExistingInstallDetected) or (CurPageID <> ExistingInstallPage.ID) then
     Exit;
 
-  // Cancel: close the whole installer silently, no exit prompt.
-  if ActionPage.Values[OPT_CANCEL] then begin
-    CloseWizardSilently();
-    Result := False;
-    Exit;
-  end;
-
-  // Uninstall: show a marquee progress page, run the existing uninstaller,
-  // poll until it truly finishes (registry key gone), then close the wizard.
-  // This gives the user a visible "uninstalling..." state and a clean finish
-  // instead of either a frozen window or a silent disappearance.
-  if ActionPage.Values[OPT_UNINSTALL] then begin
-    Uninst := GetUninstallString();
-    if Uninst <> '' then begin
-      UninstExe := RemoveQuotes(Uninst);
-      if not FileExists(UninstExe) then begin
-        CleanupBrokenInstallRegistration();
-        CloseWizardSilently();
+  case ExistingInstallPage.SelectedValueIndex of
+    MAINTENANCE_REPAIR:
+      begin
+        MaintenanceUninstallRequested := False;
+        Result := True;
+      end;
+    MAINTENANCE_UNINSTALL:
+      begin
+        MaintenanceUninstallRequested := True;
+        Result := True;
+      end;
+    MAINTENANCE_CANCEL:
+      begin
         Result := False;
-        Exit;
+        MaintenanceUninstallRequested := False;
+        MaintenanceCloseRequested := True;
+        WizardForm.Close;
       end;
+  end;
+end;
 
-      // Show the progress page with an animated bar + status text.
-      UninstallProgressPage.SetText('Uninstalling existing version. Please wait...', '');
-      UninstallProgressPage.SetProgress(0, 100);
-      UninstallProgressPage.Show();
+function ShouldLaunchPlatform(): Boolean;
+begin
+  Result := not MaintenanceUninstallRequested;
+end;
 
-      try
-        // VERYSILENT: the uninstaller shows no window of its own.
-        // ewNoWait: the stub exits immediately (it relaunches a TEMP copy);
-        // we poll below instead of trusting ewWaitUntilTerminated.
-        Exec(UninstExe, '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART', '',
-             SW_HIDE, ewNoWait, ResultCode);
+procedure CancelButtonClick(CurPageID: Integer; var Cancel, Confirm: Boolean);
+begin
+  if MaintenanceCloseRequested then begin
+    Cancel := True;
+    Confirm := False;
+  end;
+end;
 
-        // Poll until the registered uninstall key disappears — the reliable
-        // signal that the TEMP copy has finished deleting files. Calling
-        // SetText each iteration forces the progress page to repaint, so the
-        // bar animates and the window stays responsive (max ~60s).
-        Waited := 0;
-        while (GetUninstallString() <> '') and (Waited < 150) do begin
-          UninstallProgressPage.SetText(
-            'Uninstalling existing version. Please wait...' + #13#10 + '(Removing program files and Cadence integration)', '');
-          Sleep(100);
-          Waited := Waited + 1;
-        end;
+function StateRoot(): String;
+begin
+  Result := ExpandConstant('{localappdata}\Insta360_HW');
+end;
 
-        // Give file handles a moment to release, then signal completion.
-        Sleep(500);
-        UninstallProgressPage.SetText('Uninstall complete.', '');
-        Sleep(800);
-      finally
-        UninstallProgressPage.Hide();
-      end;
+function RunSetupTransaction(const Action: String): Integer;
+var
+  ResultCode: Integer;
+  Parameters: String;
+begin
+  if SetupTransactionHelper = '' then begin
+    try
+      ExtractTemporaryFile('SetupTransaction.ps1');
+      SetupTransactionHelper := ExpandConstant('{tmp}\SetupTransaction.ps1');
+    except
+      Result := 9002;
+      Exit;
     end;
-    // Uninstall is done — close the installer cleanly.
-    CloseWizardSilently();
-    Result := False;
+  end;
+
+  Parameters :=
+    '-Action ' + Action + ' ' +
+    '-InstallRoot "' + ExpandConstant('{app}') + '" ' +
+    '-StateRoot "' + StateRoot() + '"';
+  if not Exec(
+    'powershell.exe',
+    '-NoProfile -ExecutionPolicy Bypass -File "' + SetupTransactionHelper + '" ' + Parameters,
+    ExpandConstant('{tmp}'),
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ResultCode) then
+    ResultCode := 9001;
+  Result := ResultCode;
+end;
+
+function RunSetupLifecycle(const ScriptPath, Parameters, StatusText: String): Integer;
+var
+  ResultCode: Integer;
+begin
+  WizardForm.StatusLabel.Caption := StatusText;
+  WizardForm.ProgressGauge.Visible := True;
+  WizardForm.ProgressGauge.Style := npbstMarquee;
+  try
+    if not Exec(
+      'powershell.exe',
+      '-NoProfile -ExecutionPolicy Bypass -File "' + ScriptPath + '" ' + Parameters,
+      ExpandConstant('{app}'),
+      SW_HIDE,
+      ewWaitUntilTerminated,
+      ResultCode) then
+      ResultCode := 9001;
+  finally
+    WizardForm.ProgressGauge.Style := npbstNormal;
+  end;
+  Result := ResultCode;
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ExistingRecovery: String;
+  ExistingLifecycle: String;
+  ExistingWrapper: String;
+  Parameters: String;
+  ResultCode: Integer;
+begin
+  Result := '';
+  NeedsRestart := False;
+  ExistingRecovery := ExpandConstant('{app}\scripts\lifecycle\Recover.ps1');
+  ExistingLifecycle := ExpandConstant('{app}\scripts\lifecycle\Install.ps1');
+  ExistingWrapper := ExpandConstant('{app}\uninstall.ps1');
+  WizardForm.StatusLabel.Caption := '正在停止旧版本并迁移用户数据...';
+
+  ResultCode := RunSetupTransaction('Recover');
+  if ResultCode <> 0 then begin
+    Result :=
+      '检测到未完成的安装，但自动恢复失败，未对现有版本执行任何新操作。错误码：' +
+      IntToStr(ResultCode) + #13#10 +
+      '请重新启动电脑后再次运行 Setup。';
+    Exit;
+  end;
+  SetupTransactionStarted := False;
+
+  ResultCode := 0;
+  if FileExists(ExistingRecovery) then begin
+    Parameters :=
+      '-InstallRoot "' + ExpandConstant('{app}') + '" ' +
+      '-StateRoot "' + StateRoot() + '" -NoRestart';
+    if not Exec(
+      'powershell.exe',
+      '-NoProfile -ExecutionPolicy Bypass -File "' + ExistingRecovery + '" ' + Parameters,
+      ExpandConstant('{app}'),
+      SW_HIDE,
+      ewWaitUntilTerminated,
+      ResultCode) then
+      ResultCode := 9001;
+    if ResultCode <> 0 then begin
+      Result :=
+        '检测到未完成的更新，但自动恢复失败，安装尚未开始。' + #13#10 +
+        '请重新启动电脑后再试，或将 %LOCALAPPDATA%\Insta360_HW 中的日志发送给维护人员。';
+      Exit;
+    end;
+  end;
+
+  ResultCode := RunSetupTransaction('Begin');
+  if ResultCode <> 0 then begin
+    RunSetupTransaction('Rollback');
+    Result :=
+      '无法创建旧版本安全备份，安装尚未开始。错误码：' + IntToStr(ResultCode) + #13#10 +
+      '请确认磁盘空间充足后重试。';
+    Exit;
+  end;
+  SetupTransactionStarted := True;
+
+  if FileExists(ExistingLifecycle) then begin
+    Parameters :=
+      '-InstallRoot "' + ExpandConstant('{app}') + '" ' +
+      '-StateRoot "' + StateRoot() + '" -PrepareUpgrade -NoStart -SkipCadence';
+    if not Exec(
+      'powershell.exe',
+      '-NoProfile -ExecutionPolicy Bypass -File "' + ExistingLifecycle + '" ' + Parameters,
+      ExpandConstant('{app}'),
+      SW_HIDE,
+      ewWaitUntilTerminated,
+      ResultCode) then
+      ResultCode := 9001;
+  end else if FileExists(ExistingWrapper) then begin
+    Parameters :=
+      '-PreUpgrade -InstallDir "' + ExpandConstant('{app}') + '" ' +
+      '-StateRoot "' + StateRoot() + '"';
+    if not Exec(
+      'powershell.exe',
+      '-NoProfile -ExecutionPolicy Bypass -File "' + ExistingWrapper + '" ' + Parameters,
+      ExpandConstant('{app}'),
+      SW_HIDE,
+      ewWaitUntilTerminated,
+      ResultCode) then
+      ResultCode := 9001;
+  end else begin
+    ResultCode := 0;
+  end;
+
+  if ResultCode <> 0 then begin
+    Result :=
+      '无法安全停止旧版本或迁移用户数据，安装尚未开始。' + #13#10 +
+      '请关闭平台后重试，并查看 %LOCALAPPDATA%\Insta360_HW\data\reports\runtime 中的日志。';
     Exit;
   end;
 
-  // Reinstall: fall through to the normal install flow.
+  WizardForm.StatusLabel.Caption := '正在准备全新运行时文件...';
+  ResultCode := RunSetupTransaction('PrepareReplace');
+  if ResultCode <> 0 then begin
+    Result :=
+      '无法安全替换旧版本文件，Setup 将恢复原版本。错误码：' + IntToStr(ResultCode) + #13#10 +
+      '请关闭平台后重试。';
+    Exit;
+  end;
 end;
 
-
-// Move user-editable state (data\, config\local.json, plugins\user) out of the
-// install tree and into %LOCALAPPDATA%\Insta360_HW\keep_data\<timestamp>\
-// BEFORE Inno starts deleting {app}. Inno runs [UninstallDelete] after its own
-// file removal and that list is additive (adds more deletions), so an
-// "exclude" isn't possible — we have to physically relocate the data. Called
-// from InitializeUninstall, which fires before [UninstallRun] and before file
-// deletion, giving us a clean window to stash. Defined before its caller
-// because Inno's Pascal doesn't do forward declarations gracefully.
-//
-// The destination is timestamped (yyyyMMdd_HHmmss subdir) so that a repeat
-// uninstall never collides with an earlier keep_data\ tree — Move-Item -Force
-// on a non-empty destination directory FAILS on Windows PowerShell 5.1 and
-// $ErrorActionPreference='Continue' would swallow the error, silently losing
-// the user's new data. The timestamp guarantees a fresh, empty destination
-// each run.
-//
-// ResultCode is checked by the caller: on non-zero (PowerShell failed to
-// launch, or the stash script itself hit an unrecoverable error) the caller
-// clears UninstallKeepData and surfaces a MsgBox so the user knows their data
-// may not have been preserved before Inno wipes {app}.
-procedure StashUserDataForKeepMode(var ResultCode: Integer);
+procedure CurStepChanged(CurStep: TSetupStep);
 var
-  StashCmd: String;
+  ResultCode: Integer;
+  Parameters: String;
+  LifecycleStatus: String;
 begin
-  StashCmd :=
-    '-NoProfile -ExecutionPolicy Bypass -Command "'
-    + '$ErrorActionPreference = ''Continue''; '
-    + '$stamp = Get-Date -Format ''yyyyMMdd_HHmmss''; '
-    + '$src = ''' + ExpandConstant('{app}') + '''; '
-    + '$dst = Join-Path $env:LOCALAPPDATA (Join-Path ''Insta360_HW\keep_data'' $stamp); '
-    + 'New-Item -ItemType Directory -Force -Path $dst | Out-Null; '
-    + 'foreach ($p in @(''data'', ''config\local.json'', ''plugins\user'')) { '
-    + '  $s = Join-Path $src $p; '
-    + '  if (Test-Path -LiteralPath $s) { '
-    + '    $d = Join-Path $dst $p; '
-    + '    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $d) | Out-Null; '
-    + '    Move-Item -Force -LiteralPath $s -Destination $d '
-    + '  } '
-    + '}"';
-  Exec('powershell.exe', StashCmd, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  if CurStep = ssPostInstall then begin
+    Parameters :=
+      '-InstallRoot "' + ExpandConstant('{app}') + '" ' +
+      '-StateRoot "' + StateRoot() + '"';
+    if MaintenanceUninstallRequested then begin
+      Parameters := Parameters + ' -NoStart -SkipCadence';
+      LifecycleStatus := '正在刷新并验证标准卸载组件...';
+    end else begin
+      LifecycleStatus := '正在初始化用户数据、部署 Cadence 集成并验证安装...';
+    end;
+    ResultCode := RunSetupLifecycle(
+      ExpandConstant('{app}\scripts\lifecycle\Install.ps1'),
+      Parameters,
+      LifecycleStatus);
+    if ResultCode <> 0 then
+      RaiseException(
+        '安装后验证失败，错误码：' + IntToStr(ResultCode) +
+        '。Setup 将恢复原版本。' + #13#10 +
+        '详细日志：%LOCALAPPDATA%\Insta360_HW\logs\install_latest.log');
+
+    ResultCode := RunSetupTransaction('Commit');
+    if ResultCode <> 0 then
+      RaiseException(
+        '安装事务提交失败，错误码：' + IntToStr(ResultCode) +
+        '。Setup 将自动恢复旧版本。');
+    SetupLifecycleSucceeded := True;
+  end;
 end;
 
-// Ask the user whether to preserve local data before uninstalling. Answering
-// Yes stashes data\, config\local.json and plugins\user to
-// %LOCALAPPDATA%\Insta360_HW\keep_data\<timestamp>\ RIGHT NOW — before
-// [UninstallRun] or any Inno-side file deletion runs — so a subsequent
-// reinstall / another user can copy the files back manually. Answering No
-// leaves the tree untouched and Inno wipes {app} completely.
-//
-// On stash failure we surface a MsgBox and clear UninstallKeepData so any
-// downstream consumer (and the user) knows preservation did not succeed —
-// otherwise Inno silently wipes {app} and the user has no idea their data is
-// gone. On success we show an informational MsgBox pointing at the stash
-// location so recovery is discoverable.
+procedure DeinitializeSetup();
+var
+  ResultCode: Integer;
+begin
+  if SetupTransactionStarted and (not SetupLifecycleSucceeded) then begin
+    ResultCode := RunSetupTransaction('Rollback');
+    if ResultCode <> 0 then
+      MsgBox(
+        '安装未完成，自动恢复旧版本失败。错误码：' + IntToStr(ResultCode) + #13#10 +
+        '请重新启动电脑后再次运行 Setup，Setup 会优先继续恢复。',
+        mbError,
+        MB_OK);
+  end;
+
+  if SetupLifecycleSucceeded and MaintenanceUninstallRequested then begin
+    if not Exec(
+      ExpandConstant('{uninstallexe}'),
+      '',
+      ExpandConstant('{app}'),
+      SW_SHOWNORMAL,
+      ewNoWait,
+      ResultCode) then
+      MsgBox(
+        '卸载组件已修复，但无法启动标准卸载器。系统错误码：' + IntToStr(ResultCode) +
+        '。请从 Windows“已安装的应用”启动卸载。',
+        mbError,
+        MB_OK);
+  end;
+end;
+
+function HasUninstallParameter(const Name: String): Boolean;
+var
+  Index: Integer;
+begin
+  Result := False;
+  for Index := 1 to ParamCount do begin
+    if CompareText(ParamStr(Index), Name) = 0 then begin
+      Result := True;
+      Exit;
+    end;
+  end;
+end;
+
 function InitializeUninstall(): Boolean;
 var
-  ResultCode: Integer;
+  PurgeRequested: Boolean;
+  PreserveRequested: Boolean;
 begin
-  Result := True;
-  UninstallKeepData := (MsgBox(
-    '是否保留用户数据?' + #13#10 + #13#10 +
-    '  是 (Yes) = 保留 data\、config\local.json、plugins\user' + #13#10 +
-    '            (备份到 %LOCALAPPDATA%\Insta360_HW\keep_data\<时间戳>\)' + #13#10 +
-    '  否 (No)  = 完全清除',
-    mbConfirmation, MB_YESNO) = IDYES);
-
-  if UninstallKeepData then begin
-    ResultCode := 0;
-    StashUserDataForKeepMode(ResultCode);
-    if ResultCode <> 0 then begin
-      MsgBox('数据保留失败 (PowerShell 返回码 ' + IntToStr(ResultCode) + ')' + #13#10 +
-             '卸载将继续但用户数据可能已丢失。查看 %LOCALAPPDATA%\Insta360_HW\keep_data\ 确认。',
-             mbError, MB_OK);
-      UninstallKeepData := False;
-    end else begin
-      MsgBox('用户数据已备份至 %LOCALAPPDATA%\Insta360_HW\keep_data\<时间戳>\' + #13#10 +
-             '如需恢复请手动复制回安装目录。',
-             mbInformation, MB_OK);
-    end;
+  PurgeRequested := HasUninstallParameter('/PURGEDATA');
+  PreserveRequested := HasUninstallParameter('/PRESERVEDATA');
+  if PurgeRequested and PreserveRequested then begin
+    MsgBox(
+      '卸载参数冲突：/PURGEDATA 与 /PRESERVEDATA 不能同时使用。',
+      mbError,
+      MB_OK);
+    Result := False;
+    Exit;
+  end else if PurgeRequested then begin
+    PreserveUserData := False;
+  end else if PreserveRequested or UninstallSilent then begin
+    PreserveUserData := True;
+  end else begin
+    PreserveUserData :=
+      MsgBox(
+        '是否保留历史记录、已处理文件、本机配置和用户插件？' + #13#10 + #13#10 +
+        '选择“是”：删除程序和 Cadence 集成，保留用户数据，重装后可继续使用。' + #13#10 +
+        '选择“否”：同时永久删除所有 Insta360_HW 本机数据。',
+        mbConfirmation,
+        MB_YESNO) = IDYES;
   end;
+  Result := True;
 end;
 
-// After the uninstaller has removed its own files, also delete the now-empty
-// publisher parent directory ({app} = ...\Insta360\HWAgent, so its parent is
-// ...\Insta360). Inno only removes dirs it created; the publisher folder would
-// otherwise linger. Only delete it when it contains nothing besides HWAgent,
-// so we never touch an unrelated sibling install.
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
-  ParentDir: String;
-  FindRec: TFindRec;
-  Safe: Boolean;
+  UninstallRecovery: String;
+  RecoveryParameters: String;
+  RecoveryCode: Integer;
+  ScriptPath: String;
+  Parameters: String;
+  Mode: String;
+  ResultCode: Integer;
 begin
-  if CurUninstallStep <> usPostUninstall then
-    Exit;
+  if (CurUninstallStep = usUninstall) and not UninstallCleanupRan then begin
+    UninstallCleanupRan := True;
+    if PreserveUserData then
+      Mode := 'PreserveData'
+    else
+      Mode := 'PurgeData';
 
-  // {app} already resolved; drop the trailing HWAgent to get ...\Insta360.
-  ParentDir := ExtractFilePath(ExpandConstant('{app}'));
-  ParentDir := RemoveBackslashUnlessRoot(ParentDir);
-  if (ParentDir = '') or not DirExists(ParentDir) then
-    Exit;
-
-  // Walk the parent dir; safe to remove only if every entry is 'HWAgent'
-  // (case-insensitive). Anything else (another product, a stray file) aborts.
-  Safe := True;
-  if FindFirst(AddBackslash(ParentDir) + '*', FindRec) then begin
-    try
-      repeat
-        if (FindRec.Name <> '.') and (FindRec.Name <> '..') then begin
-          if LowerCase(FindRec.Name) <> 'hwagent' then begin
-            Safe := False;
-            Break;
-          end;
-        end;
-      until not FindNext(FindRec);
-    finally
-      FindClose(FindRec);
+    UninstallRecovery := ExpandConstant('{app}\scripts\lifecycle\Recover.ps1');
+    if FileExists(UninstallRecovery) then begin
+      RecoveryParameters :=
+        '-InstallRoot "' + ExpandConstant('{app}') + '" ' +
+        '-StateRoot "' + StateRoot() + '" -NoRestart';
+      UninstallProgressForm.ProgressBar.Position := 10;
+      UninstallProgressForm.StatusLabel.Caption := '正在检查并恢复未完成的更新...';
+      if not Exec(
+        'powershell.exe',
+        '-NoProfile -ExecutionPolicy Bypass -File "' + UninstallRecovery + '" ' + RecoveryParameters,
+        ExpandConstant('{app}'),
+        SW_HIDE,
+        ewWaitUntilTerminated,
+        RecoveryCode) then
+        RecoveryCode := 9001;
+      if RecoveryCode <> 0 then begin
+        MsgBox(
+          '检测到未完成的更新，但自动恢复失败。程序文件尚未删除。错误码：' + IntToStr(RecoveryCode),
+          mbError,
+          MB_OK);
+        RaiseException('Lifecycle recovery failed before uninstall');
+      end;
     end;
+
+    ScriptPath := ExpandConstant('{app}\scripts\lifecycle\Uninstall.ps1');
+    if not FileExists(ScriptPath) then begin
+      MsgBox(
+        '卸载组件缺失，无法确认 Cadence 集成已安全移除。请先使用 Setup 执行修复安装，再重新卸载。',
+        mbError,
+        MB_OK);
+      RaiseException('Lifecycle uninstall component is missing');
+    end;
+
+    Parameters :=
+      '-InstallRoot "' + ExpandConstant('{app}') + '" ' +
+      '-StateRoot "' + StateRoot() + '" -Mode ' + Mode;
+    UninstallProgressForm.StatusLabel.Caption := '正在停止平台并移除 Cadence 集成...';
+    UninstallProgressForm.ProgressBar.Style := npbstMarquee;
+    try
+      if not Exec(
+        'powershell.exe',
+        '-NoProfile -ExecutionPolicy Bypass -File "' + ScriptPath + '" ' + Parameters,
+        ExpandConstant('{app}'),
+        SW_HIDE,
+        ewWaitUntilTerminated,
+        ResultCode) then
+        ResultCode := 9001;
+    finally
+      UninstallProgressForm.ProgressBar.Style := npbstNormal;
+    end;
+
+    if ResultCode <> 0 then begin
+      MsgBox(
+        '卸载准备失败，程序文件尚未删除。错误码：' + IntToStr(ResultCode) + #13#10 +
+        '详细日志：%LOCALAPPDATA%\Insta360_HW\logs\uninstall_latest.log',
+        mbError,
+        MB_OK);
+      RaiseException('Lifecycle cleanup failed');
+    end;
+    UninstallProgressForm.ProgressBar.Position := 75;
+    UninstallProgressForm.StatusLabel.Caption := '正在删除程序文件和快捷方式...';
   end;
 
-  if Safe then begin
-    // DelTree removes the dir tree; True recurses. We already confirmed only
-    // HWAgent remains (and Inno just deleted its contents), so this is the
-    // final cleanup of the empty publisher folder.
-    DelTree(ParentDir, True, True, True);
+  if CurUninstallStep = usPostUninstall then begin
+    UninstallProgressForm.ProgressBar.Position := 100;
+    if not UninstallSilent then
+      MsgBox('卸载完成。点击“确定”关闭卸载程序。', mbInformation, MB_OK);
   end;
 end;

@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from app.backend.paths import AppPaths
+
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     merged = copy.deepcopy(base)
@@ -27,7 +29,9 @@ def _read_json(path: Path) -> dict[str, Any]:
 def load_config(root: Path) -> dict[str, Any]:
     config_dir = root / "config"
     default_config = _read_json(config_dir / "default.json")
-    local_path = config_dir / "local.json"
+    local_path = AppPaths(root).local_config_path
+    if not local_path.exists() and (config_dir / "local.json").exists():
+        local_path = config_dir / "local.json"
     if not local_path.exists():
         return default_config
 

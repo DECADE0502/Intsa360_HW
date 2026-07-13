@@ -1,5 +1,7 @@
 param(
-  [string]$CaptureAutoLoadDir = ""
+  [string]$CaptureAutoLoadDir = "",
+  [switch]$Force,
+  [switch]$RespectUserRemoval
 )
 
 $ErrorActionPreference = "Stop"
@@ -15,6 +17,10 @@ $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 . (Join-Path $Root "scripts\lib\TclScripts.ps1")
 
 $Root = Get-HwAgentRoot -StartPath $Root
+if ($RespectUserRemoval -and -not (Test-HwAgentCadenceIntegrationEnabled)) {
+  Write-Host "Cadence integration remains disabled by user choice."
+  exit 0
+}
 $Python = Find-Python -Root $Root
 $AutoLoadDirs = @()
 if ($CaptureAutoLoadDir) {
@@ -22,9 +28,19 @@ if ($CaptureAutoLoadDir) {
 } else {
   $AutoLoadDirs += Find-CadenceLoaderInstallDirs
 }
+$managedDirs = New-Object System.Collections.Generic.List[string]
+foreach ($dir in @($AutoLoadDirs + (Get-HwAgentRecordedCadenceAutoLoadDirs))) {
+  if ([string]::IsNullOrWhiteSpace($dir)) { continue }
+  $full = [System.IO.Path]::GetFullPath($dir).TrimEnd("\")
+  if (-not ($managedDirs | Where-Object { $_ -ieq $full })) { $managedDirs.Add($full) | Out-Null }
+}
+$AutoLoadDirs = @($managedDirs.ToArray())
 
 foreach ($autoLoadDir in $AutoLoadDirs) {
   Move-HwAgentAutoLoadBackupDirs -AutoLoadDir $autoLoadDir | Out-Null
 }
-Install-CadenceLoader -ToolRoot $Root -PythonPath $Python -AutoLoadDirs $AutoLoadDirs | Out-Null
+$installedLoaders = @(Install-CadenceLoader -ToolRoot $Root -PythonPath $Python -AutoLoadDirs $AutoLoadDirs)
+$installedDirs = @($installedLoaders | ForEach-Object { Split-Path -Parent $_ })
+Set-HwAgentCadenceIntegrationState -Enabled:$true -LoaderPaths $installedDirs | Out-Null
+foreach ($loader in $installedLoaders) { Write-Host ("__HWAGENT_CADENCE_LOADER__ " + $loader) }
 Write-Host (Get-Text "Q2FkZW5jZSDoj5zljZXlt7Lph43mlrDpg6jnvbLjgII=")
