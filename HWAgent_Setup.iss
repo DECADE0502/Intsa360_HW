@@ -39,7 +39,7 @@ SetupLogging=yes
 UsePreviousAppDir=yes
 
 [Languages]
-Name: "chinesesimp"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+Name: "chinesesimp"; MessagesFile: "installer\ChineseSimplified.isl"
 
 [Files]
 Source: "{#ReleaseDir}\scripts\lifecycle\SetupTransaction.ps1"; DestName: "SetupTransaction.ps1"; Flags: dontcopy

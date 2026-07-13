@@ -213,6 +213,16 @@ class DistributionLifecycleV2Tests(unittest.TestCase):
         for mojibake in ("纭欢", "鍗歌浇", "姝ｅ湪", "鏄惁"):
             self.assertNotIn(mojibake, setup)
 
+    def test_setup_uses_a_vendored_simplified_chinese_language_file(self) -> None:
+        setup = (ROOT / "HWAgent_Setup.iss").read_text(encoding="utf-8-sig")
+        language = ROOT / "installer" / "ChineseSimplified.isl"
+
+        self.assertIn('MessagesFile: "installer\\ChineseSimplified.isl"', setup)
+        self.assertTrue(language.is_file())
+        translated = language.read_text(encoding="utf-8-sig")
+        self.assertIn("[LangOptions]", translated)
+        self.assertIn("LanguageID=$0804", translated)
+
     def test_setup_surfaces_existing_install_and_broken_runtime_as_repair(self) -> None:
         setup = (ROOT / "HWAgent_Setup.iss").read_text(encoding="utf-8-sig")
 
