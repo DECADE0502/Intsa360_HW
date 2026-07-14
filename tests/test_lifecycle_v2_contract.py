@@ -407,7 +407,7 @@ class CadenceOwnershipContractTests(unittest.TestCase):
             )
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(Path(result.stdout.strip()), expected)
+        self.assertEqual(Path(result.stdout.strip()).resolve(), expected.resolve())
 
     def test_cadence_state_round_trips_managed_autoload_directories(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -462,7 +462,10 @@ class CadenceOwnershipContractTests(unittest.TestCase):
             )
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(Path(result.stdout.strip()), state_root / "cadence_integration.json")
+        self.assertEqual(
+            Path(result.stdout.strip()).resolve(),
+            (state_root / "cadence_integration.json").resolve(),
+        )
 
     def test_cadence_deployment_transaction_restores_integration_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -49,8 +49,17 @@ function Test-HwLifecycleProcessIdentity {
     $expectedExecutable = [System.IO.Path]::GetFullPath([string]$Identity.executable).TrimEnd("\\")
     $actualExecutable = [System.IO.Path]::GetFullPath([string]$processInfo.ExecutablePath).TrimEnd("\\")
     if ($actualExecutable -ine $expectedExecutable) { return $false }
-    $backend = [System.IO.Path]::GetFullPath((Join-Path $RuntimeRoot "app\backend\suite_app.py"))
-    return ([string]$processInfo.CommandLine).IndexOf($backend, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+    $backendCandidates = @(
+      (Join-Path $RuntimeRoot "app\backend\suite_app.py"),
+      ([System.IO.Path]::GetFullPath((Join-Path $RuntimeRoot "app\backend\suite_app.py"))),
+      (Join-Path ([string]$Identity.root) "app\backend\suite_app.py")
+    ) | Select-Object -Unique
+    foreach ($backend in $backendCandidates) {
+      if (([string]$processInfo.CommandLine).IndexOf([string]$backend, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+        return $true
+      }
+    }
+    return $false
   } catch { return $false }
 }
 
@@ -74,8 +83,17 @@ function Test-HwLifecycleLegacyProcessIdentity {
       $actualExecutable = [System.IO.Path]::GetFullPath([string]$processInfo.ExecutablePath).TrimEnd("\")
       if ($actualExecutable -ine $expectedExecutable) { return $false }
     }
-    $backend = [System.IO.Path]::GetFullPath((Join-Path $expectedRoot "app\backend\suite_app.py"))
-    return ([string]$processInfo.CommandLine).IndexOf($backend, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+    $backendCandidates = @(
+      (Join-Path $RuntimeRoot "app\backend\suite_app.py"),
+      ([System.IO.Path]::GetFullPath((Join-Path $RuntimeRoot "app\backend\suite_app.py"))),
+      (Join-Path $expectedRoot "app\backend\suite_app.py")
+    ) | Select-Object -Unique
+    foreach ($backend in $backendCandidates) {
+      if (([string]$processInfo.CommandLine).IndexOf([string]$backend, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+        return $true
+      }
+    }
+    return $false
   } catch { return $false }
 }
 
