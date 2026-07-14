@@ -63,9 +63,23 @@ class ApiContractTests(unittest.TestCase):
             "size": 12,
             "created_at": NOW,
         }
-        for path in ("../main.xlsx", "/tmp/main.xlsx", r"C:\release\main.xlsx", "C:/release/main.xlsx"):
+        for path in ("../main.xlsx", "/tmp/main.xlsx", r"C:\release\main.xlsx", "C:/release/main.xlsx", "C:main.xlsx"):
             with self.subTest(path=path), self.assertRaises(ValidationError):
                 Asset(**base, relative_path=path)
+
+    def test_asset_size_is_a_strict_integer(self) -> None:
+        base = {
+            "id": uuid4(),
+            "kind": AssetKind.BOM,
+            "format": "xlsx",
+            "display_name": "主板 BOM",
+            "relative_path": "bom/main.xlsx",
+            "sha256": "a" * 64,
+            "created_at": NOW,
+        }
+        for size in (True, 1.5, "1"):
+            with self.subTest(size=size), self.assertRaises(ValidationError):
+                Asset(**base, size=size)
 
     def test_tool_run_serializes_asset_lineage_and_decisions(self) -> None:
         source_id = uuid4()
