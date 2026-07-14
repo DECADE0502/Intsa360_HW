@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Generic, Optional, TypeVar
 from uuid import UUID
 
@@ -9,8 +10,25 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, StrictBool, model_
 T = TypeVar("T")
 
 
+def _require_finite_numbers(value: object) -> None:
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError("wire contracts cannot contain NaN or infinite numbers")
+    if isinstance(value, dict):
+        for item in value.values():
+            _require_finite_numbers(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            _require_finite_numbers(item)
+
+
 class ContractModel(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def validate_finite_numbers(self) -> "ContractModel":
+        for value in self.__dict__.values():
+            _require_finite_numbers(value)
+        return self
 
 
 class ApiError(ContractModel):

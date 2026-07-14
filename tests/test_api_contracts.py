@@ -337,6 +337,19 @@ class ApiContractTests(unittest.TestCase):
                 with self.subTest(model=model.__name__, invalid=repr(invalid)), self.assertRaises(ValidationError):
                     model(**payload)
 
+    def test_raw_json_rejects_recursive_non_finite_numbers(self) -> None:
+        for token in ("NaN", "Infinity", "-Infinity"):
+            cases = (
+                (ApiError, f'{{"code":"invalid","message":"bad","details":{{"nested":[{token}]}}}}'),
+                (Asset, f'{{"id":"12345678-1234-1234-1234-123456789abc","kind":"bom","format":"xlsx","display_name":"BOM","relative_path":"bom/main.xlsx","sha256":"{"a" * 64}","size":1,"created_at":"2026-07-14T08:00:00Z","metadata":{{"value":{token}}}}}'),
+                (ToolRun, f'{{"id":"12345678-1234-1234-1234-123456789abc","tool_id":"bom_process","status":"queued","created_at":"2026-07-14T08:00:00Z","params":{{"value":{token}}}}}'),
+                (ToolRun, f'{{"id":"12345678-1234-1234-1234-123456789abc","tool_id":"bom_process","status":"queued","created_at":"2026-07-14T08:00:00Z","decisions":{{"nested":[{token}]}}}}'),
+                (Job, f'{{"id":"12345678-1234-1234-1234-123456789abc","kind":"tool_run","status":"running","phase":"processing","progress":1,"message":"start","cancellable":true,"created_at":"2026-07-14T08:00:00Z","updated_at":"2026-07-14T08:00:00Z","result":{{"value":{token}}}}}'),
+            )
+            for model, raw in cases:
+                with self.subTest(model=model.__name__, token=token), self.assertRaises(ValidationError):
+                    model.model_validate_json(raw)
+
     def test_every_public_model_rejects_unknown_fields(self) -> None:
         release_asset = {
             "name": "runtime.zip",
