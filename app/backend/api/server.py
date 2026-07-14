@@ -26,6 +26,7 @@ class FastApiCompatServer:
         )
         self._server = uvicorn.Server(config)
         self._stopped = threading.Event()
+        self.session_token = str(app.state.session_token)
 
     def serve_forever(self, poll_interval: float = 0.5) -> None:
         del poll_interval
@@ -43,4 +44,3 @@ class FastApiCompatServer:
             self._socket.close()
         except OSError:
             pass
-

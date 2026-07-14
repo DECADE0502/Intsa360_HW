@@ -8,6 +8,7 @@ from .history import router as history_router
 from .lifecycle import router as lifecycle_router
 from .plugins import router as plugins_router
 from .tools import router as tools_router
+from app.backend.api.security import session_router
 
 
 RESOURCE_ROUTERS = (
@@ -21,5 +22,6 @@ RESOURCE_ROUTERS = (
 
 def include_versioned_routes(app: FastAPI) -> None:
     app.include_router(health_router, prefix="/api/v1")
+    app.include_router(session_router, prefix="/api/v1")
     for router in RESOURCE_ROUTERS:
         app.include_router(router, prefix="/api/v1")

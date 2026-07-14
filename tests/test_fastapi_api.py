@@ -26,7 +26,7 @@ def _runtime_root(tmp_path: Path) -> Path:
 def test_versioned_and_legacy_tool_routes_share_one_fastapi_handler(tmp_path: Path) -> None:
     root = _runtime_root(tmp_path)
 
-    with TestClient(create_app(root)) as client:
+    with TestClient(create_app(root), base_url="http://127.0.0.1:8765") as client:
         canonical = client.get("/api/v1/tools")
         legacy = client.get("/api/tools")
 
@@ -45,4 +45,3 @@ def test_legacy_suite_app_contains_only_server_compatibility_adapter() -> None:
     assert "def do_POST" not in source
     assert "def do_DELETE" not in source
     assert '"/api/' not in source
-

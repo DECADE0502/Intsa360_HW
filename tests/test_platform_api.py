@@ -31,6 +31,13 @@ def _make_temp_root() -> Path:
     return root
 
 
+def _mutation_headers(server, content_type: str | None = None) -> dict[str, str]:
+    headers = {"X-Insta360-Session": server.session_token}
+    if content_type:
+        headers["Content-Type"] = content_type
+    return headers
+
+
 class PlatformApiTests(unittest.TestCase):
     def test_cadence_hot_reload_uses_the_deployed_loader_path(self) -> None:
         output = (
@@ -173,7 +180,7 @@ class PlatformApiTests(unittest.TestCase):
                     f"http://{host}:{port}/api/plugins/user.demo/cadence-menu",
                     data=body,
                     method="POST",
-                    headers={"Content-Type": "application/json"},
+                    headers=_mutation_headers(server, "application/json"),
                 )
                 with urlopen(request, timeout=5) as response:
                     payload = json.loads(response.read().decode("utf-8"))
@@ -215,7 +222,7 @@ class PlatformApiTests(unittest.TestCase):
                     f"http://{host}:{port}/api/plugins/user.demo/cadence-menu",
                     data=body,
                     method="POST",
-                    headers={"Content-Type": "application/json"},
+                    headers=_mutation_headers(server, "application/json"),
                 )
                 with urlopen(request, timeout=5) as response:
                     payload = json.loads(response.read().decode("utf-8"))
@@ -241,7 +248,7 @@ class PlatformApiTests(unittest.TestCase):
                     f"http://{host}:{port}/api/plugins/cadence_nc_toggle/cadence-menu",
                     data=body,
                     method="POST",
-                    headers={"Content-Type": "application/json"},
+                    headers=_mutation_headers(server, "application/json"),
                 )
                 with urlopen(request, timeout=5) as response:
                     payload = json.loads(response.read().decode("utf-8"))
@@ -312,10 +319,18 @@ class PlatformApiTests(unittest.TestCase):
                     listing = json.loads(response.read().decode("utf-8"))
                 with urlopen(f"http://{host}:{port}/api/history/{run_id}", timeout=5) as response:
                     detail = json.loads(response.read().decode("utf-8"))
-                delete_request = Request(f"http://{host}:{port}/api/history/{run_id}", method="DELETE")
+                delete_request = Request(
+                    f"http://{host}:{port}/api/history/{run_id}",
+                    method="DELETE",
+                    headers=_mutation_headers(server),
+                )
                 with urlopen(delete_request, timeout=5) as response:
                     deleted = json.loads(response.read().decode("utf-8"))
-                clear_request = Request(f"http://{host}:{port}/api/history", method="DELETE")
+                clear_request = Request(
+                    f"http://{host}:{port}/api/history",
+                    method="DELETE",
+                    headers=_mutation_headers(server),
+                )
                 with urlopen(clear_request, timeout=5) as response:
                     cleared = json.loads(response.read().decode("utf-8"))
             finally:
@@ -338,7 +353,11 @@ class PlatformApiTests(unittest.TestCase):
             thread.start()
             try:
                 host, port = server.server_address
-                request = Request(f"http://{host}:{port}/api/history/../foo", method="DELETE")
+                request = Request(
+                    f"http://{host}:{port}/api/history/../foo",
+                    method="DELETE",
+                    headers=_mutation_headers(server),
+                )
                 with self.assertRaises(HTTPError) as ctx:
                     urlopen(request, timeout=5)
             finally:
@@ -549,7 +568,7 @@ class PlatformApiTests(unittest.TestCase):
                     f"http://{host}:{port}/api/package",
                     data=body,
                     method="POST",
-                    headers={"Content-Type": "application/json"},
+                    headers=_mutation_headers(server, "application/json"),
                 )
                 with urlopen(request, timeout=5) as response:
                     package_type = response.headers.get("Content-Type")
@@ -584,7 +603,7 @@ class PlatformApiTests(unittest.TestCase):
                     f"http://{host}:{port}/api/package",
                     data=body,
                     method="POST",
-                    headers={"Content-Type": "application/json"},
+                    headers=_mutation_headers(server, "application/json"),
                 )
                 with urlopen(request, timeout=5) as response:
                     archive = response.read()
@@ -616,7 +635,7 @@ class PlatformApiTests(unittest.TestCase):
                     f"http://{host}:{port}/api/package",
                     data=safe_body,
                     method="POST",
-                    headers={"Content-Type": "application/json"},
+                    headers=_mutation_headers(server, "application/json"),
                 )
                 with urlopen(safe_request, timeout=5) as response:
                     self.assertEqual(response.headers.get("Content-Type"), "application/zip")
@@ -627,7 +646,7 @@ class PlatformApiTests(unittest.TestCase):
                         f"http://{host}:{port}/api/package",
                         data=body,
                         method="POST",
-                        headers={"Content-Type": "application/json"},
+                        headers=_mutation_headers(server, "application/json"),
                     )
                     with self.subTest(unsafe=unsafe):
                         with self.assertRaises(HTTPError) as ctx:
@@ -654,7 +673,7 @@ class PlatformApiTests(unittest.TestCase):
                     f"http://{host}:{port}/api/tools/bom_compare/run",
                     data=body,
                     method="POST",
-                    headers={"Content-Type": "application/json"},
+                    headers=_mutation_headers(server, "application/json"),
                 )
                 with self.assertRaises(HTTPError) as ctx:
                     urlopen(request, timeout=5)
@@ -670,12 +689,15 @@ class PlatformApiTests(unittest.TestCase):
             shutil.rmtree(root, ignore_errors=True)
 
     def test_upload_large_body_does_not_load_into_memory(self) -> None:
-        text = (ROOT / "app" / "backend" / "api" / "routers" / "files.py").read_text(encoding="utf-8")
+        router_text = (ROOT / "app" / "backend" / "api" / "routers" / "files.py").read_text(encoding="utf-8")
+        stream_text = (ROOT / "app" / "backend" / "api" / "uploads.py").read_text(encoding="utf-8")
 
-        upload_impl = text.split("async def upload_files", 1)[1].split("def package_outputs", 1)[0]
+        upload_impl = router_text.split("async def upload_files", 1)[1].split("def package_outputs", 1)[0]
         self.assertIn("NamedTemporaryFile", upload_impl)
-        self.assertIn("_stream_request_to_disk", upload_impl)
-        self.assertIn("_parse_multipart_files_from_disk", upload_impl)
+        self.assertIn("stream_request_to_disk", upload_impl)
+        self.assertIn("parse_multipart_files_from_disk", upload_impl)
+        self.assertIn("async for chunk in request.stream()", stream_text)
+        self.assertIn("file_limit", stream_text)
         self.assertNotIn("await request.body()", upload_impl)
         self.assertNotIn("read_bytes()", upload_impl)
 
@@ -699,7 +721,7 @@ class PlatformApiTests(unittest.TestCase):
                     f"http://{host}:{port}/api/upload",
                     data=body,
                     method="POST",
-                    headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+                    headers=_mutation_headers(server, f"multipart/form-data; boundary={boundary}"),
                 )
                 with urlopen(request, timeout=5) as response:
                     payload = json.loads(response.read().decode("utf-8"))
@@ -729,7 +751,7 @@ class PlatformApiTests(unittest.TestCase):
                     f"http://{host}:{port}/api/tools/bom_compare/run",
                     data=body,
                     method="POST",
-                    headers={"Content-Type": "application/json"},
+                    headers=_mutation_headers(server, "application/json"),
                 )
                 with self.assertRaises(HTTPError) as ctx:
                     urlopen(request, timeout=5)
@@ -760,7 +782,7 @@ class PlatformApiTests(unittest.TestCase):
                     f"http://{host}:{port}/api/tools/bom_compare/run",
                     data=body,
                     method="POST",
-                    headers={"Content-Type": "application/json"},
+                    headers=_mutation_headers(server, "application/json"),
                 )
                 with self.assertRaises(HTTPError) as ctx:
                     urlopen(request, timeout=5)
@@ -789,7 +811,7 @@ class PlatformApiTests(unittest.TestCase):
                     f"http://{host}:{port}/api/capabilities/cadence_nc_toggle/cadence-menu",
                     data=body,
                     method="POST",
-                    headers={"Content-Type": "application/json"},
+                    headers=_mutation_headers(server, "application/json"),
                 )
                 with urlopen(request, timeout=5) as response:
                     payload = json.loads(response.read().decode("utf-8"))
@@ -820,7 +842,7 @@ class PlatformApiTests(unittest.TestCase):
                     f"http://{host}:{port}/api/capabilities/bom_process/cadence-menu",
                     data=body,
                     method="POST",
-                    headers={"Content-Type": "application/json"},
+                    headers=_mutation_headers(server, "application/json"),
                 )
                 with self.assertRaises(HTTPError) as ctx:
                     urlopen(request, timeout=5)
@@ -845,7 +867,7 @@ class PlatformApiTests(unittest.TestCase):
                     f"http://{host}:{port}/api/capabilities/cadence_net_name_replace/cadence-menu",
                     data=body,
                     method="POST",
-                    headers={"Content-Type": "application/json"},
+                    headers=_mutation_headers(server, "application/json"),
                 )
                 with urlopen(request, timeout=5) as response:
                     payload = json.loads(response.read().decode("utf-8"))

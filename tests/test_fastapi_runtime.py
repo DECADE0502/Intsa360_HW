@@ -17,7 +17,7 @@ def test_health_reports_the_selected_runtime_identity(tmp_path: Path) -> None:
     application = create_app(runtime_root)
     assert isinstance(application, FastAPI)
 
-    with TestClient(application) as client:
+    with TestClient(application, base_url="http://127.0.0.1:8765") as client:
         response = client.get("/api/v1/health")
 
     assert response.status_code == 200

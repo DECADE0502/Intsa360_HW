@@ -2,6 +2,54 @@ import { ApiError } from "./errors";
 
 export type ApiOpts = { signal?: AbortSignal; timeoutMs?: number };
 const DEFAULT_TIMEOUT = 60_000;
+const SESSION_HEADER = "X-Insta360-Session";
+const MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+let sessionTokenRequest: Promise<string> | null = null;
+
+function isMutation(init: RequestInit): boolean {
+  return MUTATION_METHODS.has((init.method || "GET").toUpperCase());
+}
+
+async function fetchSessionToken(forceRefresh = false): Promise<string> {
+  if (forceRefresh) sessionTokenRequest = null;
+  if (!sessionTokenRequest) {
+    sessionTokenRequest = fetch("/api/session", { cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || typeof payload.token !== "string" || !payload.token) {
+          throw new Error(payload.error || "无法建立平台安全会话");
+        }
+        return payload.token as string;
+      })
+      .catch((error) => {
+        sessionTokenRequest = null;
+        throw error;
+      });
+  }
+  return sessionTokenRequest;
+}
+
+async function secureInit(init: RequestInit): Promise<RequestInit> {
+  if (!isMutation(init)) return init;
+  const headers = new Headers(init.headers || {});
+  headers.set(SESSION_HEADER, await fetchSessionToken());
+  return { ...init, headers };
+}
+
+export async function secureFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  let secured = await secureInit(init);
+  let response = await fetch(input, secured);
+  if (isMutation(init) && response.status === 403) {
+    const payload = await response.clone().json().catch(() => ({}));
+    if (payload?.error_kind === "session_required") {
+      const headers = new Headers(init.headers || {});
+      headers.set(SESSION_HEADER, await fetchSessionToken(true));
+      secured = { ...init, headers };
+      response = await fetch(input, secured);
+    }
+  }
+  return response;
+}
 
 export async function apiCall<T = unknown>(
   path: string,
@@ -20,7 +68,7 @@ export async function apiCall<T = unknown>(
     ? mergeSignals(opts.signal, internalCtrl.signal)
     : internalCtrl.signal;
   try {
-    const res = await fetch(path, { ...init, signal: combined });
+    const res = await secureFetch(path, { ...init, signal: combined });
     const payload: any = await res.json().catch(() => ({}));
     if (!res.ok || (payload && payload.status === "error")) {
       throw new ApiError(
@@ -143,7 +191,7 @@ export const HISTORY_UPDATED_EVENT = "insta360_hw:history-updated";
 async function requestJson<T = any>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(input, init);
+    res = await secureFetch(input, init);
   } catch (error) {
     const err = error as Error;
     if (err.name === "TypeError" || /fetch/i.test(err.message || "")) {
@@ -412,7 +460,7 @@ export type DiagnosticReport = Blob;
 export async function fetchDiagnosticReport(opts?: ApiOpts): Promise<DiagnosticReport> {
   // The endpoint returns text/plain (not JSON), so we bypass apiCall and grab
   // the raw response body as a Blob for direct download.
-  const res = await fetch("/api/diagnostic/report", { signal: opts?.signal });
+  const res = await secureFetch("/api/diagnostic/report", { signal: opts?.signal });
   if (!res.ok) {
     throw new ApiError(
       "DiagnosticError",

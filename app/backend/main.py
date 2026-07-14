@@ -12,6 +12,7 @@ from app.backend.api.context import build_context
 from app.backend.api.legacy import include_legacy_routes
 from app.backend.api.routers import include_versioned_routes
 from app.backend.api.routers.files import output_router
+from app.backend.api.security import install_security
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -30,6 +31,7 @@ def create_app(root: Path | None = None) -> FastAPI:
     runtime_root = context.root
     app = FastAPI(title=SERVICE_NAME, version=_read_runtime_value(runtime_root, "VERSION") or "0.0.0")
     app.state.context = context
+    install_security(app)
 
     include_versioned_routes(app)
     include_legacy_routes(app)

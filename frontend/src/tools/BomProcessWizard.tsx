@@ -28,7 +28,7 @@ import {
   SafetyCertificateOutlined,
   WarningOutlined,
 } from "@ant-design/icons";
-import { runTool, uploadFiles } from "../api/client";
+import { runTool, secureFetch, uploadFiles } from "../api/client";
 import { useToolWorkspace } from "../state/toolWorkspace";
 
 const { Dragger } = Upload;
@@ -252,7 +252,7 @@ export function BomProcessWizard() {
       return;
     }
     try {
-      const r = await fetch("/api/package", {
+      const r = await secureFetch("/api/package", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: name || "BOM", files: all }),
