@@ -153,6 +153,20 @@
       "Unit": "ea",
       "PCB Footprint": "0402",
       "PCB Package": "0402"
+    },
+    "size_conflict_bom": {
+      "Item": 11,
+      "Quantity": 1,
+      "Reference": "R501",
+      "Part Number": "R.SIZE.M21",
+      "Value": "10K",
+      "Model": "RES_0603_10K",
+      "Description": "THICK_FILM_RESISTOR 10K 0603",
+      "Name": "RESISTOR",
+      "Grade": "正常",
+      "Unit": "ea",
+      "PCB Footprint": "0603",
+      "PCB Package": "0603"
     }
   },
   "cases": {
@@ -168,10 +182,22 @@
     },
     "process_warnings": {
       "row_ids": [
+        "c2106_truncated",
         "ddr_warning",
         "shield_candidate",
         "duplicate_ref_primary",
         "duplicate_ref_secondary"
+      ]
+    },
+    "version_sensitive": {
+      "row_ids": [
+        "c2106_truncated",
+        "ddr_warning"
+      ]
+    },
+    "package_size_conflict": {
+      "row_ids": [
+        "size_conflict_bom"
       ]
     },
     "golden": {
@@ -185,7 +211,8 @@
         "ddr_warning",
         "shield_candidate",
         "duplicate_ref_primary",
-        "duplicate_ref_secondary"
+        "duplicate_ref_secondary",
+        "size_conflict_bom"
       ]
     }
   }

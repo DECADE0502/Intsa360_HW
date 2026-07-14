@@ -87,9 +87,29 @@
       "excluded_from_nc": true
     },
     "version_warnings": [
-      {"reference": "U2106", "kind": "eMMC"},
-      {"reference": "U3101", "kind": "DDR"}
+      {
+        "reference": "U2106",
+        "kind": "eMMC",
+        "part_number": "C.C2106M21",
+        "model": "EMMC_BGA153",
+        "description": "eMMC BGA153"
+      },
+      {
+        "reference": "U3101",
+        "kind": "DDR",
+        "part_number": "IC.DDR4M21",
+        "model": "DDR4_BGA96",
+        "description": "DDR4 MEMORY BGA96"
+      }
     ],
+    "package_size_conflict": {
+      "reference": "R501",
+      "netlist_package": "RES_R0402_10K",
+      "bom_part_number": "R.SIZE.M21",
+      "bom_model": "RES_0603_10K",
+      "bom_description": "THICK_FILM_RESISTOR 10K 0603",
+      "bom_package": "0603"
+    },
     "duplicate_reference": {
       "reference": "R7701",
       "part_numbers": ["R.R7701M21", "R.R7702M21"]

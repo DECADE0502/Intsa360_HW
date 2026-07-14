@@ -50,6 +50,16 @@ def parse_part_packages(text: str) -> dict[str, str]:
     return packages
 
 
+def read_capture_records(path: Path) -> list[dict[str, object]]:
+    workbook = load_workbook(path, read_only=True, data_only=True)
+    try:
+        sheet = workbook.active
+        headers = [cell.value for cell in sheet[1]]
+        return [dict(zip(headers, row)) for row in sheet.iter_rows(min_row=2, values_only=True)]
+    finally:
+        workbook.close()
+
+
 class GoldenFixtureTests(unittest.TestCase):
     def test_sanitized_bom_cases_preserve_conflicts_and_risk_expectations(self) -> None:
         cases = load_fixture("bom/conflict_cases.json")
@@ -121,6 +131,48 @@ class GoldenFixtureTests(unittest.TestCase):
         self.assertEqual(sum("R7701" in record["{Reference}"].split() for record in records), 2)
         shield = next(record for record in records if record["{Reference}"] == "SH1")
         self.assertEqual(shield["{Part Number}"], "MECH.SHIELD.01")
+
+    def test_capture_builder_emits_concrete_ddr_and_emmc_rows(self) -> None:
+        expected_rows = {
+            "U2106": ("C.C2106M21", "EMMC_BGA153", "eMMC BGA153"),
+            "U3101": ("IC.DDR4M21", "DDR4_BGA96", "DDR4 MEMORY BGA96"),
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "version_sensitive.xlsx"
+            build_capture_bom(path, "version_sensitive")
+            rows = read_capture_records(path)
+
+        actual_rows = {
+            row["{Reference}"]: (
+                row["{Part Number}"],
+                row["{规格型号}"],
+                row["{器件描述（新整理）}"],
+            )
+            for row in rows
+        }
+        self.assertEqual(actual_rows, expected_rows)
+
+    def test_package_size_conflict_joins_the_same_bom_and_netlist_reference(self) -> None:
+        netlist_parts = parse_part_packages((FIXTURES / "netlist/pstxprt_sample.dat").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "package_conflict.xlsx"
+            build_capture_bom(path, "package_size_conflict")
+            rows = read_capture_records(path)
+
+        self.assertEqual(len(rows), 1)
+        bom_row = rows[0]
+        self.assertEqual(bom_row["{Reference}"], "R501")
+        self.assertEqual(netlist_parts["R501"], "RES_R0402_10K")
+        self.assertEqual(bom_row["{规格型号}"], "RES_0603_10K")
+        self.assertEqual(bom_row["{器件描述（新整理）}"], "THICK_FILM_RESISTOR 10K 0603")
+        self.assertEqual(bom_row["{PCB封装}"], "0603")
+        netlist_size = re.search(r"R(0402|0603)", netlist_parts["R501"])
+        bom_size = re.search(r"\b(0402|0603)\b", str(bom_row["{PCB封装}"]))
+        self.assertIsNotNone(netlist_size)
+        self.assertIsNotNone(bom_size)
+        self.assertEqual(netlist_size.group(1), "0402")
+        self.assertEqual(bom_size.group(1), "0603")
+        self.assertNotEqual(netlist_size.group(1), bom_size.group(1))
 
     def test_processed_bom_builders_emit_complete_19_column_rows(self) -> None:
         for template in ("plm", "oa"):
