@@ -21,10 +21,13 @@ def test_health_reports_the_selected_runtime_identity(tmp_path: Path) -> None:
         response = client.get("/api/v1/health")
 
     assert response.status_code == 200
-    assert response.json() == {
-        "service": "Insta360_HW",
-        "schema_version": "v1",
-        "runtime_root": str(runtime_root.resolve()),
-        "version": "0.4.0",
-        "revision": "test-revision",
-    }
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert payload["service"] == "Insta360_HW"
+    assert payload["schema_version"] == "v1"
+    assert payload["runtime_root"] == str(runtime_root.resolve())
+    assert payload["version"] == "0.4.0"
+    assert payload["revision"] == "test-revision"
+    assert payload["pid"] > 0
+    assert payload["uptime_seconds"] >= 0
+    assert payload["database"]["status"] == "not_initialized"

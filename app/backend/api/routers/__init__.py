@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from .files import api_router as files_router
+from .diagnostics import router as diagnostics_router
 from .health import router as health_router
 from .history import router as history_router
 from .jobs import router as jobs_router
@@ -15,6 +16,7 @@ from app.backend.api.security import session_router
 RESOURCE_ROUTERS = (
     tools_router,
     files_router,
+    diagnostics_router,
     history_router,
     jobs_router,
     plugins_router,

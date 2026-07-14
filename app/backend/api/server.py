@@ -11,6 +11,7 @@ class FastApiCompatServer:
     """Expose the legacy server lifecycle over one pre-bound Uvicorn socket."""
 
     def __init__(self, app: FastAPI, host: str, port: int) -> None:
+        self._app = app
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._socket.bind((host, port))
@@ -44,3 +45,6 @@ class FastApiCompatServer:
             self._socket.close()
         except OSError:
             pass
+        closer = getattr(self._app.state, "close_observability", None)
+        if callable(closer):
+            closer()

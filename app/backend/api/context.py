@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import Request
@@ -20,6 +22,8 @@ class AppContext:
     _registry_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     _jobs: PersistentJobService | None = None
     _jobs_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    started_monotonic: float = field(default_factory=time.monotonic)
 
     @property
     def registry(self) -> ToolRegistry:

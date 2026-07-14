@@ -458,13 +458,11 @@ export async function checkUninstall(): Promise<UninstallCheck> {
 export type DiagnosticReport = Blob;
 
 export async function fetchDiagnosticReport(opts?: ApiOpts): Promise<DiagnosticReport> {
-  // The endpoint returns text/plain (not JSON), so we bypass apiCall and grab
-  // the raw response body as a Blob for direct download.
-  const res = await secureFetch("/api/diagnostic/report", { signal: opts?.signal });
+  const res = await secureFetch("/api/diagnostics/package", { signal: opts?.signal });
   if (!res.ok) {
     throw new ApiError(
       "DiagnosticError",
-      `诊断报告生成失败 (HTTP ${res.status})`,
+      `诊断包生成失败 (HTTP ${res.status})`,
       res.status,
     );
   }

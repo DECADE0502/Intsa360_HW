@@ -22,16 +22,16 @@ export function SystemStatus({ status }: { status: any }) {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = `insta360_hw_diagnostic_${Date.now()}.txt`;
+      anchor.download = `insta360_hw_diagnostic_${Date.now()}.zip`;
       document.body.appendChild(anchor);
       anchor.click();
       setTimeout(() => {
         URL.revokeObjectURL(url);
         anchor.remove();
       }, 4000);
-      message.success("诊断报告已下载");
+      message.success("诊断包已下载");
     } catch (err: any) {
-      message.error(`诊断报告生成失败: ${err?.userMessage || err?.message || err}`);
+      message.error(`诊断包生成失败: ${err?.userMessage || err?.message || err}`);
     } finally {
       setDiagnosticLoading(false);
     }
@@ -66,7 +66,7 @@ export function SystemStatus({ status }: { status: any }) {
             loading={diagnosticLoading}
             onClick={downloadDiagnostic}
           >
-            生成诊断报告
+            生成诊断包
           </Button>
         }
       >

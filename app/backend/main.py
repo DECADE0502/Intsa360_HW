@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import asynccontextmanager
+import os
 from pathlib import Path
 
 import uvicorn
@@ -13,6 +15,7 @@ from app.backend.api.legacy import include_legacy_routes
 from app.backend.api.routers import include_versioned_routes
 from app.backend.api.routers.files import output_router
 from app.backend.api.security import install_security
+from app.backend.services.platform_logging import close_platform_logging, configure_platform_logging, install_request_logging
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -29,9 +32,31 @@ def _read_runtime_value(runtime_root: Path, name: str) -> str:
 def create_app(root: Path | None = None) -> FastAPI:
     context = build_context(root or ROOT)
     runtime_root = context.root
-    app = FastAPI(title=SERVICE_NAME, version=_read_runtime_value(runtime_root, "VERSION") or "0.0.0")
+
+    @asynccontextmanager
+    async def lifespan(application: FastAPI):
+        try:
+            yield
+        finally:
+            closer = getattr(application.state, "close_observability", None)
+            if callable(closer):
+                closer()
+
+    app = FastAPI(
+        title=SERVICE_NAME,
+        version=_read_runtime_value(runtime_root, "VERSION") or "0.0.0",
+        lifespan=lifespan,
+    )
     app.state.context = context
     install_security(app)
+    logger = configure_platform_logging(runtime_root, secrets=[str(app.state.session_token)])
+    app.state.platform_logger = logger
+    app.state.close_observability = lambda: close_platform_logging(logger)
+    install_request_logging(app, logger)
+    logger.info(
+        "Platform backend initialized",
+        extra={"event": "service_start", "context": {"runtime_root": str(runtime_root), "pid": os.getpid()}},
+    )
 
     include_versioned_routes(app)
     include_legacy_routes(app)
