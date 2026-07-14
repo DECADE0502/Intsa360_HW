@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -403,6 +404,105 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            out = tmp_path / "iac_bom_tool.tcl"
+            command = (
+                "$ErrorActionPreference='Stop'; "
+                f". '{ROOT / 'scripts' / 'lib' / 'Cadence.ps1'}'; "
+                f"Write-CadenceLoader -ToolRoot '{root}' -PythonPath 'C:/Python/python.exe' -OutputPath '{out}' | Out-Null"
+            )
+
+            subprocess.run(
+                [POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+
+            decoded = out.read_bytes().decode("gbk")
+            self.assertIn('source "$::IAC_ROOT/plugins/user/scripts/demo.tcl"', decoded)
+            self.assertIn('AddAccessoryMenu "insta360_HW" "User Demo" "::Demo::Run"', decoded)
+
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
+    def test_local_appdata_plugin_state_override_changes_rendered_loader_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            root = tmp_path / "runtime"
+            local_app_data = tmp_path / "local-app-data"
+            shutil.copytree(ROOT / "config", root / "config")
+            shutil.copytree(ROOT / "cadence", root / "cadence")
+            (root / "install_manifest.json").write_text(
+                json.dumps({"schema": 2, "product": "Insta360_HW", "layout": "runtime-v2"}),
+                encoding="utf-8",
+            )
+            state_path = local_app_data / "Insta360_HW" / "config" / "plugin_state.json"
+            state_path.parent.mkdir(parents=True)
+            state_path.write_text(
+                json.dumps({"schema_version": 1, "plugins": {"cadence_nc_toggle": {"enabled": True}}}),
+                encoding="utf-8",
+            )
+            enabled_loader = tmp_path / "enabled.tcl"
+            disabled_loader = tmp_path / "disabled.tcl"
+            command = (
+                "$ErrorActionPreference='Stop'; "
+                f". '{ROOT / 'scripts' / 'lib' / 'Cadence.ps1'}'; "
+                f"Write-CadenceLoader -ToolRoot '{root}' -PythonPath 'C:/Python/python.exe' -OutputPath '{enabled_loader}' | Out-Null"
+            )
+            environment = {**os.environ, "LOCALAPPDATA": str(local_app_data)}
+
+            subprocess.run(
+                [POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+                check=True,
+                text=True,
+                capture_output=True,
+                env=environment,
+            )
+
+            state_path.write_text(
+                json.dumps({"schema_version": 1, "plugins": {"cadence_nc_toggle": {"enabled": False}}}),
+                encoding="utf-8",
+            )
+            disabled_command = command.replace(str(enabled_loader), str(disabled_loader))
+            subprocess.run(
+                [POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", disabled_command],
+                check=True,
+                text=True,
+                capture_output=True,
+                env=environment,
+            )
+
+            enabled = enabled_loader.read_bytes().decode("gbk")
+            disabled = disabled_loader.read_bytes().decode("gbk")
+            self.assertIn('source "$::IAC_ROOT/cadence/modules/nc_toggle_selected.tcl"', enabled)
+            self.assertIn('AddAccessoryMenu "insta360_HW" "Toggle Selected NC (Ctrl+Q)"', enabled)
+            self.assertIn('::IAC::SetShortcut "cadence_nc_toggle" 1', enabled)
+            self.assertIn('::IAC::SetShortcut "cadence_nc_toggle" 0', disabled)
+            self.assertNotIn('AddAccessoryMenu "insta360_HW" "Toggle Selected NC (Ctrl+Q)"', disabled)
+
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
+    def test_malformed_user_manifest_does_not_block_loader_rendering(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            root = tmp_path / "tool"
+            shutil.copytree(ROOT / "config", root / "config")
+            shutil.copytree(ROOT / "cadence", root / "cadence")
+            scripts = root / "plugins" / "user" / "scripts"
+            scripts.mkdir(parents=True)
+            (scripts / "demo.tcl").write_text("proc ::Demo::Run {} {}\n", encoding="utf-8")
+            (root / "plugins" / "user" / "demo.json").write_text(
+                json.dumps(
+                    {
+                        "id": "user.demo",
+                        "name": "User Demo",
+                        "type": "cadence_tcl",
+                        "command": "::Demo::Run",
+                        "script": "scripts/demo.tcl",
+                        "show_in_platform": True,
+                        "show_in_cadence": True,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (root / "plugins" / "user" / "broken.json").write_text("{not json", encoding="utf-8")
             out = tmp_path / "iac_bom_tool.tcl"
             command = (
                 "$ErrorActionPreference='Stop'; "

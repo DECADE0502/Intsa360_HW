@@ -61,9 +61,68 @@ function Get-HwAgentCadenceMenuName {
   return [string]$Object.id
 }
 
+function Get-HwAgentPluginStatePath {
+  param(
+    [Parameter(Mandatory=$true)][string]$ToolRoot,
+    [string]$PluginStatePath
+  )
+  if (-not [string]::IsNullOrWhiteSpace($PluginStatePath)) {
+    return $PluginStatePath
+  }
+  if ((Test-Path -LiteralPath (Join-Path $ToolRoot "install_manifest.json") -PathType Leaf) -and -not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+    return (Join-Path $env:LOCALAPPDATA "Insta360_HW\config\plugin_state.json")
+  }
+  return (Join-Path $ToolRoot "config\plugin_state.json")
+}
+
+function Get-HwAgentPluginStateOverrides {
+  param([Parameter(Mandatory=$true)][string]$PluginStatePath)
+  $overrides = @{}
+  if (-not (Test-Path -LiteralPath $PluginStatePath -PathType Leaf)) {
+    return $overrides
+  }
+  try {
+    $state = Get-Content -LiteralPath $PluginStatePath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($null -eq $state -or $state.schema_version -ne 1 -or $null -eq $state.plugins) {
+      return $overrides
+    }
+    foreach ($property in @($state.plugins.PSObject.Properties)) {
+      $entry = $property.Value
+      if ($entry -is [bool]) {
+        $overrides[[string]$property.Name] = [bool]$entry
+      } elseif ($null -ne $entry -and $null -ne $entry.PSObject.Properties["enabled"] -and $entry.enabled -is [bool]) {
+        $overrides[[string]$property.Name] = [bool]$entry.enabled
+      }
+    }
+  } catch {
+    return @{}
+  }
+  return $overrides
+}
+
+function Apply-HwAgentPluginStateOverrides {
+  param(
+    [Parameter(Mandatory=$true)][AllowEmptyCollection()][object[]]$Items,
+    [Parameter(Mandatory=$true)][hashtable]$Overrides
+  )
+  foreach ($item in $Items) {
+    if ($null -eq $item -or $item.type -ne "cadence_tcl") { continue }
+    $id = [string]$item.id
+    if (-not $Overrides.ContainsKey($id)) { continue }
+    $enabled = [bool]$Overrides[$id]
+    $item | Add-Member -NotePropertyName show_in_cadence -NotePropertyValue $enabled -Force
+    $item | Add-Member -NotePropertyName status -NotePropertyValue $(if ($enabled) { "available" } else { "disabled" }) -Force
+  }
+  return $Items
+}
+
 function Get-EnabledCadenceMenuItems {
-  param([Parameter(Mandatory=$true)][string]$ToolRoot)
+  param(
+    [Parameter(Mandatory=$true)][string]$ToolRoot,
+    [string]$PluginStatePath
+  )
   $lines = @()
+  $statePath = Get-HwAgentPluginStatePath -ToolRoot $ToolRoot -PluginStatePath $PluginStatePath
 
   $items = @()
   $capabilitiesPath = Join-Path $ToolRoot "config\capabilities.json"
@@ -75,13 +134,18 @@ function Get-EnabledCadenceMenuItems {
   $userPluginDir = Join-Path $ToolRoot "plugins\user"
   if (Test-Path -LiteralPath $userPluginDir) {
     foreach ($manifest in Get-ChildItem -LiteralPath $userPluginDir -Filter "*.json" -File -ErrorAction SilentlyContinue) {
-      $plugin = Get-Content -LiteralPath $manifest.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+      try {
+        $plugin = Get-Content -LiteralPath $manifest.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+      } catch {
+        continue
+      }
       if ($plugin.type -eq "cadence_tcl" -and $plugin.script) {
         $plugin | Add-Member -NotePropertyName module -NotePropertyValue ("plugins/user/" + ([string]$plugin.script -replace "\\", "/")) -Force
       }
       $items += $plugin
     }
   }
+  $items = @(Apply-HwAgentPluginStateOverrides -Items $items -Overrides (Get-HwAgentPluginStateOverrides -PluginStatePath $statePath))
 
   $registeredNamespaces = @{}
 
@@ -120,8 +184,12 @@ function Get-EnabledCadenceMenuItems {
 }
 
 function Get-EnabledCadenceShortcutItems {
-  param([Parameter(Mandatory=$true)][string]$ToolRoot)
+  param(
+    [Parameter(Mandatory=$true)][string]$ToolRoot,
+    [string]$PluginStatePath
+  )
   $lines = @()
+  $statePath = Get-HwAgentPluginStatePath -ToolRoot $ToolRoot -PluginStatePath $PluginStatePath
 
   $items = @()
   $capabilitiesPath = Join-Path $ToolRoot "config\capabilities.json"
@@ -133,13 +201,18 @@ function Get-EnabledCadenceShortcutItems {
   $userPluginDir = Join-Path $ToolRoot "plugins\user"
   if (Test-Path -LiteralPath $userPluginDir) {
     foreach ($manifest in Get-ChildItem -LiteralPath $userPluginDir -Filter "*.json" -File -ErrorAction SilentlyContinue) {
-      $plugin = Get-Content -LiteralPath $manifest.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+      try {
+        $plugin = Get-Content -LiteralPath $manifest.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+      } catch {
+        continue
+      }
       if ($plugin.type -eq "cadence_tcl" -and $plugin.script) {
         $plugin | Add-Member -NotePropertyName module -NotePropertyValue ("plugins/user/" + ([string]$plugin.script -replace "\\", "/")) -Force
       }
       $items += $plugin
     }
   }
+  $items = @(Apply-HwAgentPluginStateOverrides -Items $items -Overrides (Get-HwAgentPluginStateOverrides -PluginStatePath $statePath))
 
   foreach ($item in @($items)) {
     if ($item.type -ne "cadence_tcl") { continue }
@@ -182,7 +255,8 @@ function Write-CadenceLoader {
   param(
     [Parameter(Mandatory=$true)][string]$ToolRoot,
     [Parameter(Mandatory=$true)][string]$PythonPath,
-    [Parameter(Mandatory=$true)][string]$OutputPath
+    [Parameter(Mandatory=$true)][string]$OutputPath,
+    [string]$PluginStatePath
   )
   $root = ConvertTo-TclPath $ToolRoot
   $python = ConvertTo-TclPath $PythonPath
@@ -196,8 +270,9 @@ function Write-CadenceLoader {
   $template = Get-Content -LiteralPath $templatePath -Raw -Encoding UTF8
   $template = $template.Replace('{{TOOL_ROOT}}', $root)
   $template = $template.Replace('{{PYTHON_PATH}}', $python)
-  $menuItems = Get-EnabledCadenceMenuItems -ToolRoot $ToolRoot
-  $shortcutItems = Get-EnabledCadenceShortcutItems -ToolRoot $ToolRoot
+  $statePath = Get-HwAgentPluginStatePath -ToolRoot $ToolRoot -PluginStatePath $PluginStatePath
+  $menuItems = Get-EnabledCadenceMenuItems -ToolRoot $ToolRoot -PluginStatePath $statePath
+  $shortcutItems = Get-EnabledCadenceShortcutItems -ToolRoot $ToolRoot -PluginStatePath $statePath
   $template = $template -replace '(?m)^\s*# \{\{CADENCE_SCRIPT_MENU_ITEMS\}\}', $menuItems
   $template = $template -replace '(?m)^\s*# \{\{CADENCE_SCRIPT_SHORTCUT_ITEMS\}\}', $shortcutItems
   if ($template -match '\{\{[A-Z_]+\}\}') {
@@ -213,7 +288,8 @@ function Install-CadenceLoader {
   param(
     [Parameter(Mandatory=$true)][string]$ToolRoot,
     [Parameter(Mandatory=$true)][string]$PythonPath,
-    [Parameter(Mandatory=$true)][string[]]$AutoLoadDirs
+    [Parameter(Mandatory=$true)][string[]]$AutoLoadDirs,
+    [string]$PluginStatePath
   )
   $installed = @()
   foreach ($dir in $AutoLoadDirs) {
@@ -232,7 +308,7 @@ function Install-CadenceLoader {
         throw "Refusing to overwrite an unowned Cadence loader: $target"
       }
     }
-    Write-CadenceLoader -ToolRoot $ToolRoot -PythonPath $PythonPath -OutputPath $target | Out-Null
+    Write-CadenceLoader -ToolRoot $ToolRoot -PythonPath $PythonPath -OutputPath $target -PluginStatePath $PluginStatePath | Out-Null
     Write-Host ((Get-HwAgentText "5bey5a6J6KOFIENhZGVuY2Ug6I+c5Y2V6ISa5pys77ya") + $target)
     $installed += $target
   }

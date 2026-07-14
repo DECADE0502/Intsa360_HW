@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from typing import Any, Iterable
 
-from app.backend.capabilities import load_capabilities, set_cadence_menu_visibility
+from app.backend.capabilities import PluginStateRepository, load_capabilities, set_cadence_menu_visibility
 from app.backend.paths import AppPaths
 
 
@@ -98,6 +98,14 @@ def _platform_plugins_from_capabilities(root: Path) -> list[dict[str, Any]]:
     ]
 
 
+def _apply_plugin_state(plugin: dict[str, Any], repository: PluginStateRepository) -> dict[str, Any]:
+    if plugin.get("type") == "cadence_tcl" and plugin.get("source") != "system":
+        enabled = repository.enabled(str(plugin["id"]), bool(plugin.get("show_in_cadence")))
+        plugin["show_in_cadence"] = enabled
+        plugin["status"] = "available" if enabled else "disabled"
+    return plugin
+
+
 def _load_manifest(path: Path, source: str) -> dict[str, Any]:
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
@@ -135,31 +143,43 @@ def _load_manifest(path: Path, source: str) -> dict[str, Any]:
     return plugin
 
 
-def _manifest_plugins(root: Path, source: str, warnings: list[dict[str, str]] | None = None) -> list[dict[str, Any]]:
+def _manifest_plugins(
+    root: Path,
+    source: str,
+    repository: PluginStateRepository,
+    warnings: list[dict[str, str]] | None = None,
+    quarantined: list[dict[str, str]] | None = None,
+) -> list[dict[str, Any]]:
     directory = AppPaths(root).user_plugins_dir if source == "user" else root / "plugins" / source
     if not directory.exists():
         return []
     plugins: list[dict[str, Any]] = []
     for path in sorted(directory.glob("*.json")):
         try:
-            plugins.append(_load_manifest(path, source))
+            plugins.append(_apply_plugin_state(_load_manifest(path, source), repository))
         except (json.JSONDecodeError, ValueError, OSError) as exc:
+            entry = {"source": source, "path": str(path), "message": str(exc)}
             if warnings is not None:
-                warnings.append({"source": source, "path": str(path), "message": str(exc)})
+                warnings.append(entry)
+            if quarantined is not None:
+                quarantined.append(entry)
     return plugins
 
 
 def load_plugins(root: Path, system_script_dirs: Iterable[Path] | None = None) -> dict[str, Any]:
     warnings: list[dict[str, str]] = []
+    quarantined: list[dict[str, str]] = []
+    repository = PluginStateRepository(root)
     system = _official_cadence_plugins(system_script_dirs)
-    platform = _platform_plugins_from_capabilities(root) + _manifest_plugins(root, "platform", warnings)
-    user = _manifest_plugins(root, "user", warnings)
+    platform = _platform_plugins_from_capabilities(root) + _manifest_plugins(root, "platform", repository, warnings, quarantined)
+    user = _manifest_plugins(root, "user", repository, warnings, quarantined)
     plugins = system + platform + user
     return {
         "platform": {"name": "Insta360硬件提效平台", "cadence_menu": PLUGIN_MENU},
         "plugins": plugins,
         "groups": {"system": system, "platform": platform, "user": user},
         "warnings": warnings,
+        "quarantined": quarantined,
         "summary": {
             "total": len(plugins),
             "system": len(system),
@@ -185,6 +205,15 @@ def _find_user_manifest(root: Path, plugin_id: str) -> tuple[Path, dict[str, Any
     raise KeyError(f"未找到插件: {plugin_id}")
 
 
+def _require_existing_manifest_script(path: Path, data: dict[str, Any]) -> None:
+    script = str(data.get("script") or data.get("module") or "").strip()
+    if not script:
+        raise ValueError(f"Cadence Tcl plugin missing script: {path}")
+    script_path = _safe_plugin_child(path.parent, script)
+    if not script_path.is_file():
+        raise ValueError(f"Cadence Tcl module does not exist: {script_path}")
+
+
 def set_plugin_cadence_menu_visibility(
     root: Path,
     plugin_id: str,
@@ -206,8 +235,11 @@ def set_plugin_cadence_menu_visibility(
         raise ValueError("只有 Cadence Tcl 插件可以挂载到 Cadence 菜单")
     if show_in_cadence and not data.get("command"):
         raise ValueError("插件缺少 command，无法挂载")
+    if show_in_cadence:
+        _require_existing_manifest_script(path, data)
 
     data["show_in_cadence"] = bool(show_in_cadence)
     data["status"] = "available" if show_in_cadence else "disabled"
+    PluginStateRepository(root).set_enabled(plugin_id, bool(show_in_cadence))
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return _load_manifest(path, "user")
+    return _apply_plugin_state(_load_manifest(path, "user"), PluginStateRepository(root))

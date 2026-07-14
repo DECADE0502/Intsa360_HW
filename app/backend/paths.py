@@ -145,6 +145,10 @@ class AppPaths:
         return self.config_dir / "capability_overrides.json"
 
     @property
+    def plugin_state_path(self) -> Path:
+        return self.config_dir / "plugin_state.json"
+
+    @property
     def user_plugins_dir(self) -> Path:
         return self.state_root / "plugins" / "user"
 
