@@ -64,6 +64,16 @@ class ReleaseDocsTests(unittest.TestCase):
         self.assertIn("npm run build", text)
         self.assertIn("English UI text found", text)
 
+    def test_verify_all_uses_and_restores_a_canonical_test_temp_root(self) -> None:
+        text = (ROOT / "scripts" / "verify_all.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("[Environment+SpecialFolder]::LocalApplicationData", text)
+        self.assertIn("verify-temp", text)
+        self.assertIn("$env:TEMP = $VerifyTempRoot", text)
+        self.assertIn("$env:TMP = $VerifyTempRoot", text)
+        self.assertIn("$env:TEMP = $OriginalTemp", text)
+        self.assertIn("$env:TMP = $OriginalTmp", text)
+
     @unittest.skipUnless(sys.platform == "win32", "Windows PowerShell only")
     def test_verify_all_probe_skips_incapable_python_and_selects_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

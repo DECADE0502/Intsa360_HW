@@ -43,8 +43,19 @@ if ($ProbeOnly) {
   return
 }
 
+$OriginalTemp = $env:TEMP
+$OriginalTmp = $env:TMP
+$LocalAppData = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)
+if (-not $LocalAppData) { throw "Local application data directory not found" }
+$VerifyTempRoot = Join-Path $LocalAppData ("Insta360_HW\verify-temp\" + [Guid]::NewGuid().ToString("N"))
+New-Item -ItemType Directory -Force -Path $VerifyTempRoot | Out-Null
+$VerifyTempRoot = (Resolve-Path -LiteralPath $VerifyTempRoot).Path
+
 Push-Location $Root
 try {
+  $env:TEMP = $VerifyTempRoot
+  $env:TMP = $VerifyTempRoot
+
   & $Python -m pytest -q
   if ($LASTEXITCODE -ne 0) { throw "pytest failed" }
 
@@ -73,5 +84,8 @@ try {
   }
   Write-Host "Verification passed."
 } finally {
+  $env:TEMP = $OriginalTemp
+  $env:TMP = $OriginalTmp
   Pop-Location
+  Remove-Item -LiteralPath $VerifyTempRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
