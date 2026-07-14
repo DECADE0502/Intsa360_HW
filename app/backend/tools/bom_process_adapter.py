@@ -43,13 +43,36 @@ def _run_bom_process_impl(root: Path, params: dict[str, object]) -> dict[str, ob
             "status": "needs_confirmation",
             "tool": "bom_process",
             "reason": "part_property_conflicts",
-            "message": "发现相同物料编码存在不同型号/描述/名称/等级，请确认是否按编码合并。",
+            "message": "发现相同物料编码存在不同型号/描述/名称/等级/单位，请选择推荐合并或逐项确认。",
             "conflict_count": len(conflicts),
             "conflicts": conflicts,
-            "summary": {"conflicts": len(conflicts)},
+            "summary": {
+                "conflicts": len(conflicts),
+                "recommended_conflicts": sum(1 for conflict in conflicts if conflict.get("high_confidence")),
+                "manual_conflicts": sum(1 for conflict in conflicts if not conflict.get("high_confidence")),
+            },
         }
     merge_conflicts = bool(params.get("merge_conflicts"))
     conflict_choices = params.get("conflict_choices") if isinstance(params.get("conflict_choices"), dict) else {}
+    unresolved_conflicts = (
+        bom_process.unresolved_part_conflicts(source_rows, conflict_choices)
+        if merge_conflicts
+        else []
+    )
+    if unresolved_conflicts:
+        return {
+            "status": "needs_confirmation",
+            "tool": "bom_process",
+            "reason": "part_property_conflicts",
+            "message": "推荐合并只处理高置信冲突；其余物料必须逐项选择一个完整的原始候选。",
+            "conflict_count": len(unresolved_conflicts),
+            "conflicts": unresolved_conflicts,
+            "summary": {
+                "conflicts": len(conflicts),
+                "recommended_conflicts": sum(1 for conflict in conflicts if conflict.get("high_confidence")),
+                "unresolved_conflicts": len(unresolved_conflicts),
+            },
+        }
     result = bom_process.process(
         source,
         formats,

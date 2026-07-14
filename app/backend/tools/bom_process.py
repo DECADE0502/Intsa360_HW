@@ -50,7 +50,7 @@ OA_HEADERS = [
     "物料优选等级##tdyxj", "领料方式*##flfs", "是否参与MRP运算*##sfcymrpys", "是否跳层*##sftc",
 ]
 NC_HEADERS = ["原始行号", "位号", "子项编码", "物料名称", "型号", "描述", "Value", "过滤原因"]
-CONFLICT_FIELDS = ("name", "model", "desc", "grade")
+CONFLICT_FIELDS = ("name", "model", "desc", "grade", "unit")
 GRADE_RANK = {"优选": 5, "正常": 4, "限选": 3, "验证中": 2, "": 0}
 
 
@@ -198,6 +198,103 @@ def _representative(values: list[str], field: str) -> str:
     return max(non_empty, key=lambda value: (counts[value], -non_empty.index(value)))
 
 
+def _row_signature(row: dict[str, str]) -> tuple[str, str, str, str, str]:
+    return tuple(row.get(field, "").strip() for field in CONFLICT_FIELDS)
+
+
+def _signature_payload(signature: tuple[str, str, str, str, str]) -> dict[str, str]:
+    return dict(zip(CONFLICT_FIELDS, signature))
+
+
+def _conflict_recommendation(variants: list[dict[str, object]]) -> dict[str, object]:
+    signatures = [tuple(str(variant.get(field) or "") for field in CONFLICT_FIELDS) for variant in variants]
+
+    core_without_grade = [
+        tuple(value for field, value in zip(CONFLICT_FIELDS, signature) if field != "grade")
+        for signature in signatures
+    ]
+    grades = {signature[CONFLICT_FIELDS.index("grade")] for signature in signatures}
+    if len(set(core_without_grade)) == 1 and len(grades) > 1:
+        index = max(
+            range(len(variants)),
+            key=lambda item: (
+                _grade_rank(signatures[item][CONFLICT_FIELDS.index("grade")]),
+                int(variants[item].get("count") or 0),
+                -item,
+            ),
+        )
+        return {
+            "confidence": "high",
+            "reason": "grade_only_conflict",
+            "high_confidence": True,
+            "manual_choice_required": False,
+            "recommended_index": index,
+            "recommended_signature": _signature_payload(signatures[index]),
+        }
+
+    non_empty_by_field = [
+        {signature[index] for signature in signatures if signature[index]}
+        for index in range(len(CONFLICT_FIELDS))
+    ]
+    has_blank = any(not value for signature in signatures for value in signature)
+    if has_blank and all(len(values) <= 1 for values in non_empty_by_field):
+        target = tuple(next(iter(values), "") for values in non_empty_by_field)
+        complete = [index for index, signature in enumerate(signatures) if signature == target]
+        if len(complete) == 1:
+            index = complete[0]
+            return {
+                "confidence": "high",
+                "reason": "blank_completion",
+                "high_confidence": True,
+                "manual_choice_required": False,
+                "recommended_index": index,
+                "recommended_signature": _signature_payload(signatures[index]),
+            }
+        return {
+            "confidence": "low",
+            "reason": "complementary_incomplete_candidates",
+            "high_confidence": False,
+            "manual_choice_required": True,
+        }
+
+    dominant: list[int] = []
+    for candidate_index, candidate in enumerate(signatures):
+        dominates_all = True
+        has_strict_prefix = False
+        for other_index, other in enumerate(signatures):
+            if candidate_index == other_index:
+                continue
+            for candidate_value, other_value in zip(candidate, other):
+                if candidate_value == other_value:
+                    continue
+                if not candidate_value or not other_value or not candidate_value.startswith(other_value):
+                    dominates_all = False
+                    break
+                has_strict_prefix = True
+            if not dominates_all:
+                break
+        if dominates_all and has_strict_prefix:
+            dominant.append(candidate_index)
+    if len(dominant) == 1:
+        index = dominant[0]
+        return {
+            "confidence": "high",
+            "reason": "truncation_prefix_completion",
+            "high_confidence": True,
+            "manual_choice_required": False,
+            "recommended_index": index,
+            "recommended_signature": _signature_payload(signatures[index]),
+        }
+
+    all_complete = all(all(value for value in signature) for signature in signatures)
+    return {
+        "confidence": "low",
+        "reason": "multiple_complete_candidates" if all_complete else "conflicting_candidate_values",
+        "high_confidence": False,
+        "manual_choice_required": True,
+    }
+
+
 def detect_part_conflicts(source_rows: list[dict[str, str]]) -> list[dict[str, object]]:
     by_code: "OrderedDict[str, list[dict[str, str]]]" = OrderedDict()
     for row in source_rows:
@@ -207,33 +304,36 @@ def detect_part_conflicts(source_rows: list[dict[str, str]]) -> list[dict[str, o
 
     conflicts: list[dict[str, object]] = []
     for code, rows in by_code.items():
-        variants: "OrderedDict[tuple[str, str, str, str], dict[str, object]]" = OrderedDict()
+        variants: "OrderedDict[tuple[str, str, str, str, str], dict[str, object]]" = OrderedDict()
         for row in rows:
             refs = sorted({normalize_ref(r) for r in split_refs(row.get("reference"))}, key=natural_key)
-            signature = tuple(row.get(field, "").strip() for field in CONFLICT_FIELDS)
+            signature = _row_signature(row)
             if signature not in variants:
                 variants[signature] = {
                     "name": signature[0],
                     "model": signature[1],
                     "desc": signature[2],
                     "grade": signature[3],
+                    "unit": signature[4],
                     "refs": [],
                     "count": 0,
                 }
             variants[signature]["refs"].extend(refs)
             variants[signature]["count"] += len(refs) or 1
         if len(variants) > 1:
+            variant_list = [
+                {
+                    **variant,
+                    "refs": sorted(set(variant["refs"]), key=natural_key)[:30],
+                }
+                for variant in variants.values()
+            ]
             conflicts.append(
                 {
                     "code": code,
                     "total_refs": sum(int(v["count"]) for v in variants.values()),
-                    "variants": [
-                        {
-                            **variant,
-                            "refs": sorted(set(variant["refs"]), key=natural_key)[:30],
-                        }
-                        for variant in variants.values()
-                    ],
+                    "variants": variant_list,
+                    **_conflict_recommendation(variant_list),
                 }
             )
     return conflicts
@@ -248,23 +348,42 @@ def _selected_signature(
     code: str,
     source_rows: list[dict[str, str]],
     conflict_choices: dict[str, object] | None,
-) -> tuple[str, str, str, str] | None:
+) -> tuple[str, str, str, str, str] | None:
     if not conflict_choices or code not in conflict_choices:
         return None
-    try:
-        choice = int(conflict_choices.get(code))
-    except (TypeError, ValueError):
+    raw_choice = conflict_choices.get(code)
+    if isinstance(raw_choice, bool):
         return None
-    signatures: list[tuple[str, str, str, str]] = []
+    if isinstance(raw_choice, int):
+        choice = raw_choice
+    elif isinstance(raw_choice, str) and raw_choice.isdigit():
+        choice = int(raw_choice)
+    else:
+        return None
+    signatures: list[tuple[str, str, str, str, str]] = []
     for row in source_rows:
         if row.get("part_number", "").strip() != code:
             continue
-        signature = tuple(row.get(field, "").strip() for field in CONFLICT_FIELDS)
+        signature = _row_signature(row)
         if signature not in signatures:
             signatures.append(signature)
     if 0 <= choice < len(signatures):
         return signatures[choice]
     return None
+
+
+def unresolved_part_conflicts(
+    source_rows: list[dict[str, str]],
+    conflict_choices: dict[str, object] | None = None,
+) -> list[dict[str, object]]:
+    unresolved = []
+    for conflict in detect_part_conflicts(source_rows):
+        code = str(conflict["code"])
+        if conflict.get("high_confidence"):
+            continue
+        if _selected_signature(code, source_rows, conflict_choices) is None:
+            unresolved.append(conflict)
+    return unresolved
 
 
 def build_records(
@@ -275,38 +394,41 @@ def build_records(
 ) -> list[dict[str, object]]:
     groups: "OrderedDict[tuple, dict[str, object]]" = OrderedDict()
     source_rows, _ = load_source(path, include_shields=include_shields)
+    conflicts_by_code = {str(conflict["code"]): conflict for conflict in detect_part_conflicts(source_rows)}
+    selected_by_code: dict[str, tuple[str, str, str, str, str]] = {}
+    if merge_conflicts:
+        for code, conflict in conflicts_by_code.items():
+            selected = _selected_signature(code, source_rows, conflict_choices)
+            if selected is None and conflict.get("high_confidence"):
+                recommended = conflict.get("recommended_signature")
+                if isinstance(recommended, dict):
+                    selected = tuple(str(recommended.get(field) or "") for field in CONFLICT_FIELDS)
+            if selected is not None:
+                selected_by_code[code] = selected
     for row in source_rows:
         refs = sorted({normalize_ref(r) for r in split_refs(row.get("reference"))}, key=natural_key)
         code = row.get("part_number", "").strip()
-        if merge_conflicts:
+        signature = _row_signature(row)
+        if merge_conflicts and (code not in conflicts_by_code or code in selected_by_code):
             key = (code,)
         else:
-            key = (
-                code,
-                row.get("name", "").strip(),
-                row.get("model", "").strip(),
-                row.get("desc", "").strip(),
-                row.get("grade", "").strip(),
-            )
+            key = (code, *signature)
         if key not in groups:
             groups[key] = {
                 "code": code,
-                "name": [],
-                "model": [],
-                "desc": [],
-                "grade": [],
                 "refs": set(),
-                **{field: [] for field in BOM_OPTIONAL_FIELDS},
+                **{field: [] for field in (*CONFLICT_FIELDS, *BOM_OPTIONAL_FIELDS)},
             }
         for field in CONFLICT_FIELDS:
             groups[key][field].append(row.get(field, "").strip())
         for field in BOM_OPTIONAL_FIELDS:
-            groups[key][field].append(row.get(field, "").strip())
+            if field not in CONFLICT_FIELDS:
+                groups[key][field].append(row.get(field, "").strip())
         groups[key]["refs"].update(refs)
     records = []
     for group in groups.values():
         refs = sorted(group["refs"], key=natural_key)
-        selected = _selected_signature(str(group["code"]), source_rows, conflict_choices) if merge_conflicts else None
+        selected = selected_by_code.get(str(group["code"])) if merge_conflicts else None
         record = {
             "code": group["code"],
             "name": selected[0] if selected else _representative(group["name"], "name"),
@@ -317,7 +439,10 @@ def build_records(
             "qty": len(refs),
         }
         for field in BOM_OPTIONAL_FIELDS:
-            record[field] = _representative(group[field], field)
+            if selected is not None and field in CONFLICT_FIELDS:
+                record[field] = selected[CONFLICT_FIELDS.index(field)]
+            else:
+                record[field] = _representative(group[field], field)
         records.append(record)
     return records
 
@@ -513,6 +638,11 @@ def process(
     shield_candidates = detect_shield_candidates(source_rows_for_checks)
     source_rows, excluded = load_source(source_path, include_shields=confirm_shields)
     conflicts = detect_part_conflicts(source_rows)
+    unresolved_conflicts = (
+        unresolved_part_conflicts(source_rows, conflict_choices)
+        if merge_conflicts
+        else []
+    )
     records = _extra_records(extras) + build_records(
         source_path,
         merge_conflicts=merge_conflicts,
@@ -546,10 +676,13 @@ def process(
             "excluded": len(excluded),
             "extras": len(_extra_records(extras)),
             "conflicts": len(conflicts),
+            "recommended_conflicts": sum(1 for conflict in conflicts if conflict.get("high_confidence")),
+            "unresolved_conflicts": len(unresolved_conflicts),
             "merge_conflicts": merge_conflicts,
             "shield_candidates": len(shield_candidates),
             "confirm_shields": confirm_shields,
         },
         "conflicts": conflicts,
+        "unresolved_conflicts": unresolved_conflicts,
         "shield_candidates": shield_candidates,
     }

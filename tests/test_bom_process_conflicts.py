@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,6 +9,20 @@ from openpyxl import Workbook, load_workbook
 
 from app.backend.tools import bom_process
 from app.backend.tools.analysis_tools import run_bom_process
+from fixture_builders import build_capture_bom
+
+
+FIXTURES = Path(__file__).parent / "fixtures" / "bom"
+
+
+def record_signature(record: dict[str, object]) -> dict[str, str]:
+    return {
+        "model": str(record.get("model") or ""),
+        "description": str(record.get("desc") or ""),
+        "name": str(record.get("name") or ""),
+        "grade": str(record.get("grade") or ""),
+        "unit": str(record.get("unit") or ""),
+    }
 
 
 def make_source(path: Path) -> None:
@@ -57,7 +72,7 @@ class BomProcessConflictTests(unittest.TestCase):
             self.assertEqual(result["conflicts"][0]["code"], "P1")
             self.assertEqual(result["conflicts"][0]["total_refs"], 2)
 
-    def test_process_can_merge_same_code_conflicts_after_confirmation(self) -> None:
+    def test_recommended_merge_leaves_low_confidence_conflicts_split(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             source = tmp_path / "source.xlsx"
@@ -77,20 +92,207 @@ class BomProcessConflictTests(unittest.TestCase):
             )
 
             records = result["records"]
-            p1 = next(record for record in records if record["code"] == "P1")
-            self.assertEqual(p1["refs"], ["R1", "R2"])
-            self.assertEqual(p1["qty"], 2)
-            self.assertEqual(p1["grade"], "优选")
-            self.assertIn(p1["model"], {"M1", "M2"})
+            p1_records = [record for record in records if record["code"] == "P1"]
+            self.assertEqual(len(p1_records), 2)
+            self.assertEqual([record["refs"] for record in p1_records], [["R1"], ["R2"]])
+            self.assertEqual(
+                {(record["model"], record["desc"], record["grade"]) for record in p1_records},
+                {("M1", "D1", "正常"), ("M2", "D2", "优选")},
+            )
+            self.assertEqual(result["summary"]["unresolved_conflicts"], 1)
 
             wb = load_workbook(result["outputs"][0], read_only=True, data_only=True)
             ws = wb.active
             rows = [[ws.cell(r, c).value for c in range(1, 12)] for r in range(3, ws.max_row + 1)]
             wb.close()
             p1_rows = [row for row in rows if row[2] == "P1"]
-            self.assertEqual(len(p1_rows), 1)
-            self.assertEqual(p1_rows[0][7], 2)
-            self.assertEqual(p1_rows[0][10], "优选")
+            self.assertEqual(len(p1_rows), 2)
+
+    def test_golden_conflict_recommendations_select_only_existing_signatures(self) -> None:
+        expectations = json.loads((FIXTURES / "expected_recommendations.json").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as tmp:
+            source = build_capture_bom(Path(tmp) / "conflicts.xlsx", "known_conflicts")
+            rows, _ = bom_process.load_source(source)
+            conflicts = {item["code"]: item for item in bom_process.detect_part_conflicts(rows)}
+
+        self.assertEqual(set(conflicts), set(expectations["conflict_codes"]))
+        for code, expected in expectations["recommendations"].items():
+            conflict = conflicts[code]
+            actual_signatures = {
+                json.dumps(
+                    {
+                        "model": variant["model"],
+                        "description": variant["desc"],
+                        "name": variant["name"],
+                        "grade": variant["grade"],
+                        "unit": variant["unit"],
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                )
+                for variant in conflict["variants"]
+            }
+            expected_signatures = {
+                json.dumps(signature, ensure_ascii=False, sort_keys=True)
+                for signature in expected["allowed_signatures"]
+            }
+            self.assertEqual(actual_signatures, expected_signatures, code)
+            self.assertEqual(conflict["confidence"], expected["expected_confidence"], code)
+            self.assertEqual(conflict["reason"], expected["expected_reason"], code)
+            self.assertEqual(conflict["high_confidence"], expected["high_confidence"], code)
+            self.assertEqual(conflict["manual_choice_required"], expected["manual_choice_required"], code)
+            if expected["high_confidence"]:
+                selected = conflict["recommended_signature"]
+                self.assertEqual(
+                    {
+                        "model": selected["model"],
+                        "description": selected["desc"],
+                        "name": selected["name"],
+                        "grade": selected["grade"],
+                        "unit": selected["unit"],
+                    },
+                    expected["selected_signature"],
+                    code,
+                )
+                self.assertIn(conflict["recommended_index"], range(len(conflict["variants"])))
+            else:
+                self.assertNotIn("recommended_signature", conflict)
+
+    def test_bulk_recommendation_merges_only_high_confidence_golden_groups(self) -> None:
+        expectations = json.loads((FIXTURES / "expected_recommendations.json").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as tmp:
+            source = build_capture_bom(Path(tmp) / "conflicts.xlsx", "known_conflicts")
+            records = bom_process.build_records(source, merge_conflicts=True)
+
+        by_code: dict[str, list[dict[str, object]]] = {}
+        for record in records:
+            by_code.setdefault(str(record["code"]), []).append(record)
+        for code, expected in expectations["recommendations"].items():
+            allowed = expected["allowed_signatures"]
+            actual = by_code[code]
+            if expected["high_confidence"]:
+                self.assertEqual(len(actual), 1, code)
+                self.assertEqual(record_signature(actual[0]), expected["selected_signature"], code)
+            else:
+                self.assertEqual(len(actual), len(allowed), code)
+                self.assertEqual(
+                    {json.dumps(record_signature(record), ensure_ascii=False, sort_keys=True) for record in actual},
+                    {json.dumps(signature, ensure_ascii=False, sort_keys=True) for signature in allowed},
+                    code,
+                )
+
+    def test_complementary_blanks_never_synthesize_a_new_signature(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "complementary.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["Reference", "Part Number", "规格型号", "器件描述（新整理）", "物料名称", "等级", "单位"])
+            ws.append(["R1", "P1", "M1", "", "RESISTOR", "优选", "ea"])
+            ws.append(["R2", "P1", "", "D1", "RESISTOR", "优选", "ea"])
+            wb.save(source)
+
+            rows, _ = bom_process.load_source(source)
+            conflict = bom_process.detect_part_conflicts(rows)[0]
+            records = bom_process.build_records(source, merge_conflicts=True)
+
+        self.assertEqual(conflict["confidence"], "low")
+        self.assertEqual(conflict["reason"], "complementary_incomplete_candidates")
+        self.assertEqual(len(records), 2)
+        self.assertNotIn(
+            {"model": "M1", "description": "D1", "name": "RESISTOR", "grade": "优选", "unit": "ea"},
+            [record_signature(record) for record in records],
+        )
+
+    def test_blank_completion_is_high_confidence_and_uses_complete_candidate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "blank-completion.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["Reference", "Part Number", "规格型号", "器件描述（新整理）", "物料名称", "等级", "单位"])
+            ws.append(["R1", "P1", "M1", "D1", "", "优选", "ea"])
+            ws.append(["R2", "P1", "M1", "D1", "RESISTOR", "优选", "ea"])
+            wb.save(source)
+
+            rows, _ = bom_process.load_source(source)
+            conflict = bom_process.detect_part_conflicts(rows)[0]
+            records = bom_process.build_records(source, merge_conflicts=True)
+
+        self.assertEqual(conflict["confidence"], "high")
+        self.assertEqual(conflict["reason"], "blank_completion")
+        self.assertEqual(len(records), 1)
+        self.assertEqual(
+            record_signature(records[0]),
+            {"model": "M1", "description": "D1", "name": "RESISTOR", "grade": "优选", "unit": "ea"},
+        )
+
+    def test_recommended_api_merge_reprompts_for_low_confidence_groups(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source.xlsx"
+            make_source(source)
+
+            result = run_bom_process(
+                root,
+                {
+                    "source_bom": str(source),
+                    "formats": ["plm"],
+                    "parent_code": "203010100819",
+                    "name": "TEST",
+                    "merge_conflicts": True,
+                    "conflict_choices": {},
+                },
+            )
+
+        self.assertEqual(result["status"], "needs_confirmation")
+        self.assertEqual(result["reason"], "part_property_conflicts")
+        self.assertEqual(result["conflict_count"], 1)
+        self.assertEqual(result["conflicts"][0]["confidence"], "low")
+
+    def test_recommended_api_merge_finishes_a_grade_only_conflict(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "grade-only.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["Reference", "Part Number", "规格型号", "器件描述（新整理）", "物料名称", "等级", "单位"])
+            ws.append(["R1", "P1", "M1", "D1", "RESISTOR", "正常", "ea"])
+            ws.append(["R2", "P1", "M1", "D1", "RESISTOR", "优选", "ea"])
+            wb.save(source)
+
+            result = run_bom_process(
+                root,
+                {
+                    "source_bom": str(source),
+                    "formats": ["plm"],
+                    "parent_code": "203010100819",
+                    "name": "TEST",
+                    "merge_conflicts": True,
+                    "conflict_choices": {},
+                },
+            )
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["summary"]["records"], 1)
+        self.assertEqual(result["preview"]["rows"][0][5], "优选")
+
+    def test_manual_choice_preserves_the_selected_unit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "unit-conflict.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["Reference", "Part Number", "规格型号", "器件描述（新整理）", "物料名称", "等级", "单位"])
+            ws.append(["R1", "P1", "M1", "D1", "RESISTOR", "优选", "ea"])
+            ws.append(["R2", "P1", "M1", "D1", "RESISTOR", "优选", "pcs"])
+            wb.save(source)
+
+            records = bom_process.build_records(
+                source,
+                merge_conflicts=True,
+                conflict_choices={"P1": 1},
+            )
+
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["unit"], "pcs")
 
     def test_process_uses_user_selected_conflict_variant_when_merging(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
