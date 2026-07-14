@@ -289,9 +289,21 @@ function Invoke-Update {
     Set-HwLifecycleJobPhase -StateRoot $StateRoot -JobId $JobId -Phase "integrating" -Progress 88 `
       -Message "正在恢复并验证 Cadence 集成。" -Additional @{ cancellable = $false } | Out-Null
     if ($cadenceIntegrationActive) {
+      $activePathsLibrary = Join-Path $InstallRoot "scripts\lib\Paths.ps1"
+      $activeCadenceLibrary = Join-Path $InstallRoot "scripts\lib\Cadence.ps1"
+      $activeTclLibrary = Join-Path $InstallRoot "scripts\lib\TclScripts.ps1"
+      foreach ($library in @($activePathsLibrary, $activeCadenceLibrary, $activeTclLibrary)) {
+        if (-not (Test-Path -LiteralPath $library -PathType Leaf)) {
+          throw "Activated runtime is missing Cadence integration library: $library"
+        }
+      }
+      . $activePathsLibrary
+      . $activeCadenceLibrary
+      . $activeTclLibrary
       $python = Find-Python -Root $InstallRoot
       $installedLoaders = @(Install-CadenceLoader -ToolRoot $InstallRoot -PythonPath $python -AutoLoadDirs $cadenceInstallDirs)
       $script:cadenceInstalledDirs = @($installedLoaders | ForEach-Object { Split-Path -Parent $_ })
+      Update-HwAgentCadenceOwnershipManifest -LoaderPaths $installedLoaders | Out-Null
     }
     Write-Journal -Phase "integration_deployed"
     Invoke-HwLifecycleFault -FaultAt $FaultAt -Point "integration_deployed"

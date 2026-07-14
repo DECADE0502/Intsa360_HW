@@ -50,6 +50,7 @@ function Assert-InstallPayload {
     "scripts\lifecycle\Worker.ps1",
     "scripts\lifecycle\Recover.ps1",
     "scripts\lib\Paths.ps1",
+    "scripts\lib\CadenceDiscovery.ps1",
     "REVISION"
   )
   foreach ($relative in $required) {
@@ -84,6 +85,7 @@ function Invoke-CadenceDeploymentAttempt {
     }
     $installedLoaders = @(Install-CadenceLoader -ToolRoot $InstallRoot -PythonPath $PythonPath -AutoLoadDirs $AutoLoadDirs)
     $installedDirs = @($installedLoaders | ForEach-Object { Split-Path -Parent $_ })
+    Update-HwAgentCadenceOwnershipManifest -LoaderPaths $installedLoaders | Out-Null
     Set-HwAgentCadenceIntegrationState -Enabled:$true -LoaderPaths $installedDirs | Out-Null
   } catch {
     $deploymentFailure = $_

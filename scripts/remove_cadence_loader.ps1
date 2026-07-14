@@ -1,4 +1,8 @@
-param([string]$InstallDir = "")
+param(
+  [string]$InstallDir = "",
+  [AllowEmptyCollection()][string[]]$AutoLoadDirs = @(),
+  [switch]$SkipDiscovery
+)
 
 $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
@@ -10,7 +14,7 @@ if ([string]::IsNullOrWhiteSpace($InstallDir)) { $InstallDir = $Root }
 
 Write-Host "__HWAGENT_CADENCE_REMOVE_STARTED__"
 
-$autoLoadDirs = @(Get-HwAgentCadenceCleanupAutoLoadDirs)
+$autoLoadDirs = @(Get-HwAgentCadenceCleanupAutoLoadDirs -AdditionalPaths $AutoLoadDirs -SkipDiscovery:$SkipDiscovery)
 
 $snapshot = Start-HwAgentCadenceDeploymentTransaction -AutoLoadDirs $autoLoadDirs
 $removed = 0
@@ -31,6 +35,7 @@ try {
     if ($restoredHere) { $restored += $restoredHere }
   }
   Set-HwAgentCadenceIntegrationState -Enabled:$false -LoaderPaths @() | Out-Null
+  Clear-HwAgentCadenceOwnershipManifest
   Complete-HwAgentCadenceDeploymentTransaction -SnapshotRoot $snapshot
 } catch {
   try { Restore-HwAgentCadenceDeploymentTransaction -SnapshotRoot $snapshot } catch {}

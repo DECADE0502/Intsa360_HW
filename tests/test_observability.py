@@ -43,6 +43,18 @@ def test_health_reports_factual_process_database_and_cadence_state(tmp_path: Pat
         json.dumps({"schema_version": 2, "enabled": True, "loader_paths": [str(loader.parent)]}),
         encoding="utf-8",
     )
+    ownership = root / "cadence" / "integration_manifest.json"
+    ownership.parent.mkdir()
+    ownership.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "product": "Insta360_HW",
+                "owned_files": [{"kind": "capture_loader", "path": str(loader), "sha256": ""}],
+            }
+        ),
+        encoding="utf-8",
+    )
     app = create_app(root)
 
     with TestClient(app, base_url=BASE_URL) as client:
@@ -60,6 +72,8 @@ def test_health_reports_factual_process_database_and_cadence_state(tmp_path: Pat
     assert payload["database"]["quick_check"] == "ok"
     assert payload["database"]["migrations"] == [1, 2]
     assert payload["cadence"]["status"] == "ok"
+    assert payload["cadence"]["manifest_status"] == "ok"
+    assert payload["cadence"]["ownership_manifest_path"] == str(ownership)
     assert payload["cadence"]["owned_loader_count"] == 1
 
 

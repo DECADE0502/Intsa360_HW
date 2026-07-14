@@ -41,6 +41,7 @@ foreach ($autoLoadDir in $AutoLoadDirs) {
 }
 $installedLoaders = @(Install-CadenceLoader -ToolRoot $Root -PythonPath $Python -AutoLoadDirs $AutoLoadDirs)
 $installedDirs = @($installedLoaders | ForEach-Object { Split-Path -Parent $_ })
+Update-HwAgentCadenceOwnershipManifest -LoaderPaths $installedLoaders | Out-Null
 Set-HwAgentCadenceIntegrationState -Enabled:$true -LoaderPaths $installedDirs | Out-Null
 foreach ($loader in $installedLoaders) { Write-Host ("__HWAGENT_CADENCE_LOADER__ " + $loader) }
 Write-Host (Get-Text "Q2FkZW5jZSDoj5zljZXlt7Lph43mlrDpg6jnvbLjgII=")

@@ -19,6 +19,7 @@ def _minimal_runtime(root: Path, version: str = "0.3.0") -> None:
     (root / "scripts" / "lib").mkdir(parents=True)
     shutil.copytree(ROOT / "scripts" / "lifecycle", root / "scripts" / "lifecycle")
     shutil.copy2(ROOT / "scripts" / "lib" / "Paths.ps1", root / "scripts" / "lib" / "Paths.ps1")
+    shutil.copy2(ROOT / "scripts" / "lib" / "CadenceDiscovery.ps1", root / "scripts" / "lib" / "CadenceDiscovery.ps1")
     (root / "app" / "backend" / "suite_app.py").write_text("# runtime\n", encoding="utf-8")
     (root / "app" / "frontend" / "index.html").write_text("<!doctype html>", encoding="utf-8")
     (root / "runtime" / "python" / "python.exe").write_bytes(b"python")
@@ -535,8 +536,8 @@ class DistributionLifecycleV2Tests(unittest.TestCase):
 
     def test_cadence_detach_removes_only_owned_loader(self) -> None:
         remover = (ROOT / "scripts" / "remove_cadence_loader.ps1").read_text(encoding="utf-8")
-        paths = (ROOT / "scripts" / "lib" / "Paths.ps1").read_text(encoding="utf-8")
-        install_dirs = paths.split("function Find-CadenceLoaderInstallDirs", 1)[1].split("function ", 1)[0]
+        discovery = (ROOT / "scripts" / "lib" / "CadenceDiscovery.ps1").read_text(encoding="utf-8")
+        install_dirs = discovery.split("function Find-CadenceLoaderInstallDirs", 1)[1].split("function ", 1)[0]
 
         self.assertIn("Remove-HwAgentOwnedCadenceLoader", remover)
         self.assertNotIn("Remove-Item -Force -LiteralPath $loader", remover)

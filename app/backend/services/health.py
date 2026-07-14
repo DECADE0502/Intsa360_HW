@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 CADENCE_LOADER = "iac_bom_tool.tcl"
 CADENCE_MARKER = "# Insta360_HW Cadence Loader | schema=2 | managed=true"
+CADENCE_OWNERSHIP_SCHEMA = 1
 
 
 def _read_text(path: Path) -> str:
@@ -59,13 +60,38 @@ def _database_health(context: "AppContext") -> dict[str, object]:
 
 def _cadence_health(context: "AppContext") -> dict[str, object]:
     state_path = context.paths.state_root / "cadence_integration.json"
+    ownership_path = context.paths.state_root / "cadence" / "integration_manifest.json"
+    manifest_status = "missing"
+    manifest_loader_paths: list[str] = []
+    manifest_error = ""
+    if ownership_path.is_file():
+        try:
+            manifest = json.loads(ownership_path.read_text(encoding="utf-8-sig"))
+            if not isinstance(manifest, dict):
+                raise ValueError("Cadence ownership manifest must be an object")
+            if manifest.get("schema_version") != CADENCE_OWNERSHIP_SCHEMA or manifest.get("product") != "Insta360_HW":
+                raise ValueError("Cadence ownership manifest identity is invalid")
+            for entry in manifest.get("owned_files") or []:
+                if not isinstance(entry, dict) or entry.get("kind") != "capture_loader":
+                    continue
+                value = str(entry.get("path") or "").strip()
+                if value and Path(value).name.casefold() == CADENCE_LOADER.casefold():
+                    manifest_loader_paths.append(value)
+            manifest_status = "ok"
+        except (OSError, ValueError, TypeError) as exc:
+            manifest_status = "error"
+            manifest_error = str(exc)
+
     if not state_path.is_file():
         return {
             "status": "not_configured",
             "state_path": str(state_path),
+            "ownership_manifest_path": str(ownership_path),
+            "manifest_status": manifest_status,
             "enabled": None,
             "loader_paths": [],
             "owned_loader_count": 0,
+            **({"manifest_error": manifest_error} if manifest_error else {}),
         }
     try:
         raw = json.loads(state_path.read_text(encoding="utf-8-sig"))
@@ -77,23 +103,33 @@ def _cadence_health(context: "AppContext") -> dict[str, object]:
         return {
             "status": "error",
             "state_path": str(state_path),
+            "ownership_manifest_path": str(ownership_path),
+            "manifest_status": manifest_status,
             "enabled": None,
             "loader_paths": [],
             "owned_loader_count": 0,
             "error": str(exc),
+            **({"manifest_error": manifest_error} if manifest_error else {}),
         }
 
     owned_loaders: list[str] = []
-    for value in loader_paths:
+    seen: set[str] = set()
+    for value in [*loader_paths, *manifest_loader_paths]:
         directory = Path(value)
         loader = directory if directory.name.casefold() == CADENCE_LOADER.casefold() else directory / CADENCE_LOADER
+        normalized = str(loader.resolve())
+        if normalized.casefold() in seen:
+            continue
+        seen.add(normalized.casefold())
         try:
             if loader.is_file() and CADENCE_MARKER in loader.read_text(encoding="utf-8-sig", errors="replace"):
-                owned_loaders.append(str(loader))
+                owned_loaders.append(normalized)
         except OSError:
             continue
     if not enabled:
         status = "disabled"
+    elif manifest_status == "error":
+        status = "degraded"
     elif owned_loaders:
         status = "ok"
     else:
@@ -101,10 +137,13 @@ def _cadence_health(context: "AppContext") -> dict[str, object]:
     return {
         "status": status,
         "state_path": str(state_path),
+        "ownership_manifest_path": str(ownership_path),
+        "manifest_status": manifest_status,
         "enabled": enabled,
         "loader_paths": loader_paths,
         "owned_loaders": owned_loaders,
         "owned_loader_count": len(owned_loaders),
+        **({"manifest_error": manifest_error} if manifest_error else {}),
     }
 
 

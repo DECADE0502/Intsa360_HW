@@ -107,10 +107,146 @@ function Test-HwAgentCadenceVendorAutoLoadDirectoryPath {
   } catch { return $false }
 }
 
+function Get-HwAgentCadenceOwnershipManifestPath {
+  return (Join-Path (Split-Path -Parent (Get-HwAgentCadenceStatePath)) "cadence\integration_manifest.json")
+}
+
+function Test-HwAgentCadenceOwnedLoaderPathShape {
+  param([Parameter(Mandatory=$true)][string]$Path)
+  try {
+    $full = [System.IO.Path]::GetFullPath($Path)
+    if ((Split-Path -Leaf $full) -ine $script:HwAgentCadenceLoaderName) { return $false }
+    $parent = Split-Path -Parent $full
+    return (Test-HwAgentCadenceAutoLoadDirectoryPath -Path $parent) -or
+      (Test-HwAgentCadenceVendorAutoLoadDirectoryPath -Path $parent)
+  } catch { return $false }
+}
+
+function New-HwAgentCadenceOwnershipManifest {
+  return [pscustomobject]@{
+    schema_version = 1
+    product = "Insta360_HW"
+    owned_files = @()
+    updated_at = ""
+  }
+}
+
+function Get-HwAgentCadenceOwnershipManifest {
+  $path = Get-HwAgentCadenceOwnershipManifestPath
+  if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+    return (New-HwAgentCadenceOwnershipManifest)
+  }
+  try {
+    $raw = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ([int]$raw.schema_version -ne 1 -or [string]$raw.product -ne "Insta360_HW") {
+      throw "Unsupported Cadence ownership manifest."
+    }
+    $files = New-Object System.Collections.Generic.List[object]
+    $seen = @{}
+    foreach ($entry in @($raw.owned_files)) {
+      if ($null -eq $entry -or [string]$entry.kind -ne "capture_loader") { continue }
+      $value = [string]$entry.path
+      if ([string]::IsNullOrWhiteSpace($value) -or -not (Test-HwAgentCadenceOwnedLoaderPathShape -Path $value)) { continue }
+      $full = [System.IO.Path]::GetFullPath($value)
+      if ($seen.ContainsKey($full)) { continue }
+      $seen[$full] = $true
+      $files.Add([pscustomobject]@{
+        kind = "capture_loader"
+        path = $full
+        sha256 = [string]$entry.sha256
+      }) | Out-Null
+    }
+    return [pscustomobject]@{
+      schema_version = 1
+      product = "Insta360_HW"
+      owned_files = $files.ToArray()
+      updated_at = [string]$raw.updated_at
+    }
+  } catch {
+    return (New-HwAgentCadenceOwnershipManifest)
+  }
+}
+
+function Set-HwAgentCadenceOwnershipManifest {
+  param([Parameter(Mandatory=$true)][AllowEmptyCollection()][string[]]$LoaderPaths)
+
+  $files = New-Object System.Collections.Generic.List[object]
+  $seen = @{}
+  foreach ($loaderPath in $LoaderPaths) {
+    if ([string]::IsNullOrWhiteSpace($loaderPath) -or
+        -not (Test-HwAgentCadenceOwnedLoaderPathShape -Path $loaderPath)) { continue }
+    $full = [System.IO.Path]::GetFullPath($loaderPath)
+    if ($seen.ContainsKey($full) -or -not (Test-HwAgentOwnedCadenceLoader -LoaderPath $full)) { continue }
+    $seen[$full] = $true
+    $sha256 = ""
+    try { $sha256 = (Get-FileHash -LiteralPath $full -Algorithm SHA256).Hash.ToLowerInvariant() } catch {}
+    $files.Add([ordered]@{ kind = "capture_loader"; path = $full; sha256 = $sha256 }) | Out-Null
+  }
+
+  $manifestPath = Get-HwAgentCadenceOwnershipManifestPath
+  $manifestDir = Split-Path -Parent $manifestPath
+  New-Item -ItemType Directory -Force -Path $manifestDir | Out-Null
+  $temporary = Join-Path $manifestDir ("integration_manifest." + [guid]::NewGuid().ToString("N") + ".tmp")
+  try {
+    [ordered]@{
+      schema_version = 1
+      product = "Insta360_HW"
+      owned_files = $files.ToArray()
+      updated_at = (Get-Date).ToUniversalTime().ToString("o")
+    } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $temporary -Encoding UTF8
+    Move-Item -LiteralPath $temporary -Destination $manifestPath -Force
+  } finally {
+    Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue
+  }
+  return $manifestPath
+}
+
+function Update-HwAgentCadenceOwnershipManifest {
+  param([Parameter(Mandatory=$true)][AllowEmptyCollection()][string[]]$LoaderPaths)
+
+  $all = New-Object System.Collections.Generic.List[string]
+  foreach ($entry in @((Get-HwAgentCadenceOwnershipManifest).owned_files)) {
+    if ($null -ne $entry -and (Test-HwAgentOwnedCadenceLoader -LoaderPath ([string]$entry.path))) {
+      $all.Add([string]$entry.path) | Out-Null
+    }
+  }
+  foreach ($path in $LoaderPaths) { $all.Add([string]$path) | Out-Null }
+  return (Set-HwAgentCadenceOwnershipManifest -LoaderPaths $all.ToArray())
+}
+
+function Clear-HwAgentCadenceOwnershipManifest {
+  $path = Get-HwAgentCadenceOwnershipManifestPath
+  Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+  $parent = Split-Path -Parent $path
+  Remove-HwAgentDirectoryIfEmpty -Path $parent | Out-Null
+}
+
+function Get-HwAgentCadenceOwnershipAutoLoadDirs {
+  $paths = New-Object System.Collections.Generic.List[string]
+  $seen = @{}
+  foreach ($entry in @((Get-HwAgentCadenceOwnershipManifest).owned_files)) {
+    $loader = [string]$entry.path
+    if (-not (Test-HwAgentCadenceOwnedLoaderPathShape -Path $loader)) { continue }
+    $parent = [System.IO.Path]::GetFullPath((Split-Path -Parent $loader)).TrimEnd("\")
+    if ($seen.ContainsKey($parent)) { continue }
+    $seen[$parent] = $true
+    $paths.Add($parent) | Out-Null
+  }
+  return $paths.ToArray()
+}
+
 function Get-HwAgentCadenceCleanupAutoLoadDirs {
+  param(
+    [AllowEmptyCollection()][string[]]$AdditionalPaths = @(),
+    [switch]$SkipDiscovery
+  )
   $candidates = @()
-  $candidates += @(Get-HwAgentManagedCadenceAutoLoadDirs)
-  $candidates += @(Find-CadenceVendorAutoLoadDirs)
+  if (-not $SkipDiscovery) {
+    $candidates += @(Get-HwAgentManagedCadenceAutoLoadDirs)
+    $candidates += @(Find-CadenceVendorAutoLoadDirs)
+  }
+  $candidates += @(Get-HwAgentCadenceOwnershipAutoLoadDirs)
+  $candidates += @($AdditionalPaths)
 
   $paths = New-Object System.Collections.Generic.List[string]
   $seen = @{}
@@ -335,10 +471,17 @@ function Start-HwAgentCadenceDeploymentTransaction {
   if ($stateExisted) {
     Copy-Item -LiteralPath $statePath -Destination (Join-Path $snapshotRoot "cadence_integration.json") -Force
   }
+  $ownershipPath = Get-HwAgentCadenceOwnershipManifestPath
+  $ownershipExisted = Test-Path -LiteralPath $ownershipPath -PathType Leaf
+  if ($ownershipExisted) {
+    Copy-Item -LiteralPath $ownershipPath -Destination (Join-Path $snapshotRoot "cadence_ownership_manifest.json") -Force
+  }
   [ordered]@{
-    schema = 2
+    schema = 3
     state_path = $statePath
     state_existed = [bool]$stateExisted
+    ownership_path = $ownershipPath
+    ownership_existed = [bool]$ownershipExisted
     entries = @($entries)
   } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $snapshotRoot "manifest.json") -Encoding UTF8
   return $snapshotRoot
@@ -393,6 +536,26 @@ function Restore-HwAgentCadenceDeploymentTransaction {
       Copy-Item -LiteralPath $stateSnapshot -Destination $statePath -Force
     } else {
       Remove-Item -LiteralPath $statePath -Force -ErrorAction SilentlyContinue
+    }
+    if ($null -ne $manifest.PSObject.Properties["ownership_path"]) {
+      $ownershipPath = Get-HwAgentCadenceOwnershipManifestPath
+      if (-not [string]::IsNullOrWhiteSpace([string]$manifest.ownership_path)) {
+        $recordedOwnershipPath = [System.IO.Path]::GetFullPath([string]$manifest.ownership_path).TrimEnd("\")
+        $expectedOwnershipPath = [System.IO.Path]::GetFullPath($ownershipPath).TrimEnd("\")
+        if ($recordedOwnershipPath -ine $expectedOwnershipPath) {
+          throw "Cadence rollback ownership path does not match the current user state."
+        }
+      }
+      $ownershipSnapshot = Join-Path $SnapshotRoot "cadence_ownership_manifest.json"
+      if ([bool]$manifest.ownership_existed) {
+        if (-not (Test-Path -LiteralPath $ownershipSnapshot -PathType Leaf)) {
+          throw "Cadence rollback ownership snapshot is missing."
+        }
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $ownershipPath) | Out-Null
+        Copy-Item -LiteralPath $ownershipSnapshot -Destination $ownershipPath -Force
+      } else {
+        Remove-Item -LiteralPath $ownershipPath -Force -ErrorAction SilentlyContinue
+      }
     }
   }
 }

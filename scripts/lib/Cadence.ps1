@@ -347,7 +347,23 @@ function Install-CadenceLoader {
         throw "Refusing to overwrite an unowned Cadence loader: $target"
       }
     }
-    Write-CadenceLoader -ToolRoot $ToolRoot -PythonPath $PythonPath -OutputPath $target -PluginStatePath $PluginStatePath | Out-Null
+    $temporary = Join-Path $dir (".iac_bom_tool." + [guid]::NewGuid().ToString("N") + ".tmp")
+    try {
+      Write-CadenceLoader -ToolRoot $ToolRoot -PythonPath $PythonPath -OutputPath $temporary -PluginStatePath $PluginStatePath | Out-Null
+      $unchanged = $false
+      if (Test-Path -LiteralPath $target -PathType Leaf) {
+        try {
+          $currentHash = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash
+          $candidateHash = (Get-FileHash -LiteralPath $temporary -Algorithm SHA256).Hash
+          $unchanged = $currentHash -eq $candidateHash
+        } catch { $unchanged = $false }
+      }
+      if (-not $unchanged) {
+        Move-Item -LiteralPath $temporary -Destination $target -Force
+      }
+    } finally {
+      Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue
+    }
     Write-Host ((Get-HwAgentText "5bey5a6J6KOFIENhZGVuY2Ug6I+c5Y2V6ISa5pys77ya") + $target)
     $installed += $target
   }
