@@ -73,7 +73,7 @@ class ReleaseDocsTests(unittest.TestCase):
             rejected_marker = root / "rejected.txt"
             fallback_marker = root / "fallback.txt"
             rejected.write_text(
-                f'@echo called>"{rejected_marker}"\n@exit /b 1\n',
+                f'@echo called>"{rejected_marker}"\n@echo pytest import failed 1>&2\n@exit /b 1\n',
                 encoding="ascii",
             )
             fallback.write_text(
