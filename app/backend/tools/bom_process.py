@@ -555,16 +555,19 @@ def write_plm(
 
     # 无模板时从零生成（降级）
     wb = Workbook()
-    ws = wb.active
-    ws.title = _sheet_title(name, "")
-    ws.append(PLM_R1)
-    ws.append(PLM_HEADERS)
-    for values in rows_data:
-        ws.append(values)
-    for cell in ws[2]:
-        cell.font = Font(bold=True)
-    _autosize(ws)
-    wb.save(path)
+    try:
+        ws = wb.active
+        ws.title = _sheet_title(name, "")
+        ws.append(PLM_R1)
+        ws.append(PLM_HEADERS)
+        for values in rows_data:
+            ws.append(values)
+        for cell in ws[2]:
+            cell.font = Font(bold=True)
+        _autosize(ws)
+        wb.save(path)
+    finally:
+        wb.close()
 
 
 def write_oa(path: Path, records: list[dict[str, object]], parent_code: str, parent_desc: str, name: str) -> None:
@@ -572,32 +575,35 @@ def write_oa(path: Path, records: list[dict[str, object]], parent_code: str, par
     from openpyxl.styles import Font
 
     wb = Workbook()
-    ws = wb.active
-    ws.title = _sheet_title(name, "_OA")
-    ws.append(OA_HEADERS)
-    for rec in records:
-        ws.append([
-            "",
-            parent_code,
-            parent_desc,
-            rec["code"],
-            rec["desc"],
-            rec["qty"],
-            _rec_value(rec, "unit"),
-            ",".join(rec["refs"]),
-            _rec_value(rec, "remark"),
-            _rec_value(rec, "alt_group"),
-            _rec_value(rec, "alt_strategy"),
-            _rec_value(rec, "alt_method"),
-            rec["grade"],
-            _rec_value(rec, "issue_method"),
-            _rec_value(rec, "mrp"),
-            _rec_value(rec, "jump_level"),
-        ])
-    for cell in ws[1]:
-        cell.font = Font(bold=True)
-    _autosize(ws)
-    wb.save(path)
+    try:
+        ws = wb.active
+        ws.title = _sheet_title(name, "_OA")
+        ws.append(OA_HEADERS)
+        for rec in records:
+            ws.append([
+                "",
+                parent_code,
+                parent_desc,
+                rec["code"],
+                rec["desc"],
+                rec["qty"],
+                _rec_value(rec, "unit"),
+                ",".join(rec["refs"]),
+                _rec_value(rec, "remark"),
+                _rec_value(rec, "alt_group"),
+                _rec_value(rec, "alt_strategy"),
+                _rec_value(rec, "alt_method"),
+                rec["grade"],
+                _rec_value(rec, "issue_method"),
+                _rec_value(rec, "mrp"),
+                _rec_value(rec, "jump_level"),
+            ])
+        for cell in ws[1]:
+            cell.font = Font(bold=True)
+        _autosize(ws)
+        wb.save(path)
+    finally:
+        wb.close()
 
 
 def write_nc_summary(path: Path, excluded: list[list[object]], name: str) -> None:
@@ -605,15 +611,18 @@ def write_nc_summary(path: Path, excluded: list[list[object]], name: str) -> Non
     from openpyxl.styles import Font
 
     wb = Workbook()
-    ws = wb.active
-    ws.title = _sheet_title(name, "_NC")
-    ws.append(NC_HEADERS)
-    for row in excluded:
-        ws.append(row)
-    for cell in ws[1]:
-        cell.font = Font(bold=True)
-    _autosize(ws)
-    wb.save(path)
+    try:
+        ws = wb.active
+        ws.title = _sheet_title(name, "_NC")
+        ws.append(NC_HEADERS)
+        for row in excluded:
+            ws.append(row)
+        for cell in ws[1]:
+            cell.font = Font(bold=True)
+        _autosize(ws)
+        wb.save(path)
+    finally:
+        wb.close()
 
 
 def process(

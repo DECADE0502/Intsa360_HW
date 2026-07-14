@@ -696,6 +696,69 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
             self.assertNotIn('RegisterAction "NC Toggle Selected Parts" "::IAC::shouldProcess" "" "" ""', decoded)
             self.assertIn('source "$::IAC_ROOT/cadence/modules/nc_toggle_selected.tcl"', decoded.split("proc ::IAC::addAccessoryMenu", 1)[0])
 
+    @unittest.skipUnless(sys.platform == "win32", "windows only")
+    def test_installed_loader_reads_user_plugins_from_external_state_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            root = tmp_path / "runtime"
+            local_app_data = tmp_path / "local"
+            state_root = local_app_data / "Insta360_HW"
+            user_dir = state_root / "plugins" / "user"
+            user_dir.mkdir(parents=True)
+            (state_root / "config").mkdir(parents=True)
+            shutil.copytree(ROOT / "config", root / "config")
+            shutil.copytree(ROOT / "cadence", root / "cadence")
+            (root / "install_manifest.json").write_text(
+                json.dumps({"product": "Insta360_HW", "schema": 2, "layout": "runtime-v2"}),
+                encoding="utf-8",
+            )
+            script = user_dir / "external_tool.tcl"
+            script.write_text("proc ::externalTool::run {} { return 1 }\n", encoding="utf-8")
+            (user_dir / "external_tool.json").write_text(
+                json.dumps(
+                    {
+                        "id": "external_tool",
+                        "name": "External Tool",
+                        "type": "cadence_tcl",
+                        "command": "::externalTool::run",
+                        "script": script.name,
+                        "show_in_cadence": False,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (state_root / "config" / "plugin_state.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "plugins": {"external_tool": {"enabled": True}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            out = tmp_path / "iac_bom_tool.tcl"
+            command = (
+                "$ErrorActionPreference='Stop'; "
+                f". '{ROOT / 'scripts' / 'lib' / 'Cadence.ps1'}'; "
+                f"Write-CadenceLoader -ToolRoot '{root}' -PythonPath 'C:/Python/python.exe' -OutputPath '{out}' | Out-Null"
+            )
+            env = os.environ.copy()
+            env["LOCALAPPDATA"] = str(local_app_data)
+
+            subprocess.run(
+                [POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+                check=True,
+                text=True,
+                capture_output=True,
+                env=env,
+            )
+
+            decoded = out.read_bytes().decode("gbk")
+            expected_script = script.resolve().as_posix()
+            self.assertIn(f'::IAC::SourceModule "{expected_script}"', decoded)
+            self.assertIn('AddAccessoryMenu "insta360_HW" "External Tool" "::externalTool::run"', decoded)
+            self.assertNotIn('$::IAC_ROOT/plugins/user/external_tool.tcl', decoded)
+
     def test_part_color_module_is_split_without_registeraction(self) -> None:
         module = (ROOT / "cadence" / "modules" / "part_color_tools.tcl").read_text(encoding="utf-8")
 

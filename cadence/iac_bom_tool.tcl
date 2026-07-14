@@ -32,13 +32,20 @@ namespace eval ::IAC {
         set SHORTCUTS($id,command) $command
         set SHORTCUTS($id,module) $module
     }
+    proc SourceModule { module } {
+        if {[file pathtype $module] eq "absolute"} {
+            source $module
+        } else {
+            source "$::IAC_ROOT/$module"
+        }
+    }
     proc ShortcutEnabled { id args } {
         variable SHORTCUTS
         if {![info exists SHORTCUTS($id,enabled)] || !$SHORTCUTS($id,enabled)} { return 0 }
         set command $SHORTCUTS($id,command)
         if {[info procs $command] eq "" && [info commands $command] eq ""} {
             set module $SHORTCUTS($id,module)
-            if {$module ne ""} { catch {source "$::IAC_ROOT/$module"} }
+            if {$module ne ""} { catch {::IAC::SourceModule $module} }
         }
         if {[info procs $command] eq "" && [info commands $command] eq ""} { return 0 }
         return 1

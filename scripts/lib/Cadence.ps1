@@ -75,6 +75,63 @@ function Get-HwAgentPluginStatePath {
   return (Join-Path $ToolRoot "config\plugin_state.json")
 }
 
+function Get-HwAgentUserPluginDir {
+  param(
+    [Parameter(Mandatory=$true)][string]$ToolRoot,
+    [string]$PluginStatePath
+  )
+  $statePath = Get-HwAgentPluginStatePath -ToolRoot $ToolRoot -PluginStatePath $PluginStatePath
+  $configDir = Split-Path -Parent ([System.IO.Path]::GetFullPath($statePath))
+  $stateRoot = Split-Path -Parent $configDir
+  return (Join-Path $stateRoot "plugins\user")
+}
+
+function Get-HwAgentCadenceUserPluginItems {
+  param(
+    [Parameter(Mandatory=$true)][string]$ToolRoot,
+    [string]$PluginStatePath
+  )
+  $items = @()
+  $userPluginDir = Get-HwAgentUserPluginDir -ToolRoot $ToolRoot -PluginStatePath $PluginStatePath
+  if (-not (Test-Path -LiteralPath $userPluginDir -PathType Container)) {
+    return $items
+  }
+
+  $pluginRoot = [System.IO.Path]::GetFullPath($userPluginDir).TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
+  $runtimeUserPluginDir = [System.IO.Path]::GetFullPath((Join-Path $ToolRoot "plugins\user")).TrimEnd('\', '/')
+  $usesRuntimePluginDir = [string]::Equals(
+    [System.IO.Path]::GetFullPath($userPluginDir).TrimEnd('\', '/'),
+    $runtimeUserPluginDir,
+    [System.StringComparison]::OrdinalIgnoreCase
+  )
+  foreach ($manifest in Get-ChildItem -LiteralPath $userPluginDir -Filter "*.json" -File -ErrorAction SilentlyContinue) {
+    try {
+      $plugin = Get-Content -LiteralPath $manifest.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+      if ($null -eq $plugin -or $plugin.type -ne "cadence_tcl" -or -not (Test-HwAgentProperty -Object $plugin -Name "script")) {
+        continue
+      }
+      $scriptPath = [System.IO.Path]::GetFullPath((Join-Path $userPluginDir ([string]$plugin.script)))
+      if (-not $scriptPath.StartsWith($pluginRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+        continue
+      }
+      if (-not (Test-Path -LiteralPath $scriptPath -PathType Leaf)) {
+        continue
+      }
+      if ($usesRuntimePluginDir) {
+        $relativeScript = ([string]$plugin.script -replace "\\", "/")
+        $plugin | Add-Member -NotePropertyName module -NotePropertyValue ("plugins/user/" + $relativeScript) -Force
+      } else {
+        $plugin | Add-Member -NotePropertyName module -NotePropertyValue (ConvertTo-TclPath $scriptPath) -Force
+        $plugin | Add-Member -NotePropertyName module_absolute -NotePropertyValue $true -Force
+      }
+      $items += $plugin
+    } catch {
+      continue
+    }
+  }
+  return $items
+}
+
 function Get-HwAgentPluginStateOverrides {
   param([Parameter(Mandatory=$true)][string]$PluginStatePath)
   $overrides = @{}
@@ -131,20 +188,7 @@ function Get-EnabledCadenceMenuItems {
     $items += @($data.capabilities)
   }
 
-  $userPluginDir = Join-Path $ToolRoot "plugins\user"
-  if (Test-Path -LiteralPath $userPluginDir) {
-    foreach ($manifest in Get-ChildItem -LiteralPath $userPluginDir -Filter "*.json" -File -ErrorAction SilentlyContinue) {
-      try {
-        $plugin = Get-Content -LiteralPath $manifest.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
-      } catch {
-        continue
-      }
-      if ($plugin.type -eq "cadence_tcl" -and $plugin.script) {
-        $plugin | Add-Member -NotePropertyName module -NotePropertyValue ("plugins/user/" + ([string]$plugin.script -replace "\\", "/")) -Force
-      }
-      $items += $plugin
-    }
-  }
+  $items += @(Get-HwAgentCadenceUserPluginItems -ToolRoot $ToolRoot -PluginStatePath $statePath)
   $items = @(Apply-HwAgentPluginStateOverrides -Items $items -Overrides (Get-HwAgentPluginStateOverrides -PluginStatePath $statePath))
 
   $registeredNamespaces = @{}
@@ -169,7 +213,11 @@ function Get-EnabledCadenceMenuItems {
     $command = Escape-TclMenuText ([string]$item.command)
     if ($item.module) {
       $module = Escape-TclPathLiteral ([string]$item.module)
-      $lines += ('        source "$::IAC_ROOT/' + $module + '"')
+      if ((Test-HwAgentProperty -Object $item -Name "module_absolute") -and $item.module_absolute -eq $true) {
+        $lines += ('        ::IAC::SourceModule "' + $module + '"')
+      } else {
+        $lines += ('        source "$::IAC_ROOT/' + $module + '"')
+      }
     }
     $lines += ('        AddAccessoryMenu "insta360_HW" "' + $name + '" "' + $command + '"')
   }
@@ -198,20 +246,7 @@ function Get-EnabledCadenceShortcutItems {
     $items += @($data.capabilities)
   }
 
-  $userPluginDir = Join-Path $ToolRoot "plugins\user"
-  if (Test-Path -LiteralPath $userPluginDir) {
-    foreach ($manifest in Get-ChildItem -LiteralPath $userPluginDir -Filter "*.json" -File -ErrorAction SilentlyContinue) {
-      try {
-        $plugin = Get-Content -LiteralPath $manifest.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
-      } catch {
-        continue
-      }
-      if ($plugin.type -eq "cadence_tcl" -and $plugin.script) {
-        $plugin | Add-Member -NotePropertyName module -NotePropertyValue ("plugins/user/" + ([string]$plugin.script -replace "\\", "/")) -Force
-      }
-      $items += $plugin
-    }
-  }
+  $items += @(Get-HwAgentCadenceUserPluginItems -ToolRoot $ToolRoot -PluginStatePath $statePath)
   $items = @(Apply-HwAgentPluginStateOverrides -Items $items -Overrides (Get-HwAgentPluginStateOverrides -PluginStatePath $statePath))
 
   foreach ($item in @($items)) {
@@ -232,7 +267,11 @@ function Get-EnabledCadenceShortcutItems {
     $lines += ('    ::IAC::SetShortcut "' + $itemId + '" ' + $enabled + ' "' + $shortcutCommand + '" "' + $module + '"')
 
     if ($module) {
-      $lines += ('    source "$::IAC_ROOT/' + $module + '"')
+      if ((Test-HwAgentProperty -Object $item -Name "module_absolute") -and $item.module_absolute -eq $true) {
+        $lines += ('    ::IAC::SourceModule "' + $module + '"')
+      } else {
+        $lines += ('    source "$::IAC_ROOT/' + $module + '"')
+      }
     }
     $actionId = Escape-TclMenuText (Get-HwAgentShortcutActionId -Object $item)
     $shortcut = Escape-TclMenuText ([string]$item.shortcut)
