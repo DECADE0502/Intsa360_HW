@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import re
@@ -11,7 +12,6 @@ from xml.etree import ElementTree
 
 from openpyxl import load_workbook
 
-from app.backend.parsers.bom_excel import read_bom_rows
 from fixture_builders import build_capture_bom, build_processed_bom
 
 
@@ -22,6 +22,31 @@ CORE_PROPERTIES = {
     "last_modified_by": "{http://schemas.openxmlformats.org/package/2006/metadata/core-properties}lastModifiedBy",
     "created": "{http://purl.org/dc/terms/}created",
     "modified": "{http://purl.org/dc/terms/}modified",
+}
+PROCESSED_COLUMN_COUNTS = {"plm": 19, "oa": 16}
+PROCESSED_FIELD_COLUMNS = {
+    "plm": {
+        "reference": 8,
+        "part_number": 2,
+        "model": 4,
+        "grade": 10,
+        "description": 5,
+        "quantity": 7,
+        "name": 3,
+        "package": 5,
+        "value": 5,
+    },
+    "oa": {
+        "reference": 7,
+        "part_number": 3,
+        "model": None,
+        "grade": 12,
+        "description": 4,
+        "quantity": 5,
+        "name": 4,
+        "package": 4,
+        "value": 4,
+    },
 }
 
 
@@ -82,6 +107,15 @@ def read_core_properties(path: Path) -> tuple[dict[str, str], set[tuple[int, int
     return properties, timestamps
 
 
+def map_processed_row(template: str, row: list[object]) -> dict[str, object]:
+    mapped = {
+        field: "" if column is None else row[column]
+        for field, column in PROCESSED_FIELD_COLUMNS[template].items()
+    }
+    mapped["refs"] = [reference.strip() for reference in str(mapped["reference"]).split(",")]
+    return mapped
+
+
 def signature_from_source(row: dict[str, object]) -> tuple[str, str, str, str, str]:
     return tuple(str(row[field]) for field in ("Model", "Description", "Name", "Grade", "Unit"))
 
@@ -101,6 +135,25 @@ def derive_conflict_reason(signatures: set[tuple[str, str, str, str, str]]) -> s
 
 
 class GoldenFixtureTests(unittest.TestCase):
+    def test_g01_fixture_support_does_not_import_production_modules(self) -> None:
+        production_imports = []
+        for path in (Path(__file__), Path(__file__).with_name("fixture_builders.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    modules = [alias.name for alias in node.names]
+                elif isinstance(node, ast.ImportFrom) and node.module:
+                    modules = [node.module]
+                else:
+                    continue
+                production_imports.extend(
+                    f"{path.name}:{module}"
+                    for module in modules
+                    if module == "app" or module.startswith("app.")
+                )
+
+        self.assertEqual(production_imports, [])
+
     def test_sanitized_bom_cases_preserve_conflicts_and_risk_expectations(self) -> None:
         cases = load_fixture("bom/conflict_cases.json")
         expected = load_fixture("bom/expected_recommendations.json")
@@ -243,13 +296,10 @@ class GoldenFixtureTests(unittest.TestCase):
 
                 self.assertEqual(headers, oracle["headers"])
                 self.assertEqual(row, oracle["row"])
-                self.assertEqual(len(headers), oracle["column_count"])
-                reader_rows = read_bom_rows(path)
-                self.assertEqual(len(reader_rows), 1)
-                self.assertEqual(
-                    {field: reader_rows[0][field] for field in oracle["reader"]},
-                    oracle["reader"],
-                )
+                self.assertEqual(oracle["column_count"], PROCESSED_COLUMN_COUNTS[template])
+                self.assertEqual(len(headers), PROCESSED_COLUMN_COUNTS[template])
+                self.assertEqual(len(row), PROCESSED_COLUMN_COUNTS[template])
+                self.assertEqual(map_processed_row(template, row), oracle["reader"])
                 core_properties, timestamps = read_core_properties(path)
                 self.assertEqual(core_properties, workbook_expectations["core_properties"])
                 self.assertEqual(timestamps, {tuple(workbook_expectations["zip_timestamp"])})
