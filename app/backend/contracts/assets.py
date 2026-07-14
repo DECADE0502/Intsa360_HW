@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from pathlib import PurePosixPath, PureWindowsPath
-from typing import Any, Optional
+from typing import Optional
 from uuid import UUID
 
-from pydantic import Field, field_validator
+from pydantic import Field, JsonValue, StrictBool, field_validator
 
 from app.backend.contracts.api import ContractModel
+from app.backend.contracts.validation import normalize_windows_safe_relative_path
 
 
 class AssetKind(str, Enum):
@@ -36,17 +36,13 @@ class Asset(ContractModel):
     size: int = Field(ge=0, strict=True)
     created_at: datetime
     source_run_id: Optional[UUID] = None
-    pinned: bool = False
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    pinned: StrictBool = False
+    metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
     @field_validator("relative_path")
     @classmethod
     def validate_relative_path(cls, value: str) -> str:
-        normalized = value.replace("\\", "/")
-        path = PurePosixPath(normalized)
-        if path.is_absolute() or PureWindowsPath(value).drive or ".." in path.parts:
-            raise ValueError("asset path must be relative and cannot traverse parents")
-        return normalized
+        return normalize_windows_safe_relative_path(value)
 
 
 class ToolRun(ContractModel):
@@ -55,7 +51,7 @@ class ToolRun(ContractModel):
     status: ToolRunStatus
     input_asset_ids: list[UUID] = Field(default_factory=list)
     output_asset_ids: list[UUID] = Field(default_factory=list)
-    params: dict[str, Any] = Field(default_factory=dict)
-    decisions: dict[str, Any] = Field(default_factory=dict)
+    params: dict[str, JsonValue] = Field(default_factory=dict)
+    decisions: dict[str, JsonValue] = Field(default_factory=dict)
     created_at: datetime
     completed_at: Optional[datetime] = None

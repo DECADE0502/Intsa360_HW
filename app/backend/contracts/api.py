@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, Generic, Optional, TypeVar
+from typing import Generic, Optional, TypeVar
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, StrictBool, model_validator
 
 
 T = TypeVar("T")
@@ -16,11 +16,11 @@ class ContractModel(BaseModel):
 class ApiError(ContractModel):
     code: str = Field(min_length=1, max_length=80)
     message: str = Field(min_length=1)
-    details: Optional[dict[str, Any]] = None
+    details: Optional[dict[str, JsonValue]] = None
 
 
 class ApiEnvelope(ContractModel, Generic[T]):
-    ok: bool
+    ok: StrictBool
     request_id: UUID
     data: Optional[T] = None
     error: Optional[ApiError] = None

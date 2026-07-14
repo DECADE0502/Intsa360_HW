@@ -63,7 +63,18 @@ class ApiContractTests(unittest.TestCase):
             "size": 12,
             "created_at": NOW,
         }
-        for path in ("../main.xlsx", "/tmp/main.xlsx", r"C:\release\main.xlsx", "C:/release/main.xlsx", "C:main.xlsx"):
+        for path in (
+            "../main.xlsx",
+            "/tmp/main.xlsx",
+            r"C:\release\main.xlsx",
+            "C:/release/main.xlsx",
+            "C:main.xlsx",
+            ".",
+            "NUL",
+            "reports/COM1.xlsx",
+            "reports/report.xlsx:payload",
+            "reports/report.xlsx.",
+        ):
             with self.subTest(path=path), self.assertRaises(ValidationError):
                 Asset(**base, relative_path=path)
 
@@ -161,7 +172,20 @@ class ApiContractTests(unittest.TestCase):
             "url": "https://example.com/runtime.zip",
             "sha256": "a" * 64,
         }
-        for name in ("../runtime.zip", "nested/runtime.zip", r"nested\runtime.zip", "C:runtime.zip", "C:.", "  "):
+        for name in (
+            "../runtime.zip",
+            "nested/runtime.zip",
+            r"nested\runtime.zip",
+            "C:runtime.zip",
+            "C:.",
+            ".",
+            "..",
+            "NUL",
+            "COM1.zip",
+            "runtime.zip:payload",
+            "runtime.zip.",
+            "  ",
+        ):
             with self.subTest(name=name), self.assertRaises(ValidationError):
                 ReleaseAsset(name=name, size=1, **base)
         for size in (True, 1.5, "1024"):
@@ -221,6 +245,88 @@ class ApiContractTests(unittest.TestCase):
             (PluginState, {**plugin, "source": "unknown"}),
             (PluginState, {**plugin, "activation": "unknown"}),
             (ReleaseManifestV3, {**manifest, "build_kind": "unknown"}),
+        )
+        for model, payload in cases:
+            with self.subTest(model=model.__name__), self.assertRaises(ValidationError):
+                model(**payload)
+
+    def test_wire_primitives_do_not_coerce_strings_or_integers(self) -> None:
+        job = {
+            "id": uuid4(),
+            "kind": "tool_run",
+            "status": JobStatus.RUNNING,
+            "phase": JobPhase.PROCESSING,
+            "progress": 50,
+            "message": "正在处理",
+            "cancellable": True,
+            "created_at": NOW,
+            "updated_at": NOW,
+        }
+        plugin = {
+            "id": "quick_nc_toggle",
+            "name": "Quick NC Toggle",
+            "source": PluginSource.PLATFORM,
+            "enabled": True,
+            "entry_script": "nc.tcl",
+            "activation": ActivationMode.RESTART,
+        }
+        asset = {
+            "id": uuid4(),
+            "kind": AssetKind.BOM,
+            "format": "xlsx",
+            "display_name": "BOM",
+            "relative_path": "bom/main.xlsx",
+            "sha256": "a" * 64,
+            "size": 1,
+            "created_at": NOW,
+        }
+        cases = (
+            (ApiEnvelope[dict[str, str]], {"ok": "false", "request_id": uuid4(), "data": {}}),
+            (Job, {**job, "progress": "50"}),
+            (Job, {**job, "cancellable": 1}),
+            (PluginState, {**plugin, "enabled": "false"}),
+            (Asset, {**asset, "pinned": "false"}),
+            (
+                ReleaseManifestV3,
+                {
+                    "schema_version": "3",
+                    "version": "0.4.0",
+                    "revision": "b" * 40,
+                    "build_kind": BuildKind.PUBLISHED,
+                    "published_at": NOW,
+                    "min_updater_version": "0.3.3",
+                    "assets": [{"name": "runtime.zip", "url": "https://example.com/runtime.zip", "size": 1, "sha256": "a" * 64}],
+                    "signature": "signature",
+                },
+            ),
+        )
+        for model, payload in cases:
+            with self.subTest(model=str(model), payload=payload), self.assertRaises(ValidationError):
+                model(**payload)
+
+    def test_release_versions_follow_semver_2(self) -> None:
+        base = {
+            "revision": "b" * 40,
+            "build_kind": BuildKind.PUBLISHED,
+            "published_at": NOW,
+            "min_updater_version": "0.3.3",
+            "assets": [{"name": "runtime.zip", "url": "https://example.com/runtime.zip", "size": 1, "sha256": "a" * 64}],
+            "signature": "signature",
+        }
+        for version in ("0.0.0", "1.0.0-alpha", "1.0.0-alpha+build.1", "1.2.3-rc.1+sha.abc"):
+            with self.subTest(version=version):
+                self.assertEqual(ReleaseManifestV3(version=version, **base).version, version)
+        for version in ("01.0.0", "1.01.0", "1.0.01", "1.0", "1.0.0-alpha..1", "1.0.0-01"):
+            with self.subTest(version=version), self.assertRaises(ValidationError):
+                ReleaseManifestV3(version=version, **base)
+
+    def test_dynamic_contract_fields_accept_only_json_values(self) -> None:
+        invalid = object()
+        cases = (
+            (ApiError, {"code": "invalid", "message": "输入无效", "details": {"value": invalid}}),
+            (Asset, {"id": uuid4(), "kind": AssetKind.BOM, "format": "xlsx", "display_name": "BOM", "relative_path": "bom/main.xlsx", "sha256": "a" * 64, "size": 1, "created_at": NOW, "metadata": {"value": invalid}}),
+            (ToolRun, {"id": uuid4(), "tool_id": "bom_process", "status": ToolRunStatus.QUEUED, "created_at": NOW, "params": {"value": invalid}}),
+            (Job, {"id": uuid4(), "kind": "tool_run", "status": JobStatus.RUNNING, "phase": JobPhase.PROCESSING, "progress": 1, "message": "开始", "cancellable": True, "created_at": NOW, "updated_at": NOW, "result": {"value": invalid}}),
         )
         for model, payload in cases:
             with self.subTest(model=model.__name__), self.assertRaises(ValidationError):

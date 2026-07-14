@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Optional
+from typing import Optional
 from uuid import UUID
 
-from pydantic import Field
+from pydantic import Field, JsonValue, StrictBool
 
 from app.backend.contracts.api import ApiError, ContractModel
 
@@ -39,10 +39,10 @@ class Job(ContractModel):
     kind: str = Field(min_length=1, max_length=80)
     status: JobStatus
     phase: JobPhase
-    progress: float = Field(ge=0, le=100)
+    progress: float = Field(ge=0, le=100, strict=True)
     message: str
-    cancellable: bool
-    result: Optional[dict[str, Any]] = None
+    cancellable: StrictBool
+    result: Optional[dict[str, JsonValue]] = None
     error: Optional[ApiError] = None
     created_at: datetime
     updated_at: datetime
