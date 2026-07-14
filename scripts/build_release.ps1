@@ -84,9 +84,9 @@ foreach ($d in @("runtime")) {
 $runtimePyDir = Join-Path $Release "runtime\python"
 Write-Host "Preparing embedded Python runtime..." -ForegroundColor Cyan
 Download-EmbeddedPython -OutDir $runtimePyDir
-Install-OpenpyxlWheel -PythonDir $runtimePyDir
-& (Join-Path $runtimePyDir "python.exe") -c "import openpyxl; print('openpyxl', openpyxl.__version__)"
-if ($LASTEXITCODE -ne 0) { throw "Embedded Python openpyxl verification failed" }
+Install-HwAgentRuntimeWheels -PythonDir $runtimePyDir
+& (Join-Path $runtimePyDir "python.exe") -c "import cryptography, fastapi, multipart, openpyxl, pydantic, starlette, uvicorn; print('FastAPI', fastapi.__version__, 'Pydantic', pydantic.__version__, 'Uvicorn', uvicorn.__version__, 'cryptography', cryptography.__version__, 'openpyxl', openpyxl.__version__)"
+if ($LASTEXITCODE -ne 0) { throw "Embedded Python runtime dependency verification failed" }
 Get-ChildItem -LiteralPath $Release -Directory -Filter "__pycache__" -Recurse -ErrorAction SilentlyContinue |
   Sort-Object { $_.FullName.Length } -Descending |
   ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force }

@@ -4,20 +4,47 @@ $script:HwAgentPythonVersion = "3.11.9"
 $script:HwAgentPythonZipUrl = "https://www.python.org/ftp/python/$script:HwAgentPythonVersion/python-$script:HwAgentPythonVersion-embed-amd64.zip"
 $script:HwAgentPythonZipSha256 = "009d6bf7e3b2ddca3d784fa09f90fe54336d5b60f0e0f305c37f400bf83cfd3b"
 
-$script:HwAgentPythonWheels = @(
-  @{
-    Name = "openpyxl"
-    FileName = "openpyxl-3.1.5-py2.py3-none-any.whl"
-    Url = "https://files.pythonhosted.org/packages/c0/da/977ded879c29cbd04de313843e76868e6e13408a94ed6b987245dc7c8506/openpyxl-3.1.5-py2.py3-none-any.whl"
-    Sha256 = "5282c12b107bffeef825f4617dc029afaf41d0ea60823bbb665ef3079dc79de2"
-  },
-  @{
-    Name = "et_xmlfile"
-    FileName = "et_xmlfile-2.0.0-py3-none-any.whl"
-    Url = "https://files.pythonhosted.org/packages/c1/8b/5fe2cc11fee489817272089c4203e679c63b570a5aaeb18d852ae3cbba6a/et_xmlfile-2.0.0-py3-none-any.whl"
-    Sha256 = "7a91720bc756843502c3b7504c77b8fe44217c85c537d85037f0f536151b2caa"
+function Get-HwAgentRuntimeWheelLockPath {
+  $scriptsDir = Split-Path -Parent $PSScriptRoot
+  $root = Split-Path -Parent $scriptsDir
+  return (Join-Path $root "runtime-requirements.lock")
+}
+
+function Get-HwAgentRuntimeWheels {
+  $lockPath = Get-HwAgentRuntimeWheelLockPath
+  if (-not (Test-Path -LiteralPath $lockPath -PathType Leaf)) {
+    throw "Embedded Python runtime wheel lock not found: $lockPath"
   }
-)
+
+  $wheels = New-Object System.Collections.Generic.List[hashtable]
+  $lineNumber = 0
+  foreach ($rawLine in Get-Content -LiteralPath $lockPath -Encoding UTF8) {
+    $lineNumber++
+    $line = $rawLine.Trim()
+    if ([string]::IsNullOrWhiteSpace($line) -or $line.StartsWith("#")) { continue }
+    $parts = $line -split '\|'
+    if ($parts.Count -ne 4 -or ($parts | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count -ne 0) {
+      throw "Invalid runtime wheel lock entry at ${lockPath}:$lineNumber"
+    }
+    if (-not $parts[1].EndsWith(".whl", [System.StringComparison]::OrdinalIgnoreCase)) {
+      throw "Runtime wheel lock entry is not a wheel at ${lockPath}:$lineNumber"
+    }
+    if (-not ([uri]::IsWellFormedUriString($parts[2], [System.UriKind]::Absolute))) {
+      throw "Runtime wheel lock entry has an invalid URL at ${lockPath}:$lineNumber"
+    }
+    if ($parts[3] -notmatch '^[0-9A-Fa-f]{64}$') {
+      throw "Runtime wheel lock entry has an invalid SHA256 at ${lockPath}:$lineNumber"
+    }
+    $wheels.Add(@{
+      Name = $parts[0]
+      FileName = $parts[1]
+      Url = $parts[2]
+      Sha256 = $parts[3]
+    }) | Out-Null
+  }
+  if ($wheels.Count -eq 0) { throw "Embedded Python runtime wheel lock is empty: $lockPath" }
+  return $wheels.ToArray()
+}
 
 function Assert-HwAgentSha256 {
   param(
@@ -150,16 +177,21 @@ function Install-HwAgentWheel {
   }
 }
 
-function Install-OpenpyxlWheel {
+function Install-HwAgentRuntimeWheels {
   param([Parameter(Mandatory=$true)][string]$PythonDir)
   $sitePackages = Join-Path $PythonDir "Lib\site-packages"
   New-Item -ItemType Directory -Force -Path $sitePackages | Out-Null
   $wheelDir = Join-Path $PythonDir "wheels"
   New-Item -ItemType Directory -Force -Path $wheelDir | Out-Null
-  foreach ($wheel in $script:HwAgentPythonWheels) {
+  foreach ($wheel in Get-HwAgentRuntimeWheels) {
     $wheelPath = Join-Path $wheelDir $wheel.FileName
     Invoke-HwAgentDownload -Url $wheel.Url -OutFile $wheelPath -Sha256 $wheel.Sha256
     Install-HwAgentWheel -WheelPath $wheelPath -SitePackages $sitePackages
   }
   Remove-Item -LiteralPath $wheelDir -Recurse -Force
+}
+
+function Install-OpenpyxlWheel {
+  param([Parameter(Mandatory=$true)][string]$PythonDir)
+  Install-HwAgentRuntimeWheels -PythonDir $PythonDir
 }
