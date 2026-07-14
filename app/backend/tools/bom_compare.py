@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.backend.parsers.refs import natural_key
-from app.backend.tools.bom_risk import _risk_check
+from app.backend.tools.bom_rules import evaluate_bom_risks
 from app.backend.tools.common import (
     USER_INPUT_EXCEPTIONS,
     _compare,
@@ -250,8 +250,8 @@ def _run_bom_compare_impl(root: Path, params: dict[str, object]) -> dict[str, ob
     result["risks"] = {
         "left_label": "BOM1",
         "right_label": "BOM2",
-        "left": _risk_check(rows1),
-        "right": _risk_check(rows2),
+        "left": evaluate_bom_risks(rows1),
+        "right": evaluate_bom_risks(rows2),
     }
     return result
 def run_bom_compare(root: Path, params: dict[str, object]) -> dict[str, object]:

@@ -18,21 +18,7 @@ class BackendToolBoundaryTests(unittest.TestCase):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         }
 
-        implementation_functions = {
-            "_read_bom_rows",
-            "_run_bom_compare_impl",
-            "_risk_check",
-            "_run_bom_risk_check_impl",
-            "_parse_net_file",
-            "_build_netlist_review",
-            "_build_smt_package_review",
-            "_build_single_network_review",
-        }
-        self.assertTrue(
-            implementation_functions.isdisjoint(defined),
-            f"analysis_tools.py still owns tool implementations: "
-            f"{sorted(implementation_functions & defined)}",
-        )
+        self.assertEqual({"create_analysis_tools"}, defined)
 
     def test_each_tool_has_an_independent_module(self) -> None:
         expected = {
@@ -47,6 +33,27 @@ class BackendToolBoundaryTests(unittest.TestCase):
         tools_dir = ANALYSIS_TOOLS.parent
         present = {path.name for path in tools_dir.glob("*.py")}
         self.assertTrue(expected.issubset(present), sorted(expected - present))
+
+    def test_tool_engines_do_not_import_sibling_engines(self) -> None:
+        engine_modules = {
+            "bom_compare",
+            "bom_risk",
+            "netlist_compare",
+            "smt_package",
+            "single_network",
+        }
+        tools_dir = ANALYSIS_TOOLS.parent
+        for module_name in engine_modules:
+            tree = ast.parse((tools_dir / f"{module_name}.py").read_text(encoding="utf-8-sig"))
+            imported_siblings = {
+                node.module.rsplit(".", 1)[-1]
+                for node in ast.walk(tree)
+                if isinstance(node, ast.ImportFrom)
+                and node.module
+                and node.module.startswith("app.backend.tools.")
+                and node.module.rsplit(".", 1)[-1] in engine_modules - {module_name}
+            }
+            self.assertEqual(set(), imported_siblings, f"{module_name} imports sibling engines")
 
 
 if __name__ == "__main__":
