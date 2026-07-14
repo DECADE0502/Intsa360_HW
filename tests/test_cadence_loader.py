@@ -707,7 +707,8 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
             user_dir.mkdir(parents=True)
             (state_root / "config").mkdir(parents=True)
             shutil.copytree(ROOT / "config", root / "config")
-            shutil.copytree(ROOT / "cadence", root / "cadence")
+            (root / "cadence").mkdir()
+            shutil.copy2(ROOT / "cadence" / "iac_bom_tool.tcl", root / "cadence" / "iac_bom_tool.tcl")
             (root / "install_manifest.json").write_text(
                 json.dumps({"product": "Insta360_HW", "schema": 2, "layout": "runtime-v2"}),
                 encoding="utf-8",

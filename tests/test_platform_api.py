@@ -835,7 +835,6 @@ class PlatformApiTests(unittest.TestCase):
     def test_cadence_script_menu_endpoint_can_enable_split_high_risk_scripts(self) -> None:
         root = _make_temp_root()
         try:
-            shutil.copytree(ROOT / "cadence", root / "cadence")
             server = create_server(root, port=0)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
