@@ -670,13 +670,13 @@ class PlatformApiTests(unittest.TestCase):
             shutil.rmtree(root, ignore_errors=True)
 
     def test_upload_large_body_does_not_load_into_memory(self) -> None:
-        text = (ROOT / "app" / "backend" / "suite_app.py").read_text(encoding="utf-8")
+        text = (ROOT / "app" / "backend" / "api" / "routers" / "files.py").read_text(encoding="utf-8")
 
-        upload_impl = text.split("def _handle_upload", 1)[1].split("def _handle_package", 1)[0]
+        upload_impl = text.split("async def upload_files", 1)[1].split("def package_outputs", 1)[0]
         self.assertIn("NamedTemporaryFile", upload_impl)
-        self.assertIn("_copy_exact_request_body", upload_impl)
+        self.assertIn("_stream_request_to_disk", upload_impl)
         self.assertIn("_parse_multipart_files_from_disk", upload_impl)
-        self.assertNotIn("body = self.rfile.read(length)", upload_impl)
+        self.assertNotIn("await request.body()", upload_impl)
         self.assertNotIn("read_bytes()", upload_impl)
 
     def test_upload_multipart_stream_parser_saves_files(self) -> None:

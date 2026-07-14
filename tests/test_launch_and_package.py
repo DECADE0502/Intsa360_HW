@@ -60,7 +60,7 @@ class LaunchAndPackageTests(unittest.TestCase):
         self.assertNotIn("纭欢", text)
 
     def test_package_endpoint_uses_requested_name_for_zip(self) -> None:
-        backend = (ROOT / "app" / "backend" / "suite_app.py").read_text(encoding="utf-8")
+        backend = (ROOT / "app" / "backend" / "api" / "routers" / "files.py").read_text(encoding="utf-8")
 
         self.assertIn("_timestamp_for_filename", backend)
         self.assertIn('f"{name}_{stamp}.zip"', backend)
