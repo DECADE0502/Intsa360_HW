@@ -26,6 +26,7 @@ def _make_temp_root() -> Path:
     root = Path(tempfile.mkdtemp())
     shutil.copytree(ROOT / "config", root / "config")
     shutil.copytree(ROOT / "app", root / "app")
+    shutil.copytree(ROOT / "cadence", root / "cadence")
     (root / "plugins" / "user" / "scripts").mkdir(parents=True)
     return root
 
