@@ -68,7 +68,9 @@ class ReleaseDocsTests(unittest.TestCase):
         text = (ROOT / "scripts" / "verify_all.ps1").read_text(encoding="utf-8")
 
         self.assertIn("[Environment+SpecialFolder]::LocalApplicationData", text)
+        self.assertIn("Insta360_HW_Verify", text)
         self.assertIn("verify-temp", text)
+        self.assertNotIn('("Insta360_HW\\verify-temp\\"', text)
         self.assertIn("$env:TEMP = $VerifyTempRoot", text)
         self.assertIn("$env:TMP = $VerifyTempRoot", text)
         self.assertIn("$env:TEMP = $OriginalTemp", text)

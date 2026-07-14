@@ -47,7 +47,7 @@ $OriginalTemp = $env:TEMP
 $OriginalTmp = $env:TMP
 $LocalAppData = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)
 if (-not $LocalAppData) { throw "Local application data directory not found" }
-$VerifyTempRoot = Join-Path $LocalAppData ("Insta360_HW\verify-temp\" + [Guid]::NewGuid().ToString("N"))
+$VerifyTempRoot = Join-Path $LocalAppData ("Temp\Insta360_HW_Verify\verify-temp\" + [Guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Force -Path $VerifyTempRoot | Out-Null
 $VerifyTempRoot = (Resolve-Path -LiteralPath $VerifyTempRoot).Path
 
