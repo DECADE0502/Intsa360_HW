@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from pathlib import PurePosixPath
+from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any, Optional
 from uuid import UUID
 
@@ -33,7 +33,7 @@ class Asset(ContractModel):
     display_name: str = Field(min_length=1)
     relative_path: str = Field(min_length=1)
     sha256: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
-    size: int = Field(ge=0)
+    size: int = Field(ge=0, strict=True)
     created_at: datetime
     source_run_id: Optional[UUID] = None
     pinned: bool = False
@@ -44,7 +44,7 @@ class Asset(ContractModel):
     def validate_relative_path(cls, value: str) -> str:
         normalized = value.replace("\\", "/")
         path = PurePosixPath(normalized)
-        if path.is_absolute() or ".." in path.parts:
+        if path.is_absolute() or PureWindowsPath(value).drive or ".." in path.parts:
             raise ValueError("asset path must be relative and cannot traverse parents")
         return normalized
 

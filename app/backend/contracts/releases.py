@@ -19,8 +19,15 @@ class BuildKind(str, Enum):
 class ReleaseAsset(ContractModel):
     name: str = Field(min_length=1)
     url: AnyHttpUrl
-    size: int = Field(gt=0)
+    size: int = Field(gt=0, strict=True)
     sha256: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
+
+    @field_validator("name")
+    @classmethod
+    def require_plain_filename(cls, value: str) -> str:
+        if value != value.strip() or not value.strip() or "/" in value or "\\" in value or value in {".", ".."}:
+            raise ValueError("release asset name must be a plain filename")
+        return value
 
     @field_validator("url")
     @classmethod
