@@ -69,6 +69,16 @@ def _journal(install: Path, state: Path, job: str, phase: str, *, version: str =
 
 
 class LifecycleV2WorkerTests(unittest.TestCase):
+    def test_worker_releases_the_install_tree_as_its_current_directory(self) -> None:
+        source = (ROOT / "scripts" / "lifecycle" / "Worker.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("[System.IO.Directory]::SetCurrentDirectory($StateRoot)", source)
+        self.assertIn("Set-Location -LiteralPath $StateRoot", source)
+        self.assertLess(
+            source.index("[System.IO.Directory]::SetCurrentDirectory($StateRoot)"),
+            source.index("Move-Item -LiteralPath $InstallRoot -Destination $backup"),
+        )
+
     def _stage(self, state: Path, job: str, version: str = "2.0.0") -> Path:
         stage = state / "lifecycle" / "staging" / job
         _runtime(stage, version)

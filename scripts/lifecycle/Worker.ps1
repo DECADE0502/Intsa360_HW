@@ -22,6 +22,9 @@ Assert-HwLifecycleJobId -JobId $JobId | Out-Null
 $InstallRoot = [System.IO.Path]::GetFullPath($InstallRoot).TrimEnd("\")
 $StateRoot = [System.IO.Path]::GetFullPath($StateRoot).TrimEnd("\")
 $env:INSTA360_HW_STATE_ROOT = $StateRoot
+New-Item -ItemType Directory -Force -Path $StateRoot | Out-Null
+[System.IO.Directory]::SetCurrentDirectory($StateRoot)
+Set-Location -LiteralPath $StateRoot
 
 $transactionRoot = Join-Path $StateRoot ("lifecycle\transactions\" + $JobId)
 $journalPath = Join-Path $transactionRoot "journal.json"

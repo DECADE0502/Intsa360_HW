@@ -431,6 +431,34 @@ class UpdateApiV2Tests(unittest.TestCase):
         self.assertIn("subprocess.list2cmdline", source)
         self.assertNotIn("$p=Start-Process", source)
 
+    def test_update_worker_launches_outside_the_replaceable_install_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            root = base / "Program Files" / "Insta360" / "HWAgent"
+            worker = root / "scripts" / "lifecycle" / "Worker.ps1"
+            state = base / "LocalAppData" / "Insta360_HW"
+            stage = state / "lifecycle" / "transactions" / ("a" * 32) / "extracted" / "HWAgent_release"
+            worker.parent.mkdir(parents=True)
+            state.mkdir(parents=True)
+
+            with (
+                patch.object(lifecycle_update, "_is_admin", return_value=True),
+                patch.object(lifecycle_update.subprocess, "Popen") as popen,
+            ):
+                popen.return_value.pid = 4321
+                pid = lifecycle_update._launch_worker(
+                    root,
+                    worker,
+                    state,
+                    "a" * 32,
+                    stage,
+                    "0.3.3",
+                    "b" * 64,
+                )
+
+            self.assertEqual(pid, 4321)
+            self.assertEqual(Path(popen.call_args.kwargs["cwd"]), state)
+
     def test_terminal_job_cleanup_removes_only_its_staged_transaction(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)

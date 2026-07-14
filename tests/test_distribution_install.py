@@ -145,7 +145,7 @@ class DistributionLifecycleV2Tests(unittest.TestCase):
         self.assertIn("Get-FileHash", publish)
         self.assertIn("update-manifest.json", publish)
         self.assertIn("Insta360_HW_Setup.exe", publish)
-        self.assertIn('minimum_launcher_version = "0.3.0"', publish)
+        self.assertIn('minimum_launcher_version = "0.3.3"', publish)
         self.assertNotIn("source ZIP", publish)
 
     def test_publish_timestamp_is_portable_rfc3339_utc(self) -> None:

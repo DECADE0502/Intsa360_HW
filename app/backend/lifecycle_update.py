@@ -535,6 +535,7 @@ def _launch_worker(
     version: str,
     tree_sha256: str,
 ) -> int:
+    working_directory = state_root
     arguments = [
         "-NoProfile",
         "-ExecutionPolicy",
@@ -558,12 +559,12 @@ def _launch_worker(
     if os.environ.get("INSTA360_HW_NO_ELEVATION") == "1" or _is_admin():
         process = subprocess.Popen(
             ["powershell.exe", *arguments],
-            cwd=str(worker.parent),
+            cwd=str(working_directory),
             creationflags=creationflags,
         )
         return process.pid
 
-    return _launch_elevated_process("powershell.exe", arguments, worker.parent)
+    return _launch_elevated_process("powershell.exe", arguments, working_directory)
 
 
 def _cleanup_precommit(transaction: Path, download: Path) -> None:

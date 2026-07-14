@@ -58,6 +58,7 @@ export function UpdateStatus({ version }: { version: string }) {
   const [integrityVerified, setIntegrityVerified] = useState<boolean | undefined>(undefined);
   const [integrityStatus, setIntegrityStatus] = useState<string>("");
   const [noticeOpen, setNoticeOpen] = useState(false);
+  const [startingUpdate, setStartingUpdate] = useState(false);
 
   const [progressOpen, setProgressOpen] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatusInfo | null>(null);
@@ -166,8 +167,8 @@ export function UpdateStatus({ version }: { version: string }) {
       message.info(checkMessage || (hasUpdate ? "当前版本需要使用 Setup 安装包升级。" : "请先检查更新；只有检测到更高版本后才能安装。"));
       return;
     }
+    setStartingUpdate(true);
     setNoticeOpen(false);
-    setProgressOpen(true);
     setUpdateStatus(null);
     try {
       const started = await startUpdate();
@@ -196,9 +197,12 @@ export function UpdateStatus({ version }: { version: string }) {
         recovery_required: false,
         error: "",
       });
+      setProgressOpen(true);
     } catch (e) {
       message.error((e as Error).message || "更新启动失败");
       setProgressOpen(false);
+    } finally {
+      setStartingUpdate(false);
     }
   }
 
@@ -273,7 +277,7 @@ export function UpdateStatus({ version }: { version: string }) {
         <Button className="maint-btn" size="small" icon={<SyncOutlined />} loading={checking} onClick={onCheckUpdate}>
           检查更新
         </Button>
-        <Button className="maint-btn" size="small" type={canUpdate ? "primary" : "default"} disabled={!canUpdate} onClick={onUpdate}>
+        <Button className="maint-btn" size="small" type={canUpdate ? "primary" : "default"} disabled={!canUpdate} loading={startingUpdate} onClick={onUpdate}>
           {hasUpdate && remoteVersion ? `更新到 ${remoteVersion}` : "立即更新"}
         </Button>
         {hasUpdate && updateNotice ? (

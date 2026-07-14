@@ -166,6 +166,15 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn('updateStatus?.phase === "cancelled"', text)
         self.assertIn("cancelled: boolean", client)
 
+    def test_update_ui_starts_polling_only_after_the_job_exists(self) -> None:
+        text = (ROOT / "frontend" / "src" / "components" / "UpdateStatus.tsx").read_text(encoding="utf-8")
+        start = text.index("async function onUpdate()")
+        end = text.index("async function onCancelUpdate()", start)
+        handler = text[start:end]
+
+        self.assertLess(handler.index("await startUpdate()"), handler.index("setProgressOpen(true)"))
+        self.assertIn("loading={startingUpdate}", text)
+
     def test_update_ui_treats_missing_release_manifest_as_unpublished_and_links_windows_apps(self) -> None:
         text = (ROOT / "frontend" / "src" / "components" / "UpdateStatus.tsx").read_text(encoding="utf-8")
         client = (ROOT / "frontend" / "src" / "api" / "client.ts").read_text(encoding="utf-8")
