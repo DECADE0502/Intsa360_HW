@@ -1,4 +1,7 @@
-param([switch]$SkipNetwork)
+param(
+  [switch]$SkipNetwork,
+  [ValidateSet("dev", "published")][string]$BuildKind = "published"
+)
 
 $ErrorActionPreference = "Continue"
 $Root = Split-Path -Parent $PSScriptRoot
@@ -13,6 +16,10 @@ if ($Version -notmatch '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-[0-9A-Za-z.-]
 $Notice = Get-Content -LiteralPath (Join-Path $Root "UPDATE_NOTICE.json") -Raw -Encoding UTF8 | ConvertFrom-Json
 if ([string]$Notice.version -ne $Version) { Add-Failure "UPDATE_NOTICE.version does not match VERSION." }
 if (@($Notice.highlights).Count -eq 0) { Add-Failure "UPDATE_NOTICE.highlights is empty." }
+$Revision = (& git -C $Root rev-parse HEAD 2>$null).Trim().ToLowerInvariant()
+if ($LASTEXITCODE -ne 0 -or $Revision -notmatch '^[a-f0-9]{40}$') {
+  Add-Failure "A full git revision is required for release validation."
+}
 
 $Release = Join-Path $Workspace "HWAgent_release"
 foreach ($relative in @(
@@ -35,7 +42,13 @@ Get-ChildItem -LiteralPath $Release -Recurse -File -Filter "*.pyc" -ErrorAction 
 }
 if (Test-Path -LiteralPath (Join-Path $Release "install_manifest.json")) {
   $InstallManifest = Get-Content -LiteralPath (Join-Path $Release "install_manifest.json") -Raw -Encoding UTF8 | ConvertFrom-Json
-  if ($InstallManifest.product -ne "Insta360_HW" -or $InstallManifest.layout -ne "runtime-v2" -or [string]$InstallManifest.version -ne $Version) {
+  if (
+    $InstallManifest.product -ne "Insta360_HW" -or
+    $InstallManifest.layout -ne "runtime-v2" -or
+    [string]$InstallManifest.version -ne $Version -or
+    [string]$InstallManifest.revision -ne $Revision -or
+    [string]$InstallManifest.build_kind -ne $BuildKind
+  ) {
     Add-Failure "Release install manifest identity is invalid."
   }
 }

@@ -25,6 +25,7 @@ from app.backend.release_manifest import (
     PRODUCT,
     ReleaseManifest,
     compare_versions,
+    parse_build_kind,
 )
 
 
@@ -167,32 +168,61 @@ def _fetch_manifest(root: Path) -> tuple[ReleaseManifest, dict[str, object]]:
 
 
 def _installed_runtime_status(root: Path, local_version: str) -> tuple[bool, str]:
+    installed, error, _, _ = _installed_runtime_identity(root, local_version)
+    return installed, error
+
+
+def _installed_runtime_identity(root: Path, local_version: str) -> tuple[bool, str, str, str]:
     try:
         raw = json.loads((root / "install_manifest.json").read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError):
-        return False, "当前目录不是由 Setup 安装的运行环境"
+        return False, "当前目录不是由 Setup 安装的运行环境", "", ""
     if not isinstance(raw, dict):
-        return False, "本地安装清单格式无效"
+        return False, "本地安装清单格式无效", "", ""
     if raw.get("schema") != 2 or raw.get("product") != PRODUCT or raw.get("layout") != "runtime-v2":
-        return False, "本地安装清单不属于 Lifecycle V2"
+        return False, "本地安装清单不属于 Lifecycle V2", "", ""
     if str(raw.get("version") or "") != local_version:
-        return False, "本地安装清单与 VERSION 不一致"
-    return True, ""
+        return False, "本地安装清单与 VERSION 不一致", "", ""
+
+    local_revision = _read_text(root / "REVISION").lower()
+    manifest_revision = str(raw.get("revision") or "").strip().lower()
+    if not local_revision or local_revision != manifest_revision:
+        return False, "本地安装清单与 REVISION 不一致", "", ""
+    try:
+        build_kind = parse_build_kind(raw.get("build_kind"))
+    except ValueError:
+        return False, "本地安装清单 build_kind 无效", "", ""
+    return True, "", local_revision, build_kind
 
 
 def _evaluate_update(root: Path, manifest: ReleaseManifest) -> dict[str, object]:
     local_version = _read_text(root / "VERSION") or "0.0.0"
     comparison = compare_versions(manifest.version, local_version)
-    has_update = comparison > 0
-    installed, install_error = _installed_runtime_status(root, local_version)
+    installed, install_error, local_revision, local_build_kind = _installed_runtime_identity(root, local_version)
     launcher_ok = compare_versions(local_version, manifest.minimum_launcher_version) >= 0
+    has_update = comparison > 0
+    identity_conflict = False
 
     if comparison < 0:
         reason = "remote_older"
         message = "远端版本低于当前版本，未执行更新。"
     elif comparison == 0:
-        reason = "up_to_date"
-        message = "当前已是最新版本。"
+        if manifest.build_kind == "published" and local_build_kind == "dev":
+            has_update = True
+            reason = "canonical_published_revision"
+            message = "发现同版本正式发布修订，可以开始更新。"
+        elif (
+            manifest.build_kind == "published"
+            and local_build_kind == "published"
+            and manifest.revision != local_revision
+        ):
+            has_update = False
+            identity_conflict = True
+            reason = "integrity_conflict"
+            message = "同版本正式发布修订不一致，已拒绝更新。"
+        else:
+            reason = "up_to_date"
+            message = "当前已是最新版本。"
     elif not installed:
         reason = "development_mode"
         message = f"{install_error}，应用内更新已禁用，请使用 Setup 安装包。"
@@ -211,6 +241,7 @@ def _evaluate_update(root: Path, manifest: ReleaseManifest) -> dict[str, object]
         "message": message,
         "installed_runtime": installed,
         "minimum_launcher_version": manifest.minimum_launcher_version,
+        "identity_conflict": identity_conflict,
     }
 
 
@@ -303,6 +334,7 @@ def check_update(root: Path) -> dict[str, object]:
             "download_strategy": "release_runtime_zip",
             "minimum_launcher_version": manifest.minimum_launcher_version,
             "installed_runtime": evaluation["installed_runtime"],
+            "identity_conflict": evaluation["identity_conflict"],
             "message": evaluation["message"],
         }
     except HTTPError as exc:
@@ -438,6 +470,12 @@ def _validate_payload(path: Path, manifest: ReleaseManifest) -> None:
         raise ValueError("payload install manifest version does not match the release manifest")
     if str(install_manifest.get("revision") or "").lower() != manifest.revision:
         raise ValueError("payload install manifest revision does not match the release manifest")
+    try:
+        payload_build_kind = parse_build_kind(install_manifest.get("build_kind"))
+    except ValueError as exc:
+        raise ValueError("payload install manifest build_kind is invalid") from exc
+    if payload_build_kind != manifest.build_kind:
+        raise ValueError("payload install manifest build_kind does not match the release manifest")
 
 
 def _runtime_tree_sha256(root: Path) -> str:

@@ -1,6 +1,8 @@
 param(
   [string]$InnoCompiler = "",
-  [switch]$SkipFrontend
+  [switch]$SkipFrontend,
+  [ValidateSet("dev", "published")][string]$BuildKind = "published",
+  [switch]$PreflightOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -42,10 +44,15 @@ if (-not (Test-Path -LiteralPath $Iss)) {
   throw "HWAgent_Setup.iss not found: $Iss"
 }
 
-$releaseArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $ScriptDir "build_release.ps1"))
+$releaseArgs = @(
+  "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $ScriptDir "build_release.ps1"),
+  "-BuildKind", $BuildKind
+)
 if ($SkipFrontend) { $releaseArgs += "-SkipFrontend" }
+if ($PreflightOnly) { $releaseArgs += "-PreflightOnly" }
 & powershell @releaseArgs
 if ($LASTEXITCODE -ne 0) { throw "build_release.ps1 failed." }
+if ($PreflightOnly) { exit 0 }
 
 $Iscc = Find-InnoCompiler -ExplicitPath $InnoCompiler
 Write-Host "Using Inno Setup compiler: $Iscc"

@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 
 MANIFEST_SCHEMA = 2
 PRODUCT = "Insta360_HW"
+BUILD_KINDS = frozenset({"dev", "published"})
 DEFAULT_MANIFEST_URL = (
     "https://github.com/DECADE0502/Intsa360_HW/"
     "releases/latest/download/update-manifest.json"
@@ -50,6 +51,17 @@ def compare_versions(left: str, right: str) -> int:
             continue
         return -1 if lpart < rpart else 1
     return (len(left_pre) > len(right_pre)) - (len(left_pre) < len(right_pre))
+
+
+def parse_build_kind(value: Any, *, legacy_default: str = "published") -> str:
+    if value is None:
+        return legacy_default
+    if not isinstance(value, str):
+        raise ValueError("build_kind must be a string")
+    build_kind = value.strip().lower()
+    if build_kind not in BUILD_KINDS:
+        raise ValueError("build_kind must be dev or published")
+    return build_kind
 
 
 def _require_object(raw: Any, *, label: str, required: set[str], allowed: set[str]) -> Mapping[str, Any]:
@@ -119,6 +131,7 @@ class ReleaseAsset:
 class ReleaseManifest:
     version: str
     revision: str
+    build_kind: str
     published_at: str
     channel: str
     minimum_launcher_version: str
@@ -150,6 +163,7 @@ class ReleaseManifest:
                 "product",
                 "version",
                 "revision",
+                "build_kind",
                 "published_at",
                 "channel",
                 "minimum_launcher_version",
@@ -170,6 +184,7 @@ class ReleaseManifest:
         revision = manifest["revision"].strip().lower()
         if not _REVISION_RE.fullmatch(revision):
             raise ValueError("update manifest revision is invalid")
+        build_kind = parse_build_kind(manifest.get("build_kind"))
         published_at = _parse_published_at(manifest["published_at"])
         if not isinstance(manifest["minimum_launcher_version"], str):
             raise ValueError("minimum_launcher_version must be a semantic version")
@@ -203,6 +218,7 @@ class ReleaseManifest:
         return cls(
             version=version,
             revision=revision,
+            build_kind=build_kind,
             published_at=published_at,
             channel=channel,
             minimum_launcher_version=launcher,
@@ -218,6 +234,7 @@ class ReleaseManifest:
         return {
             "version": self.version,
             "revision": self.revision,
+            "build_kind": self.build_kind,
             "target_revision": self.revision,
             "date": self.published_at,
             "title": self.title,

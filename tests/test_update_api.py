@@ -234,12 +234,16 @@ class UpdateApiV2Tests(unittest.TestCase):
         self.assertEqual(result["update_reason"], "manifest_unavailable")
         self.assertEqual(result["download_strategy"], "none")
 
-    def test_same_version_never_becomes_a_revision_hotfix(self) -> None:
+    def test_same_version_matching_published_revision_is_up_to_date(self) -> None:
         archive = _runtime_zip("0.3.0")
         parsed = ReleaseManifest.parse(_manifest(archive, "0.3.0"))
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _installed_runtime(root, "0.3.0")
+            (root / "REVISION").write_text(parsed.revision + "\n", encoding="utf-8")
+            install_manifest = json.loads((root / "install_manifest.json").read_text(encoding="utf-8"))
+            install_manifest["revision"] = parsed.revision
+            (root / "install_manifest.json").write_text(json.dumps(install_manifest), encoding="utf-8")
             with patch.object(lifecycle_update, "_fetch_manifest", return_value=(parsed, {})):
                 result = update_api.check_update(root)
         self.assertFalse(result["has_update"])

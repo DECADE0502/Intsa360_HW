@@ -1,4 +1,9 @@
-param([switch]$SkipFrontend)
+param(
+  [switch]$SkipFrontend,
+  [ValidateSet("dev", "published")][string]$BuildKind = "dev",
+  [switch]$PreflightOnly,
+  [string]$GitExecutable = "git"
+)
 
 $ErrorActionPreference = "Stop"
 
@@ -10,15 +15,40 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Root = Split-Path -Parent $ScriptDir
 $RepoRoot = Split-Path -Parent $Root
 $Release = Join-Path $RepoRoot "HWAgent_release"
-. (Join-Path $Root "scripts\lib\EmbeddedPython.ps1")
 $Version = (Get-Content -LiteralPath (Join-Path $Root "VERSION") -Raw -Encoding UTF8).Trim()
-$Revision = ""
-try {
-  $Revision = (& git -C $Root rev-parse HEAD 2>$null).Trim()
-} catch {
-  $Revision = ""
+$Revision = (& $GitExecutable -C $Root rev-parse HEAD 2>$null).Trim().ToLowerInvariant()
+if ($LASTEXITCODE -ne 0 -or $Revision -notmatch '^[a-f0-9]{40}$') {
+  throw "A full git revision is required for a canonical build."
 }
 
+function Assert-PublicBuildIdentity {
+  param(
+    [Parameter(Mandatory=$true)][string]$Root,
+    [Parameter(Mandatory=$true)][string]$Version,
+    [Parameter(Mandatory=$true)][string]$BuildKind,
+    [Parameter(Mandatory=$true)][string]$GitExecutable
+  )
+
+  if ($BuildKind -ne "published") { return }
+
+  $dirty = @(& $GitExecutable -C $Root status --porcelain --untracked-files=normal)
+  if ($LASTEXITCODE -ne 0) { throw "Unable to verify the git worktree." }
+  if ($dirty.Count -gt 0) { throw "Public build requires a clean git worktree." }
+
+  $existingTags = @(& $GitExecutable -C $Root tag --list ("v" + $Version))
+  if ($LASTEXITCODE -ne 0) { throw "Unable to verify existing public build tags." }
+  if ($existingTags.Count -gt 0) {
+    throw "Version $Version already has a public build tag: $($existingTags -join ', ')."
+  }
+}
+
+Assert-PublicBuildIdentity -Root $Root -Version $Version -BuildKind $BuildKind -GitExecutable $GitExecutable
+if ($PreflightOnly) {
+  Write-Host "Canonical build preflight passed for $BuildKind $Version at $Revision."
+  exit 0
+}
+
+. (Join-Path $Root "scripts\lib\EmbeddedPython.ps1")
 Write-Host "Building release tree -> $Release" -ForegroundColor Cyan
 
 # 1. Compile the launcher exe into the source root.
@@ -98,6 +128,7 @@ $manifest = [ordered]@{
   product = "Insta360_HW"
   version = $Version
   revision = $Revision
+  build_kind = $BuildKind
   schema = 2
   layout = "runtime-v2"
   generated_at = (Get-Date).ToString("s")
