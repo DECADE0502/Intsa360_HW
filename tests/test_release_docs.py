@@ -52,7 +52,11 @@ class ReleaseDocsTests(unittest.TestCase):
     def test_verify_all_script_runs_required_checks(self) -> None:
         text = (ROOT / "scripts" / "verify_all.ps1").read_text(encoding="utf-8")
 
-        self.assertIn("unittest discover", text)
+        self.assertIn("$Python -m pytest", text)
+        self.assertIn('throw "pytest failed"', text)
+        self.assertNotIn("unittest discover", text)
+        self.assertIn('-c "import pytest"', text)
+        self.assertIn("Python with pytest not found", text)
         self.assertIn("py_compile", text)
         self.assertIn("npm run build", text)
         self.assertIn("English UI text found", text)

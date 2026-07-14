@@ -1,16 +1,26 @@
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$Python = "C:\Users\Administrator\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
-if (-not (Test-Path -LiteralPath $Python)) {
-  $cmd = Get-Command python.exe -ErrorAction SilentlyContinue
-  if (-not $cmd) { throw "Python not found" }
-  $Python = $cmd.Source
+$PythonCandidates = @(
+  "C:\Users\Administrator\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
+)
+$cmd = Get-Command python.exe -ErrorAction SilentlyContinue
+if ($cmd) { $PythonCandidates += $cmd.Source }
+
+$Python = $null
+foreach ($candidate in ($PythonCandidates | Select-Object -Unique)) {
+  if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
+  & $candidate -c "import pytest" 2>$null
+  if ($LASTEXITCODE -eq 0) {
+    $Python = $candidate
+    break
+  }
 }
+if (-not $Python) { throw "Python with pytest not found" }
 
 Push-Location $Root
 try {
-  & $Python -m unittest discover -s tests -v
-  if ($LASTEXITCODE -ne 0) { throw "unittest failed" }
+  & $Python -m pytest -q
+  if ($LASTEXITCODE -ne 0) { throw "pytest failed" }
 
   & $Python -m py_compile app\backend\suite_app.py app\backend\update_api.py app\backend\tools\bom_process.py tools\bom\convert_cadence_bom.py
   if ($LASTEXITCODE -ne 0) { throw "py_compile failed" }
