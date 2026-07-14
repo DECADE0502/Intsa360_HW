@@ -11,7 +11,11 @@ set ::IAC_CNV  "$::IAC_ROOT/tools/bom/convert_cadence_bom.py"
 
 namespace eval ::IAC {
     variable SHORTCUTS
-    array set SHORTCUTS {}
+    if {![array exists SHORTCUTS]} { array set SHORTCUTS {} }
+    variable LOADED_MODULES
+    if {![array exists LOADED_MODULES]} { array set LOADED_MODULES {} }
+    variable PLUGIN_LIFECYCLE
+    if {![array exists PLUGIN_LIFECYCLE]} { array set PLUGIN_LIFECYCLE {} }
     variable EXPORT_SEQUENCE 0
     variable PROP_NAMES {
         "Color" "Designator" "Graphic ID" "Implementation" "Implementation Path" "Implementation Type"
@@ -34,20 +38,73 @@ namespace eval ::IAC {
     }
     proc SourceModule { module } {
         if {[file pathtype $module] eq "absolute"} {
-            source $module
+            set path $module
         } else {
-            source "$::IAC_ROOT/$module"
+            set path "$::IAC_ROOT/$module"
         }
+        return [uplevel #0 [list source $path]]
+    }
+    proc SourceModuleOnce { module } {
+        variable LOADED_MODULES
+        if {[file pathtype $module] eq "absolute"} {
+            set path [file normalize $module]
+        } else {
+            set path [file normalize "$::IAC_ROOT/$module"]
+        }
+        if {[info exists LOADED_MODULES($path)]} { return 0 }
+        uplevel #0 [list source $path]
+        set LOADED_MODULES($path) 1
+        return 1
+    }
+    proc RegisterPluginLifecycle { id {activate ""} {deactivate ""} } {
+        variable PLUGIN_LIFECYCLE
+        if {$activate eq ""} { set activate "::IACPluginRuntime::activate $id" }
+        if {$deactivate eq ""} { set deactivate "::IACPluginRuntime::deactivate $id" }
+        set PLUGIN_LIFECYCLE($id,activate) $activate
+        set PLUGIN_LIFECYCLE($id,deactivate) $deactivate
+        return 1
+    }
+    proc ActivatePlugin { id } {
+        variable PLUGIN_LIFECYCLE
+        if {![info exists PLUGIN_LIFECYCLE($id,activate)]} { return 0 }
+        return [uplevel #0 $PLUGIN_LIFECYCLE($id,activate)]
+    }
+    proc DeactivatePlugin { id } {
+        variable PLUGIN_LIFECYCLE
+        if {![info exists PLUGIN_LIFECYCLE($id,deactivate)]} { return 0 }
+        return [uplevel #0 $PLUGIN_LIFECYCLE($id,deactivate)]
+    }
+    proc BeginPluginReload {} {
+        variable SHORTCUTS
+        variable LOADED_MODULES
+        variable PLUGIN_LIFECYCLE
+        set ids {}
+        foreach key [array names PLUGIN_LIFECYCLE "*,deactivate"] {
+            lappend ids [string range $key 0 end-[string length ",deactivate"]]
+        }
+        foreach id [lsort -unique $ids] {
+            if {[catch {::IAC::DeactivatePlugin $id} err]} {
+                ::IAC::log "IAC: plugin deactivation failed: $id $err"
+            }
+        }
+        array unset SHORTCUTS
+        array set SHORTCUTS {}
+        array unset LOADED_MODULES
+        array set LOADED_MODULES {}
+        array unset PLUGIN_LIFECYCLE
+        array set PLUGIN_LIFECYCLE {}
+        return 1
     }
     proc ShortcutEnabled { id args } {
         variable SHORTCUTS
         if {![info exists SHORTCUTS($id,enabled)] || !$SHORTCUTS($id,enabled)} { return 0 }
         set command $SHORTCUTS($id,command)
-        if {[info procs $command] eq "" && [info commands $command] eq ""} {
+        set commandName [lindex $command 0]
+        if {[info procs $commandName] eq "" && [info commands $commandName] eq ""} {
             set module $SHORTCUTS($id,module)
-            if {$module ne ""} { catch {::IAC::SourceModule $module} }
+            if {$module ne ""} { catch {::IAC::SourceModuleOnce $module} }
         }
-        if {[info procs $command] eq "" && [info commands $command] eq ""} { return 0 }
+        if {[info procs $commandName] eq "" && [info commands $commandName] eq ""} { return 0 }
         return 1
     }
     proc RunShortcut { id args } {
@@ -57,7 +114,7 @@ namespace eval ::IAC {
             return 0
         }
         set command $SHORTCUTS($id,command)
-        if {[catch {eval $command} err]} {
+        if {[catch {uplevel #0 $command} err]} {
             ::IAC::log "IAC: shortcut failed: $id $err"
             catch {tk_messageBox -icon error -type ok -title "insta360_HW" -message $err}
             return 0
@@ -401,6 +458,8 @@ namespace eval ::IAC {
         return 1
     }
 }
+
+::IAC::BeginPluginReload
 
 # ---- \u5168\u5c40\u547d\u4ee4 ----
 proc iac  {} { ::IAC::launch }

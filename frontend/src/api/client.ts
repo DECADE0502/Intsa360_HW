@@ -120,6 +120,12 @@ export type PluginInfo = {
   type: "cadence_tcl" | string;
   command?: string;
   module?: string;
+  entry_script?: string;
+  implementation_command?: string;
+  activate_command?: string;
+  deactivate_command?: string;
+  activation?: "hot_reload" | "restart";
+  compatible_capture_versions?: string[];
   script?: string;
   path?: string;
   source: "system" | "platform" | "user";

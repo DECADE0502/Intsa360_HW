@@ -18,6 +18,7 @@ def _copy_minimal_root() -> Path:
     root = Path(tempfile.mkdtemp())
     shutil.copytree(ROOT / "config", root / "config")
     shutil.copytree(ROOT / "cadence" / "modules", root / "cadence" / "modules")
+    shutil.copytree(ROOT / "cadence" / "entries", root / "cadence" / "entries")
     (root / "plugins" / "user" / "scripts").mkdir(parents=True)
     return root
 
@@ -207,18 +208,19 @@ class PluginRegistryTests(unittest.TestCase):
         finally:
             shutil.rmtree(root, ignore_errors=True)
 
-    def test_user_plugin_toggle_persists_to_manifest(self) -> None:
+    def test_user_plugin_toggle_uses_shared_state_without_rewriting_manifest(self) -> None:
         root = _copy_minimal_root()
         try:
             manifest = _write_demo_user_plugin(root)
+            original = manifest.read_bytes()
 
             updated = set_plugin_cadence_menu_visibility(root, "user.demo", True)
-            saved = json.loads(manifest.read_text(encoding="utf-8"))
+            state = json.loads((root / "config" / "plugin_state.json").read_text(encoding="utf-8"))
 
             self.assertTrue(updated["show_in_cadence"])
             self.assertEqual(updated["status"], "available")
-            self.assertTrue(saved["show_in_cadence"])
-            self.assertEqual(saved["status"], "available")
+            self.assertTrue(state["plugins"]["user.demo"]["enabled"])
+            self.assertEqual(manifest.read_bytes(), original)
         finally:
             shutil.rmtree(root, ignore_errors=True)
 

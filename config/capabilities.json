@@ -71,19 +71,30 @@
       "description": "对 Capture 中选中的器件切换 NC 前缀和灰色显示。",
       "category": "Cadence 脚本",
       "status": "disabled",
-      "command": "::capNCToggleSelected::toggleFromMenu",
+      "command": "::IACPluginRuntime::invoke cadence_nc_toggle",
       "danger_level": "medium",
       "requires_confirmation": false,
       "show_in_platform": true,
       "show_in_cadence": false,
-      "module": "cadence/modules/nc_toggle_selected.tcl",
+      "module": "cadence/entries/cadence_nc_toggle.tcl",
       "can_enable": true,
       "shortcut_action": "insta360_HW_nc_toggle",
       "enabled_command": "::capNCToggleSelected::enabled",
       "shortcut": "Ctrl+Q",
-      "shortcut_command": "::capNCToggleSelected::toggleImpl",
+      "shortcut_command": "::IACPluginRuntime::invoke cadence_nc_toggle",
       "shortcut_context": "Schematic",
-      "cadence_name": "Toggle Selected NC"
+      "cadence_name": "Toggle Selected NC",
+      "entry_script": "cadence/entries/cadence_nc_toggle.tcl",
+      "implementation_command": "::capNCToggleSelected::toggleFromMenu",
+      "implementation_module": "cadence/modules/nc_toggle_selected.tcl",
+      "activate_command": "::IACPluginRuntime::activate cadence_nc_toggle",
+      "deactivate_command": "::IACPluginRuntime::deactivate cadence_nc_toggle",
+      "activation": "restart",
+      "compatible_capture_versions": [
+        "16.6",
+        "17.4"
+      ],
+      "load_priority": 20
     },
     {
       "id": "cadence_ground_name_visible",
@@ -92,14 +103,25 @@
       "description": "显示 GND 网络名。",
       "category": "Cadence 脚本",
       "status": "disabled",
-      "command": "::capMenuUtil::GroundNameVisible",
+      "command": "::IACPluginRuntime::invoke cadence_ground_name_visible",
       "danger_level": "low",
       "requires_confirmation": false,
       "show_in_platform": true,
       "show_in_cadence": false,
       "can_enable": true,
-      "module": "cadence/modules/gnd_net_visibility.tcl",
-      "cadence_name": "Show GND Net Names"
+      "module": "cadence/entries/cadence_ground_name_visible.tcl",
+      "cadence_name": "Show GND Net Names",
+      "entry_script": "cadence/entries/cadence_ground_name_visible.tcl",
+      "implementation_command": "::capMenuUtil::GroundNameVisible",
+      "implementation_module": "cadence/modules/gnd_net_visibility.tcl",
+      "activate_command": "::IACPluginRuntime::activate cadence_ground_name_visible",
+      "deactivate_command": "::IACPluginRuntime::deactivate cadence_ground_name_visible",
+      "activation": "hot_reload",
+      "compatible_capture_versions": [
+        "16.6",
+        "17.4"
+      ],
+      "load_priority": 20
     },
     {
       "id": "cadence_ground_name_hidden",
@@ -108,14 +130,25 @@
       "description": "隐藏 GND 网络名。",
       "category": "Cadence 脚本",
       "status": "disabled",
-      "command": "::capMenuUtil::GroundNameHidden",
+      "command": "::IACPluginRuntime::invoke cadence_ground_name_hidden",
       "danger_level": "low",
       "requires_confirmation": false,
       "show_in_platform": true,
       "show_in_cadence": false,
       "can_enable": true,
-      "module": "cadence/modules/gnd_net_visibility.tcl",
-      "cadence_name": "Hide GND Net Names"
+      "module": "cadence/entries/cadence_ground_name_hidden.tcl",
+      "cadence_name": "Hide GND Net Names",
+      "entry_script": "cadence/entries/cadence_ground_name_hidden.tcl",
+      "implementation_command": "::capMenuUtil::GroundNameHidden",
+      "implementation_module": "cadence/modules/gnd_net_visibility.tcl",
+      "activate_command": "::IACPluginRuntime::activate cadence_ground_name_hidden",
+      "deactivate_command": "::IACPluginRuntime::deactivate cadence_ground_name_hidden",
+      "activation": "hot_reload",
+      "compatible_capture_versions": [
+        "16.6",
+        "17.4"
+      ],
+      "load_priority": 20
     },
     {
       "id": "cadence_net_name_replace",
@@ -124,14 +157,25 @@
       "description": "打开网络名替换工具。",
       "category": "Cadence 脚本",
       "status": "disabled",
-      "command": "::capMenuUtil::showNetNameExchangeDialog",
+      "command": "::IACPluginRuntime::invoke cadence_net_name_replace",
       "danger_level": "medium",
       "requires_confirmation": true,
       "show_in_platform": true,
       "show_in_cadence": false,
       "can_enable": true,
-      "module": "cadence/modules/enhanced_core_tools.tcl",
-      "cadence_name": "Replace Net Names"
+      "module": "cadence/entries/cadence_net_name_replace.tcl",
+      "cadence_name": "Replace Net Names",
+      "entry_script": "cadence/entries/cadence_net_name_replace.tcl",
+      "implementation_command": "::capMenuUtil::showNetNameExchangeDialog",
+      "implementation_module": "cadence/modules/enhanced_core_tools.tcl",
+      "activate_command": "::IACPluginRuntime::activate cadence_net_name_replace",
+      "deactivate_command": "::IACPluginRuntime::deactivate cadence_net_name_replace",
+      "activation": "hot_reload",
+      "compatible_capture_versions": [
+        "16.6",
+        "17.4"
+      ],
+      "load_priority": 10
     },
     {
       "id": "cadence_nc_part_gray",
@@ -140,14 +184,25 @@
       "description": "将 NC 器件置灰。",
       "category": "Cadence 脚本",
       "status": "disabled",
-      "command": "::capMenuUtil::NcPartGrayed",
+      "command": "::IACPluginRuntime::invoke cadence_nc_part_gray",
       "danger_level": "medium",
       "requires_confirmation": true,
       "show_in_platform": true,
       "show_in_cadence": false,
       "can_enable": true,
-      "module": "cadence/modules/part_color_tools.tcl",
-      "cadence_name": "Gray NC Parts"
+      "module": "cadence/entries/cadence_nc_part_gray.tcl",
+      "cadence_name": "Gray NC Parts",
+      "entry_script": "cadence/entries/cadence_nc_part_gray.tcl",
+      "implementation_command": "::capMenuUtil::NcPartGrayed",
+      "implementation_module": "cadence/modules/part_color_tools.tcl",
+      "activate_command": "::IACPluginRuntime::activate cadence_nc_part_gray",
+      "deactivate_command": "::IACPluginRuntime::deactivate cadence_nc_part_gray",
+      "activation": "hot_reload",
+      "compatible_capture_versions": [
+        "16.6",
+        "17.4"
+      ],
+      "load_priority": 20
     },
     {
       "id": "cadence_restore_part_color",
@@ -156,14 +211,25 @@
       "description": "恢复器件默认颜色。",
       "category": "Cadence 脚本",
       "status": "disabled",
-      "command": "::capMenuUtil::RestorePartDefaultColor",
+      "command": "::IACPluginRuntime::invoke cadence_restore_part_color",
       "danger_level": "medium",
       "requires_confirmation": true,
       "show_in_platform": true,
       "show_in_cadence": false,
       "can_enable": true,
-      "module": "cadence/modules/part_color_tools.tcl",
-      "cadence_name": "Restore Part Colors"
+      "module": "cadence/entries/cadence_restore_part_color.tcl",
+      "cadence_name": "Restore Part Colors",
+      "entry_script": "cadence/entries/cadence_restore_part_color.tcl",
+      "implementation_command": "::capMenuUtil::RestorePartDefaultColor",
+      "implementation_module": "cadence/modules/part_color_tools.tcl",
+      "activate_command": "::IACPluginRuntime::activate cadence_restore_part_color",
+      "deactivate_command": "::IACPluginRuntime::deactivate cadence_restore_part_color",
+      "activation": "hot_reload",
+      "compatible_capture_versions": [
+        "16.6",
+        "17.4"
+      ],
+      "load_priority": 20
     },
     {
       "id": "cadence_grayed_part_value_nc",
@@ -172,14 +238,25 @@
       "description": "将灰色 NC 器件 Value 改为 NC。",
       "category": "Cadence 脚本",
       "status": "disabled",
-      "command": "::capMenuUtil::confirmGrayedPartToNC",
+      "command": "::IACPluginRuntime::invoke cadence_grayed_part_value_nc",
       "danger_level": "high",
       "requires_confirmation": true,
       "show_in_platform": true,
       "show_in_cadence": false,
       "can_enable": true,
-      "module": "cadence/modules/enhanced_core_tools.tcl",
-      "cadence_name": "Set Gray NC Value to NC"
+      "module": "cadence/entries/cadence_grayed_part_value_nc.tcl",
+      "cadence_name": "Set Gray NC Value to NC",
+      "entry_script": "cadence/entries/cadence_grayed_part_value_nc.tcl",
+      "implementation_command": "::capMenuUtil::confirmGrayedPartToNC",
+      "implementation_module": "cadence/modules/enhanced_core_tools.tcl",
+      "activate_command": "::IACPluginRuntime::activate cadence_grayed_part_value_nc",
+      "deactivate_command": "::IACPluginRuntime::deactivate cadence_grayed_part_value_nc",
+      "activation": "hot_reload",
+      "compatible_capture_versions": [
+        "16.6",
+        "17.4"
+      ],
+      "load_priority": 10
     },
     {
       "id": "cadence_reset_net_color",
@@ -188,14 +265,25 @@
       "description": "恢复网络名颜色。",
       "category": "Cadence 脚本",
       "status": "disabled",
-      "command": "::capMenuUtil::ResetNetnameColor",
+      "command": "::IACPluginRuntime::invoke cadence_reset_net_color",
       "danger_level": "low",
       "requires_confirmation": false,
       "show_in_platform": true,
       "show_in_cadence": false,
       "can_enable": true,
-      "module": "cadence/modules/reset_net_color.tcl",
-      "cadence_name": "Reset Net Name Colors"
+      "module": "cadence/entries/cadence_reset_net_color.tcl",
+      "cadence_name": "Reset Net Name Colors",
+      "entry_script": "cadence/entries/cadence_reset_net_color.tcl",
+      "implementation_command": "::capMenuUtil::ResetNetnameColor",
+      "implementation_module": "cadence/modules/reset_net_color.tcl",
+      "activate_command": "::IACPluginRuntime::activate cadence_reset_net_color",
+      "deactivate_command": "::IACPluginRuntime::deactivate cadence_reset_net_color",
+      "activation": "hot_reload",
+      "compatible_capture_versions": [
+        "16.6",
+        "17.4"
+      ],
+      "load_priority": 20
     },
     {
       "id": "cadence_randomize_net_names",
@@ -204,14 +292,25 @@
       "description": "随机化原理图网络名。",
       "category": "Cadence 脚本",
       "status": "disabled",
-      "command": "::capMenuUtil::confirmRandomizeNetNames",
+      "command": "::IACPluginRuntime::invoke cadence_randomize_net_names",
       "danger_level": "high",
       "requires_confirmation": true,
       "show_in_platform": true,
       "show_in_cadence": false,
       "can_enable": true,
-      "module": "cadence/modules/enhanced_core_tools.tcl",
-      "cadence_name": "Randomize Net Names"
+      "module": "cadence/entries/cadence_randomize_net_names.tcl",
+      "cadence_name": "Randomize Net Names",
+      "entry_script": "cadence/entries/cadence_randomize_net_names.tcl",
+      "implementation_command": "::capMenuUtil::confirmRandomizeNetNames",
+      "implementation_module": "cadence/modules/enhanced_core_tools.tcl",
+      "activate_command": "::IACPluginRuntime::activate cadence_randomize_net_names",
+      "deactivate_command": "::IACPluginRuntime::deactivate cadence_randomize_net_names",
+      "activation": "hot_reload",
+      "compatible_capture_versions": [
+        "16.6",
+        "17.4"
+      ],
+      "load_priority": 10
     },
     {
       "id": "cadence_delete_all_graphic",
@@ -220,14 +319,25 @@
       "description": "删除所有图形对象。",
       "category": "Cadence 脚本",
       "status": "disabled",
-      "command": "::capMenuUtil::confirmDeleteAllGraphic",
+      "command": "::IACPluginRuntime::invoke cadence_delete_all_graphic",
       "danger_level": "high",
       "requires_confirmation": true,
       "show_in_platform": true,
       "show_in_cadence": false,
       "can_enable": true,
-      "module": "cadence/modules/enhanced_core_tools.tcl",
-      "cadence_name": "Delete All Graphics"
+      "module": "cadence/entries/cadence_delete_all_graphic.tcl",
+      "cadence_name": "Delete All Graphics",
+      "entry_script": "cadence/entries/cadence_delete_all_graphic.tcl",
+      "implementation_command": "::capMenuUtil::confirmDeleteAllGraphic",
+      "implementation_module": "cadence/modules/enhanced_core_tools.tcl",
+      "activate_command": "::IACPluginRuntime::activate cadence_delete_all_graphic",
+      "deactivate_command": "::IACPluginRuntime::deactivate cadence_delete_all_graphic",
+      "activation": "hot_reload",
+      "compatible_capture_versions": [
+        "16.6",
+        "17.4"
+      ],
+      "load_priority": 10
     },
     {
       "id": "cadence_delete_text_titleblocks",
@@ -236,14 +346,25 @@
       "description": "删除文本和标题栏。",
       "category": "Cadence 脚本",
       "status": "disabled",
-      "command": "::capMenuUtil::confirmDeleteTextTitleblocks",
+      "command": "::IACPluginRuntime::invoke cadence_delete_text_titleblocks",
       "danger_level": "high",
       "requires_confirmation": true,
       "show_in_platform": true,
       "show_in_cadence": false,
       "can_enable": true,
-      "module": "cadence/modules/enhanced_core_tools.tcl",
-      "cadence_name": "Delete Text and Title Blocks"
+      "module": "cadence/entries/cadence_delete_text_titleblocks.tcl",
+      "cadence_name": "Delete Text and Title Blocks",
+      "entry_script": "cadence/entries/cadence_delete_text_titleblocks.tcl",
+      "implementation_command": "::capMenuUtil::confirmDeleteTextTitleblocks",
+      "implementation_module": "cadence/modules/enhanced_core_tools.tcl",
+      "activate_command": "::IACPluginRuntime::activate cadence_delete_text_titleblocks",
+      "deactivate_command": "::IACPluginRuntime::deactivate cadence_delete_text_titleblocks",
+      "activation": "hot_reload",
+      "compatible_capture_versions": [
+        "16.6",
+        "17.4"
+      ],
+      "load_priority": 10
     },
     {
       "id": "cadence_hide_u_value",
@@ -252,14 +373,25 @@
       "description": "隐藏 U 器件 Value。",
       "category": "Cadence 脚本",
       "status": "disabled",
-      "command": "::capMenuUtil::confirmHideUcomponent",
+      "command": "::IACPluginRuntime::invoke cadence_hide_u_value",
       "danger_level": "medium",
       "requires_confirmation": true,
       "show_in_platform": true,
       "show_in_cadence": false,
       "can_enable": true,
-      "module": "cadence/modules/display_visibility_tools.tcl",
-      "cadence_name": "Hide U Value"
+      "module": "cadence/entries/cadence_hide_u_value.tcl",
+      "cadence_name": "Hide U Value",
+      "entry_script": "cadence/entries/cadence_hide_u_value.tcl",
+      "implementation_command": "::capMenuUtil::confirmHideUcomponent",
+      "implementation_module": "cadence/modules/display_visibility_tools.tcl",
+      "activate_command": "::IACPluginRuntime::activate cadence_hide_u_value",
+      "deactivate_command": "::IACPluginRuntime::deactivate cadence_hide_u_value",
+      "activation": "hot_reload",
+      "compatible_capture_versions": [
+        "16.6",
+        "17.4"
+      ],
+      "load_priority": 20
     },
     {
       "id": "cadence_show_u_value",
@@ -268,14 +400,25 @@
       "description": "显示 U 器件 Value。",
       "category": "Cadence 脚本",
       "status": "disabled",
-      "command": "::capMenuUtil::confirmShowUcomponent",
+      "command": "::IACPluginRuntime::invoke cadence_show_u_value",
       "danger_level": "medium",
       "requires_confirmation": true,
       "show_in_platform": true,
       "show_in_cadence": false,
       "can_enable": true,
-      "module": "cadence/modules/display_visibility_tools.tcl",
-      "cadence_name": "Show U Value"
+      "module": "cadence/entries/cadence_show_u_value.tcl",
+      "cadence_name": "Show U Value",
+      "entry_script": "cadence/entries/cadence_show_u_value.tcl",
+      "implementation_command": "::capMenuUtil::confirmShowUcomponent",
+      "implementation_module": "cadence/modules/display_visibility_tools.tcl",
+      "activate_command": "::IACPluginRuntime::activate cadence_show_u_value",
+      "deactivate_command": "::IACPluginRuntime::deactivate cadence_show_u_value",
+      "activation": "hot_reload",
+      "compatible_capture_versions": [
+        "16.6",
+        "17.4"
+      ],
+      "load_priority": 20
     },
     {
       "id": "cadence_hide_all_value",
@@ -284,14 +427,25 @@
       "description": "隐藏所有器件 Value。",
       "category": "Cadence 脚本",
       "status": "disabled",
-      "command": "::capMenuUtil::confirmHideALLcomponent",
+      "command": "::IACPluginRuntime::invoke cadence_hide_all_value",
       "danger_level": "high",
       "requires_confirmation": true,
       "show_in_platform": true,
       "show_in_cadence": false,
       "can_enable": true,
-      "module": "cadence/modules/display_visibility_tools.tcl",
-      "cadence_name": "Hide All Values"
+      "module": "cadence/entries/cadence_hide_all_value.tcl",
+      "cadence_name": "Hide All Values",
+      "entry_script": "cadence/entries/cadence_hide_all_value.tcl",
+      "implementation_command": "::capMenuUtil::confirmHideALLcomponent",
+      "implementation_module": "cadence/modules/display_visibility_tools.tcl",
+      "activate_command": "::IACPluginRuntime::activate cadence_hide_all_value",
+      "deactivate_command": "::IACPluginRuntime::deactivate cadence_hide_all_value",
+      "activation": "hot_reload",
+      "compatible_capture_versions": [
+        "16.6",
+        "17.4"
+      ],
+      "load_priority": 20
     },
     {
       "id": "cadence_show_all_value",
@@ -300,14 +454,25 @@
       "description": "显示所有器件 Value。",
       "category": "Cadence 脚本",
       "status": "disabled",
-      "command": "::capMenuUtil::confirmShowALLcomponent",
+      "command": "::IACPluginRuntime::invoke cadence_show_all_value",
       "danger_level": "high",
       "requires_confirmation": true,
       "show_in_platform": true,
       "show_in_cadence": false,
       "can_enable": true,
-      "module": "cadence/modules/display_visibility_tools.tcl",
-      "cadence_name": "Show All Values"
+      "module": "cadence/entries/cadence_show_all_value.tcl",
+      "cadence_name": "Show All Values",
+      "entry_script": "cadence/entries/cadence_show_all_value.tcl",
+      "implementation_command": "::capMenuUtil::confirmShowALLcomponent",
+      "implementation_module": "cadence/modules/display_visibility_tools.tcl",
+      "activate_command": "::IACPluginRuntime::activate cadence_show_all_value",
+      "deactivate_command": "::IACPluginRuntime::deactivate cadence_show_all_value",
+      "activation": "hot_reload",
+      "compatible_capture_versions": [
+        "16.6",
+        "17.4"
+      ],
+      "load_priority": 20
     },
     {
       "id": "cadence_hide_u_pin_names",
@@ -316,14 +481,25 @@
       "description": "隐藏 U 器件 Pin 名。",
       "category": "Cadence 脚本",
       "status": "disabled",
-      "command": "::capMenuUtil::confirmHideUPinNames",
+      "command": "::IACPluginRuntime::invoke cadence_hide_u_pin_names",
       "danger_level": "medium",
       "requires_confirmation": true,
       "show_in_platform": true,
       "show_in_cadence": false,
       "can_enable": true,
-      "module": "cadence/modules/display_visibility_tools.tcl",
-      "cadence_name": "Hide U Pin Names"
+      "module": "cadence/entries/cadence_hide_u_pin_names.tcl",
+      "cadence_name": "Hide U Pin Names",
+      "entry_script": "cadence/entries/cadence_hide_u_pin_names.tcl",
+      "implementation_command": "::capMenuUtil::confirmHideUPinNames",
+      "implementation_module": "cadence/modules/display_visibility_tools.tcl",
+      "activate_command": "::IACPluginRuntime::activate cadence_hide_u_pin_names",
+      "deactivate_command": "::IACPluginRuntime::deactivate cadence_hide_u_pin_names",
+      "activation": "hot_reload",
+      "compatible_capture_versions": [
+        "16.6",
+        "17.4"
+      ],
+      "load_priority": 20
     },
     {
       "id": "cadence_required_sanitize",
@@ -332,14 +508,25 @@
       "description": "按要求脱敏 Value 和规格型号，并生成恢复文件。",
       "category": "Cadence 脚本",
       "status": "available",
-      "command": "::capRequiredSanitize::sanitizeFromMenu",
+      "command": "::IACPluginRuntime::invoke cadence_required_sanitize",
       "danger_level": "high",
       "requires_confirmation": true,
       "show_in_platform": true,
       "show_in_cadence": false,
       "can_enable": true,
-      "module": "cadence/modules/enhanced_core_tools.tcl",
-      "cadence_name": "Required Sanitization"
+      "module": "cadence/entries/cadence_required_sanitize.tcl",
+      "cadence_name": "Required Sanitization",
+      "entry_script": "cadence/entries/cadence_required_sanitize.tcl",
+      "implementation_command": "::capRequiredSanitize::sanitizeFromMenu",
+      "implementation_module": "cadence/modules/enhanced_core_tools.tcl",
+      "activate_command": "::IACPluginRuntime::activate cadence_required_sanitize",
+      "deactivate_command": "::IACPluginRuntime::deactivate cadence_required_sanitize",
+      "activation": "hot_reload",
+      "compatible_capture_versions": [
+        "16.6",
+        "17.4"
+      ],
+      "load_priority": 10
     },
     {
       "id": "cadence_required_restore",
@@ -348,14 +535,25 @@
       "description": "从最近一次本地恢复文件恢复 Value 和规格型号。",
       "category": "Cadence 脚本",
       "status": "disabled",
-      "command": "::capRequiredSanitize::restoreFromMenu",
+      "command": "::IACPluginRuntime::invoke cadence_required_restore",
       "danger_level": "high",
       "requires_confirmation": true,
       "show_in_platform": true,
       "show_in_cadence": false,
       "can_enable": true,
-      "module": "cadence/modules/enhanced_core_tools.tcl",
-      "cadence_name": "Restore Required Sanitization"
+      "module": "cadence/entries/cadence_required_restore.tcl",
+      "cadence_name": "Restore Required Sanitization",
+      "entry_script": "cadence/entries/cadence_required_restore.tcl",
+      "implementation_command": "::capRequiredSanitize::restoreFromMenu",
+      "implementation_module": "cadence/modules/enhanced_core_tools.tcl",
+      "activate_command": "::IACPluginRuntime::activate cadence_required_restore",
+      "deactivate_command": "::IACPluginRuntime::deactivate cadence_required_restore",
+      "activation": "hot_reload",
+      "compatible_capture_versions": [
+        "16.6",
+        "17.4"
+      ],
+      "load_priority": 10
     },
     {
       "id": "cadence_schematic_obfuscation",
@@ -364,14 +562,25 @@
       "description": "对原理图关键信息执行一键混淆。",
       "category": "Cadence 脚本",
       "status": "disabled",
-      "command": "::capMenuUtil::confirmSchematicObfuscation",
+      "command": "::IACPluginRuntime::invoke cadence_schematic_obfuscation",
       "danger_level": "high",
       "requires_confirmation": true,
       "show_in_platform": true,
       "show_in_cadence": false,
       "can_enable": true,
-      "module": "cadence/modules/enhanced_core_tools.tcl",
-      "cadence_name": "Schematic Obfuscation"
+      "module": "cadence/entries/cadence_schematic_obfuscation.tcl",
+      "cadence_name": "Schematic Obfuscation",
+      "entry_script": "cadence/entries/cadence_schematic_obfuscation.tcl",
+      "implementation_command": "::capMenuUtil::confirmSchematicObfuscation",
+      "implementation_module": "cadence/modules/enhanced_core_tools.tcl",
+      "activate_command": "::IACPluginRuntime::activate cadence_schematic_obfuscation",
+      "deactivate_command": "::IACPluginRuntime::deactivate cadence_schematic_obfuscation",
+      "activation": "hot_reload",
+      "compatible_capture_versions": [
+        "16.6",
+        "17.4"
+      ],
+      "load_priority": 10
     }
   ]
 }

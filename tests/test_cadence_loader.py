@@ -142,18 +142,23 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
             self.assertNotIn("未配置英文名", decoded)
             decoded.encode("ascii")
 
-    def test_every_cadence_capability_points_to_existing_module_proc(self) -> None:
+    def test_every_cadence_capability_points_to_existing_entry_and_implementation_proc(self) -> None:
         data = json.loads((ROOT / "config" / "capabilities.json").read_text(encoding="utf-8"))
         for item in data["capabilities"]:
             if item.get("type") != "cadence_tcl":
                 continue
-            module = item.get("module")
-            command = item.get("command", "")
-            self.assertTrue(module, item["id"])
-            module_path = ROOT / module
-            self.assertTrue(module_path.exists(), f"{item['id']} missing module {module}")
-            text = module_path.read_text(encoding="utf-8")
-            self.assertIn(f"proc {command}", text, f"{item['id']} command {command} is not defined by {module}")
+            entry = item.get("entry_script")
+            implementation_module = item.get("implementation_module")
+            implementation_command = item.get("implementation_command", "")
+            self.assertEqual(item.get("module"), entry, item["id"])
+            self.assertEqual(item.get("command"), f"::IACPluginRuntime::invoke {item['id']}")
+            self.assertTrue(entry, item["id"])
+            self.assertTrue(implementation_module, item["id"])
+            entry_text = (ROOT / entry).read_text(encoding="utf-8")
+            implementation_text = (ROOT / implementation_module).read_text(encoding="utf-8")
+            self.assertIn(f'::IACPluginRuntime::register "{item["id"]}"', entry_text)
+            self.assertIn(f'"{implementation_command}"', entry_text)
+            self.assertIn(f"proc {implementation_command}", implementation_text)
 
     def test_cadence_modules_do_not_pass_literal_plib_to_implementation(self) -> None:
         for path in sorted((ROOT / "cadence" / "modules").glob("*.tcl")):
@@ -374,7 +379,7 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
             )
 
             decoded = out.read_bytes().decode("gbk")
-            self.assertIn('source "$::IAC_ROOT/cadence/modules/demo.tcl"', decoded)
+            self.assertIn('::IAC::SourceModuleOnce "$::IAC_ROOT/cadence/modules/demo.tcl"', decoded)
             self.assertIn('AddAccessoryMenu "insta360_HW" "enabled" "::Demo::Run"', decoded)
             self.assertNotIn('AddAccessoryMenu "insta360_HW" "Open Platform"', decoded)
             self.assertNotIn('AddAccessoryMenu "insta360_HW" "Export and Process BOM"', decoded)
@@ -419,7 +424,7 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
             )
 
             decoded = out.read_bytes().decode("gbk")
-            self.assertIn('source "$::IAC_ROOT/plugins/user/scripts/demo.tcl"', decoded)
+            self.assertIn('::IAC::SourceModuleOnce "$::IAC_ROOT/plugins/user/scripts/demo.tcl"', decoded)
             self.assertIn('AddAccessoryMenu "insta360_HW" "User Demo" "::Demo::Run"', decoded)
 
     @unittest.skipUnless(sys.platform == "win32", "windows only")
@@ -472,10 +477,11 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
 
             enabled = enabled_loader.read_bytes().decode("gbk")
             disabled = disabled_loader.read_bytes().decode("gbk")
-            self.assertIn('source "$::IAC_ROOT/cadence/modules/nc_toggle_selected.tcl"', enabled)
+            self.assertIn('::IAC::SourceModuleOnce "$::IAC_ROOT/cadence/entries/cadence_nc_toggle.tcl"', enabled)
             self.assertIn('AddAccessoryMenu "insta360_HW" "Toggle Selected NC (Ctrl+Q)"', enabled)
             self.assertIn('::IAC::SetShortcut "cadence_nc_toggle" 1', enabled)
             self.assertIn('::IAC::SetShortcut "cadence_nc_toggle" 0', disabled)
+            self.assertNotIn('::IAC::SourceModuleOnce "$::IAC_ROOT/cadence/entries/cadence_nc_toggle.tcl"', disabled)
             self.assertNotIn('AddAccessoryMenu "insta360_HW" "Toggle Selected NC (Ctrl+Q)"', disabled)
 
     @unittest.skipUnless(sys.platform == "win32", "windows only")
@@ -518,7 +524,7 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
             )
 
             decoded = out.read_bytes().decode("gbk")
-            self.assertIn('source "$::IAC_ROOT/plugins/user/scripts/demo.tcl"', decoded)
+            self.assertIn('::IAC::SourceModuleOnce "$::IAC_ROOT/plugins/user/scripts/demo.tcl"', decoded)
             self.assertIn('AddAccessoryMenu "insta360_HW" "User Demo" "::Demo::Run"', decoded)
 
     def test_capability_registry_requires_modules_for_enableable_cadence_scripts(self) -> None:
@@ -548,7 +554,8 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
                 "cadence_schematic_obfuscation",
             }:
                 self.assertTrue(item["can_enable"])
-                self.assertTrue(item["module"].startswith("cadence/modules/"))
+                self.assertTrue(item["module"].startswith("cadence/entries/"))
+                self.assertEqual(item["module"], item["entry_script"])
             else:
                 self.assertFalse(item.get("can_enable", False), item["id"])
 
@@ -569,8 +576,10 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
         for script_id, command in expected.items():
             item = by_id[script_id]
             self.assertTrue(item["can_enable"], script_id)
-            self.assertEqual(item["command"], command)
-            self.assertEqual(item["module"], "cadence/modules/enhanced_core_tools.tcl")
+            self.assertEqual(item["command"], f"::IACPluginRuntime::invoke {script_id}")
+            self.assertEqual(item["implementation_command"], command)
+            self.assertEqual(item["implementation_module"], "cadence/modules/enhanced_core_tools.tcl")
+            self.assertEqual(item["entry_script"], f"cadence/entries/{script_id}.tcl")
             self.assertFalse(item["show_in_cadence"])
             self.assertTrue(item["requires_confirmation"])
 
@@ -610,7 +619,8 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
         self.assertEqual(item["shortcut_context"], "Schematic")
         self.assertEqual(item["enabled_command"], "::capNCToggleSelected::enabled")
         self.assertEqual(item["shortcut_action"], "insta360_HW_nc_toggle")
-        self.assertEqual(item["shortcut_command"], "::capNCToggleSelected::toggleImpl")
+        self.assertEqual(item["shortcut_command"], "::IACPluginRuntime::invoke cadence_nc_toggle")
+        self.assertEqual(item["activation"], "restart")
         self.assertIn("proc ::capNCToggleSelected::toggleImpl", module)
         self.assertIn("proc ::capNCToggleSelected::isMounted", module)
         self.assertIn("::IAC::ShortcutEnabled cadence_nc_toggle", module)
@@ -642,17 +652,19 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
             )
 
             decoded = out.read_bytes().decode("gbk")
-            self.assertIn('source "$::IAC_ROOT/cadence/modules/nc_toggle_selected.tcl"', decoded)
+            self.assertIn('::IAC::SourceModuleOnce "$::IAC_ROOT/cadence/entries/cadence_nc_toggle.tcl"', decoded)
             self.assertIn('AddAccessoryMenu "insta360_HW"', decoded)
             self.assertIn('"Toggle Selected NC (Ctrl+Q)"', decoded)
-            self.assertIn('"::capNCToggleSelected::toggleFromMenu"', decoded)
+            self.assertIn('"::IACPluginRuntime::invoke cadence_nc_toggle"', decoded)
             self.assertIn("proc RunShortcut", decoded)
             self.assertIn('::IAC::SetShortcut "cadence_nc_toggle" 1', decoded)
             self.assertIn('RegisterAction "insta360_HW_nc_toggle"', decoded)
             self.assertNotIn('RegisterAction "cadence_nc_toggle_shortcut" "::IAC::shouldProcess" "" "" ""', decoded)
             self.assertNotIn('RegisterAction "NC Toggle Selected Parts"', decoded)
             self.assertNotIn('RegisterAction "NC Toggle Selected Parts" "::IAC::shouldProcess" "" "" ""', decoded)
-            self.assertIn('::IAC::SetShortcut "cadence_nc_toggle" 1 "::capNCToggleSelected::toggleImpl"', decoded)
+            self.assertIn('::IAC::SetShortcut "cadence_nc_toggle" 1 "::IACPluginRuntime::invoke cadence_nc_toggle"', decoded)
+            self.assertIn('::IAC::RegisterPluginLifecycle "cadence_nc_toggle"', decoded)
+            self.assertIn('::IAC::ActivatePlugin cadence_nc_toggle', decoded)
             self.assertIn('"::IAC::ShortcutEnabled cadence_nc_toggle" "Ctrl+Q" "::IAC::RunShortcut cadence_nc_toggle" "Schematic"', decoded)
             self.assertIn("shortcut registered: insta360_HW_nc_toggle Ctrl+Q", decoded)
             shortcut_index = decoded.index('RegisterAction "insta360_HW_nc_toggle"')
@@ -694,7 +706,7 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
             self.assertNotIn('RegisterAction "NC Toggle Selected Parts"', decoded)
             self.assertIn('"::IAC::ShortcutEnabled cadence_nc_toggle" "Ctrl+Q" "::IAC::RunShortcut cadence_nc_toggle" "Schematic"', decoded)
             self.assertNotIn('RegisterAction "NC Toggle Selected Parts" "::IAC::shouldProcess" "" "" ""', decoded)
-            self.assertIn('source "$::IAC_ROOT/cadence/modules/nc_toggle_selected.tcl"', decoded.split("proc ::IAC::addAccessoryMenu", 1)[0])
+            self.assertNotIn('::IAC::SourceModuleOnce "$::IAC_ROOT/cadence/entries/cadence_nc_toggle.tcl"', decoded)
 
     @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_installed_loader_reads_user_plugins_from_external_state_root(self) -> None:
@@ -756,7 +768,7 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
 
             decoded = out.read_bytes().decode("gbk")
             expected_script = script.resolve().as_posix()
-            self.assertIn(f'::IAC::SourceModule "{expected_script}"', decoded)
+            self.assertIn(f'::IAC::SourceModuleOnce "{expected_script}"', decoded)
             self.assertIn('AddAccessoryMenu "insta360_HW" "External Tool" "::externalTool::run"', decoded)
             self.assertNotIn('$::IAC_ROOT/plugins/user/external_tool.tcl', decoded)
 
@@ -800,10 +812,8 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             root = tmp_path / "tool"
-            (root / "cadence" / "modules").mkdir(parents=True)
+            shutil.copytree(ROOT / "cadence", root / "cadence")
             (root / "config").mkdir()
-            (root / "cadence" / "iac_bom_tool.tcl").write_text((ROOT / "cadence" / "iac_bom_tool.tcl").read_text(encoding="utf-8"), encoding="utf-8")
-            (root / "cadence" / "modules" / "gnd_net_visibility.tcl").write_text("proc ::capMenuUtil::GroundNameVisible {} {}\nproc ::capMenuUtil::GroundNameHidden {} {}\n", encoding="utf-8")
             data = json.loads((ROOT / "config" / "capabilities.json").read_text(encoding="utf-8"))
             for item in data["capabilities"]:
                 if item["id"] in {"cadence_ground_name_visible", "cadence_ground_name_hidden"}:
@@ -824,9 +834,10 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
             )
 
             decoded = out.read_bytes().decode("gbk")
-            self.assertIn('source "$::IAC_ROOT/cadence/modules/gnd_net_visibility.tcl"', decoded)
-            self.assertIn('AddAccessoryMenu "insta360_HW" "Show GND Net Names" "::capMenuUtil::GroundNameVisible"', decoded)
-            self.assertIn('AddAccessoryMenu "insta360_HW" "Hide GND Net Names" "::capMenuUtil::GroundNameHidden"', decoded)
+            self.assertIn('::IAC::SourceModuleOnce "$::IAC_ROOT/cadence/entries/cadence_ground_name_visible.tcl"', decoded)
+            self.assertIn('::IAC::SourceModuleOnce "$::IAC_ROOT/cadence/entries/cadence_ground_name_hidden.tcl"', decoded)
+            self.assertIn('AddAccessoryMenu "insta360_HW" "Show GND Net Names" "::IACPluginRuntime::invoke cadence_ground_name_visible"', decoded)
+            self.assertIn('AddAccessoryMenu "insta360_HW" "Hide GND Net Names" "::IACPluginRuntime::invoke cadence_ground_name_hidden"', decoded)
             self.assertNotIn("RegisterAction \"_cdnCapTclAddDesignCustomMenu\" \"::capMenuUtil", decoded)
 
 

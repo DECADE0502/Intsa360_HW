@@ -24,6 +24,12 @@ function sourceTag(value: string) {
   return <Tag color="blue">自定义</Tag>;
 }
 
+function activationTag(value?: PluginInfo["activation"]) {
+  if (value === "restart") return <Tag color="orange">需重启 Capture</Tag>;
+  if (value === "hot_reload") return <Tag color="cyan">支持热更新</Tag>;
+  return <Tag>由脚本决定</Tag>;
+}
+
 export function ScriptManager({
   plugins,
   onPluginChange,
@@ -68,7 +74,11 @@ export function ScriptManager({
       const updated = await setPluginCadenceMenuVisibility(item.id, checked);
       onPluginChange(updated);
       await refreshList(false);
-      message.success(checked ? "已挂载到 Cadence 菜单" : "已从 Cadence 菜单移除");
+      if (updated.activation === "restart") {
+        message.success(checked ? "已挂载，重启 Capture 后快捷键生效" : "已移除，重启 Capture 后完成解绑");
+      } else {
+        message.success(checked ? "已挂载，请执行下方热更新指令" : "已移除，请执行下方热更新指令");
+      }
     } catch (err: any) {
       message.error(err.message || "菜单状态更新失败");
     } finally {
@@ -91,6 +101,12 @@ export function ScriptManager({
       dataIndex: "danger_level",
       width: 90,
       render: (value: string) => <Tag color={dangerColor(value)}>{dangerText[value] || "未分级"}</Tag>,
+    },
+    {
+      title: "生效方式",
+      dataIndex: "activation",
+      width: 130,
+      render: activationTag,
     },
     {
       title: "菜单状态",
@@ -143,7 +159,8 @@ export function ScriptManager({
         <div>
           <Typography.Title level={3}>插件管理</Typography.Title>
           <Typography.Text type="secondary">
-            Cadence 官方脚本只做识别和查看；平台自带脚本与自定义脚本可管理，启用后统一挂载到 Capture 的 insta360_HW 菜单。
+            Cadence 官方脚本只做识别和查看；平台与自定义脚本统一挂载到 insta360_HW 菜单。快速 NC 切换需重启
+            Capture，其余平台脚本可使用下方指令热更新。
           </Typography.Text>
         </div>
         <Button icon={<RefreshCw size={16} />} loading={refreshing} onClick={() => refreshList()}>

@@ -10,9 +10,39 @@ from app.backend.paths import AppPaths
 
 
 PLUGIN_MENU = "insta360_HW"
-DEFAULT_CADENCE_SYSTEM_SCRIPT_DIRS = [
-    Path(r"D:\CADENCE\Cadence\SPB_17.4\tools\capture\tclscripts\capAutoLoad"),
-]
+SUPPORTED_CAPTURE_VERSIONS = ("16.6", "17.4")
+DEFAULT_CADENCE_DRIVE_ROOTS = (Path("C:/"), Path("D:/"))
+
+
+def discover_cadence_system_script_dirs(drive_roots: Iterable[Path] | None = None) -> list[Path]:
+    """Return existing vendor capAutoLoad directories without scanning whole drives."""
+    roots = [Path(item) for item in (drive_roots or DEFAULT_CADENCE_DRIVE_ROOTS)]
+    discovered: list[Path] = []
+    seen: set[str] = set()
+    for drive_root in roots:
+        for vendor_root in (drive_root / "Cadence", drive_root / "Cadence" / "Cadence"):
+            for version in SUPPORTED_CAPTURE_VERSIONS:
+                candidate = (
+                    vendor_root
+                    / f"SPB_{version}"
+                    / "tools"
+                    / "capture"
+                    / "tclscripts"
+                    / "capAutoLoad"
+                )
+                if not candidate.is_dir():
+                    continue
+                resolved = candidate.resolve()
+                key = str(resolved).casefold()
+                if key in seen:
+                    continue
+                seen.add(key)
+                discovered.append(resolved)
+    return discovered
+
+
+# Kept as a patchable compatibility seam for callers that provide fixed test or enterprise roots.
+DEFAULT_CADENCE_SYSTEM_SCRIPT_DIRS = discover_cadence_system_script_dirs()
 
 
 def _safe_plugin_child(base: Path, requested: str) -> Path:
@@ -85,6 +115,11 @@ def _platform_plugin_from_capability(platform: dict[str, Any], item: dict[str, A
     plugin.setdefault("danger_level", "medium")
     if plugin.get("module"):
         plugin["module"] = str(plugin["module"]).replace("\\", "/")
+    if plugin.get("entry_script"):
+        plugin["entry_script"] = str(plugin["entry_script"]).replace("\\", "/")
+    plugin.setdefault("entry_script", plugin.get("module", ""))
+    plugin.setdefault("activation", "hot_reload")
+    plugin.setdefault("compatible_capture_versions", list(SUPPORTED_CAPTURE_VERSIONS))
     return plugin
 
 
@@ -140,6 +175,9 @@ def _load_manifest(path: Path, source: str) -> dict[str, Any]:
         except ValueError:
             plugin["module"] = script_path.as_posix()
         plugin["script"] = script.replace("\\", "/")
+        plugin.setdefault("entry_script", plugin["module"])
+        plugin.setdefault("activation", "hot_reload")
+        plugin.setdefault("compatible_capture_versions", list(SUPPORTED_CAPTURE_VERSIONS))
     return plugin
 
 
@@ -238,8 +276,5 @@ def set_plugin_cadence_menu_visibility(
     if show_in_cadence:
         _require_existing_manifest_script(path, data)
 
-    data["show_in_cadence"] = bool(show_in_cadence)
-    data["status"] = "available" if show_in_cadence else "disabled"
     PluginStateRepository(root).set_enabled(plugin_id, bool(show_in_cadence))
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return _apply_plugin_state(_load_manifest(path, "user"), PluginStateRepository(root))

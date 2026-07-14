@@ -173,62 +173,106 @@ function Apply-HwAgentPluginStateOverrides {
   return $Items
 }
 
+function Get-HwAgentCadenceItems {
+  param(
+    [Parameter(Mandatory=$true)][string]$ToolRoot,
+    [string]$PluginStatePath
+  )
+  $statePath = Get-HwAgentPluginStatePath -ToolRoot $ToolRoot -PluginStatePath $PluginStatePath
+  $items = @()
+  $capabilitiesPath = Join-Path $ToolRoot "config\capabilities.json"
+  if (Test-Path -LiteralPath $capabilitiesPath -PathType Leaf) {
+    $data = Get-Content -LiteralPath $capabilitiesPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $items += @($data.capabilities)
+  }
+  $items += @(Get-HwAgentCadenceUserPluginItems -ToolRoot $ToolRoot -PluginStatePath $statePath)
+  return @(Apply-HwAgentPluginStateOverrides -Items $items -Overrides (Get-HwAgentPluginStateOverrides -PluginStatePath $statePath))
+}
+
+function Get-HwAgentCadenceEntryScript {
+  param([Parameter(Mandatory=$true)]$Object)
+  if (Test-HwAgentProperty -Object $Object -Name "entry_script") {
+    return [string]$Object.entry_script
+  }
+  if (Test-HwAgentProperty -Object $Object -Name "module") {
+    return [string]$Object.module
+  }
+  return ""
+}
+
+function Get-HwAgentCadenceLoadPriority {
+  param([Parameter(Mandatory=$true)]$Object)
+  if ($null -ne $Object.PSObject.Properties["load_priority"]) {
+    return [int]$Object.load_priority
+  }
+  return 100
+}
+
+function Get-HwAgentCadenceSourceLine {
+  param(
+    [Parameter(Mandatory=$true)]$Object,
+    [Parameter(Mandatory=$true)][string]$Indent
+  )
+  $entryScript = Get-HwAgentCadenceEntryScript -Object $Object
+  if ([string]::IsNullOrWhiteSpace($entryScript)) { return "" }
+  $entryScript = Escape-TclPathLiteral $entryScript
+  if ((Test-HwAgentProperty -Object $Object -Name "module_absolute") -and $Object.module_absolute -eq $true) {
+    return ($Indent + '::IAC::SourceModuleOnce "' + $entryScript + '"')
+  }
+  return ($Indent + '::IAC::SourceModuleOnce "$::IAC_ROOT/' + $entryScript + '"')
+}
+
+function Get-HwAgentCadenceLifecycleLines {
+  param(
+    [Parameter(Mandatory=$true)]$Object,
+    [Parameter(Mandatory=$true)][string]$Indent
+  )
+  if (-not (Test-HwAgentProperty -Object $Object -Name "activate_command") -or
+      -not (Test-HwAgentProperty -Object $Object -Name "deactivate_command")) {
+    return @()
+  }
+  $itemId = Escape-TclMenuText ([string]$Object.id)
+  $activate = Escape-TclMenuText ([string]$Object.activate_command)
+  $deactivate = Escape-TclMenuText ([string]$Object.deactivate_command)
+  return @(
+    ($Indent + '::IAC::RegisterPluginLifecycle "' + $itemId + '" "' + $activate + '" "' + $deactivate + '"'),
+    ($Indent + '::IAC::ActivatePlugin ' + $itemId)
+  )
+}
+
 function Get-EnabledCadenceMenuItems {
   param(
     [Parameter(Mandatory=$true)][string]$ToolRoot,
     [string]$PluginStatePath
   )
   $lines = @()
-  $statePath = Get-HwAgentPluginStatePath -ToolRoot $ToolRoot -PluginStatePath $PluginStatePath
+  $items = @(Get-HwAgentCadenceItems -ToolRoot $ToolRoot -PluginStatePath $PluginStatePath)
+  $enabledItems = @($items | Where-Object { $_.type -eq "cadence_tcl" -and $_.show_in_cadence -eq $true })
+  $menuLoadItems = @(
+    $enabledItems |
+      Where-Object { -not (Test-HwAgentProperty -Object $_ -Name "shortcut") } |
+      Sort-Object @{ Expression = { Get-HwAgentCadenceLoadPriority -Object $_ } }, @{ Expression = { [string]$_.id } }
+  )
 
-  $items = @()
-  $capabilitiesPath = Join-Path $ToolRoot "config\capabilities.json"
-  if (Test-Path -LiteralPath $capabilitiesPath) {
-    $data = Get-Content -LiteralPath $capabilitiesPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    $items += @($data.capabilities)
+  # Load every enabled entry first so shared implementation ordering is deterministic.
+  foreach ($item in $menuLoadItems) {
+    $sourceLine = Get-HwAgentCadenceSourceLine -Object $item -Indent "        "
+    if ($sourceLine) { $lines += $sourceLine }
+  }
+  foreach ($item in $menuLoadItems) {
+    $lines += @(Get-HwAgentCadenceLifecycleLines -Object $item -Indent "        ")
   }
 
-  $items += @(Get-HwAgentCadenceUserPluginItems -ToolRoot $ToolRoot -PluginStatePath $statePath)
-  $items = @(Apply-HwAgentPluginStateOverrides -Items $items -Overrides (Get-HwAgentPluginStateOverrides -PluginStatePath $statePath))
-
-  $registeredNamespaces = @{}
-
-  foreach ($item in @($items)) {
-    if ($item.type -ne "cadence_tcl") { continue }
-    # 收集要清理的 namespace
-    if ($item.module) {
-      $ns = [string]$item.command
-      if ($ns -match '^(::[^:]+)') {
-        $nsName = $matches[1]
-        if ((-not (Test-HwAgentProperty -Object $item -Name "shortcut")) -and -not $registeredNamespaces.ContainsKey($nsName)) {
-          $registeredNamespaces[$nsName] = $true
-        }
-      }
-    }
-    if ($item.show_in_cadence -ne $true) { continue }
+  # Preserve capability order for the visible menu.
+  foreach ($item in $enabledItems) {
     $name = Escape-TclMenuText (Get-HwAgentCadenceMenuName -Object $item)
     if (Test-HwAgentProperty -Object $item -Name "shortcut") {
       $name = Escape-TclMenuText ((Get-HwAgentCadenceMenuName -Object $item) + " (" + ([string]$item.shortcut) + ")")
     }
     $command = Escape-TclMenuText ([string]$item.command)
-    if ($item.module) {
-      $module = Escape-TclPathLiteral ([string]$item.module)
-      if ((Test-HwAgentProperty -Object $item -Name "module_absolute") -and $item.module_absolute -eq $true) {
-        $lines += ('        ::IAC::SourceModule "' + $module + '"')
-      } else {
-        $lines += ('        source "$::IAC_ROOT/' + $module + '"')
-      }
-    }
     $lines += ('        AddAccessoryMenu "insta360_HW" "' + $name + '" "' + $command + '"')
   }
-
-  # 生成 cleanup 块：放在 addAccessory proc 开头，加载新内容前先清理旧残留
-  $cleanupLines = @('        # ---- cleanup old module state (hot-reload safe) ----')
-  foreach ($nsName in ($registeredNamespaces.Keys | Sort-Object)) {
-    $cleanupLines += ('        catch {namespace delete ' + $nsName + '}')
-  }
-  $cleanup = ($cleanupLines -join "`r`n")
-  return ($cleanup + "`r`n" + ($lines -join "`r`n"))
+  return ($lines -join "`r`n")
 }
 
 function Get-EnabledCadenceShortcutItems {
@@ -237,17 +281,7 @@ function Get-EnabledCadenceShortcutItems {
     [string]$PluginStatePath
   )
   $lines = @()
-  $statePath = Get-HwAgentPluginStatePath -ToolRoot $ToolRoot -PluginStatePath $PluginStatePath
-
-  $items = @()
-  $capabilitiesPath = Join-Path $ToolRoot "config\capabilities.json"
-  if (Test-Path -LiteralPath $capabilitiesPath) {
-    $data = Get-Content -LiteralPath $capabilitiesPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    $items += @($data.capabilities)
-  }
-
-  $items += @(Get-HwAgentCadenceUserPluginItems -ToolRoot $ToolRoot -PluginStatePath $statePath)
-  $items = @(Apply-HwAgentPluginStateOverrides -Items $items -Overrides (Get-HwAgentPluginStateOverrides -PluginStatePath $statePath))
+  $items = @(Get-HwAgentCadenceItems -ToolRoot $ToolRoot -PluginStatePath $PluginStatePath)
 
   foreach ($item in @($items)) {
     if ($item.type -ne "cadence_tcl") { continue }
@@ -255,9 +289,7 @@ function Get-EnabledCadenceShortcutItems {
 
     $itemId = Escape-TclMenuText ([string]$item.id)
     $module = ""
-    if (Test-HwAgentProperty -Object $item -Name "module") {
-      $module = Escape-TclPathLiteral ([string]$item.module)
-    }
+    $module = Escape-TclPathLiteral (Get-HwAgentCadenceEntryScript -Object $item)
     $enabled = if ($item.show_in_cadence -eq $true) { "1" } else { "0" }
     $shortcutCommand = [string]$item.command
     if (Test-HwAgentProperty -Object $item -Name "shortcut_command") {
@@ -266,12 +298,10 @@ function Get-EnabledCadenceShortcutItems {
     $shortcutCommand = Escape-TclMenuText $shortcutCommand
     $lines += ('    ::IAC::SetShortcut "' + $itemId + '" ' + $enabled + ' "' + $shortcutCommand + '" "' + $module + '"')
 
-    if ($module) {
-      if ((Test-HwAgentProperty -Object $item -Name "module_absolute") -and $item.module_absolute -eq $true) {
-        $lines += ('    ::IAC::SourceModule "' + $module + '"')
-      } else {
-        $lines += ('    source "$::IAC_ROOT/' + $module + '"')
-      }
+    if ($item.show_in_cadence -eq $true) {
+      $sourceLine = Get-HwAgentCadenceSourceLine -Object $item -Indent "    "
+      if ($sourceLine) { $lines += $sourceLine }
+      $lines += @(Get-HwAgentCadenceLifecycleLines -Object $item -Indent "    ")
     }
     $actionId = Escape-TclMenuText (Get-HwAgentShortcutActionId -Object $item)
     $shortcut = Escape-TclMenuText ([string]$item.shortcut)

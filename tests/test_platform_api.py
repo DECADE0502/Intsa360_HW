@@ -151,7 +151,7 @@ class PlatformApiTests(unittest.TestCase):
         finally:
             shutil.rmtree(root, ignore_errors=True)
 
-    def test_user_plugin_menu_endpoint_updates_manifest_without_redeploy_for_dry_run(self) -> None:
+    def test_user_plugin_menu_endpoint_updates_shared_state_without_redeploy_for_dry_run(self) -> None:
         root = _make_temp_root()
         try:
             (root / "plugins" / "user" / "scripts" / "demo.tcl").write_text("proc ::Demo::Run {} {}\n", encoding="utf-8")
@@ -191,7 +191,9 @@ class PlatformApiTests(unittest.TestCase):
             self.assertEqual(payload["status"], "ok")
             self.assertTrue(payload["plugin"]["show_in_cadence"])
             self.assertFalse(payload["redeployed"])
-            self.assertTrue(json.loads(manifest.read_text(encoding="utf-8"))["show_in_cadence"])
+            self.assertFalse(json.loads(manifest.read_text(encoding="utf-8"))["show_in_cadence"])
+            state = json.loads((root / "config" / "plugin_state.json").read_text(encoding="utf-8"))
+            self.assertTrue(state["plugins"]["user.demo"]["enabled"])
         finally:
             shutil.rmtree(root, ignore_errors=True)
 
@@ -877,7 +879,11 @@ class PlatformApiTests(unittest.TestCase):
 
             self.assertEqual(payload["status"], "ok")
             self.assertEqual(payload["capability"]["id"], "cadence_net_name_replace")
-            self.assertEqual(payload["capability"]["module"], "cadence/modules/enhanced_core_tools.tcl")
+            self.assertEqual(payload["capability"]["module"], "cadence/entries/cadence_net_name_replace.tcl")
+            self.assertEqual(
+                payload["capability"]["implementation_module"],
+                "cadence/modules/enhanced_core_tools.tcl",
+            )
             self.assertTrue(payload["capability"]["show_in_cadence"])
             self.assertFalse(payload["redeployed"])
         finally:
