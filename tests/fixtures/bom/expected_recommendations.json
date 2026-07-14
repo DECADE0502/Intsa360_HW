@@ -1,0 +1,98 @@
+{
+  "recommendations": {
+    "C.C1105M21": {
+      "expected_confidence": "low",
+      "expected_reason": "multiple_complete_candidates",
+      "manual_choice_required": true,
+      "allowed_signatures": [
+        {
+          "model": "CAP_0402_10UF_6V3",
+          "description": "MLCC 10uF 6.3V X5R 0402",
+          "name": "CERAMIC_CAPACITOR",
+          "grade": "优选",
+          "unit": "ea"
+        },
+        {
+          "model": "CAP_0402_10UF_10V",
+          "description": "MLCC 10uF 10V X5R 0402",
+          "name": "CERAMIC_CAPACITOR",
+          "grade": "正常",
+          "unit": "ea"
+        }
+      ]
+    },
+    "C.C1225M21": {
+      "expected_confidence": "high",
+      "expected_reason": "grade_only_conflict",
+      "manual_choice_required": false,
+      "selected_signature": {
+        "model": "RES_0402_10K",
+        "description": "THICK_FILM_RESISTOR 10K 0402",
+        "name": "RESISTOR",
+        "grade": "优选",
+        "unit": "ea"
+      },
+      "allowed_signatures": [
+        {
+          "model": "RES_0402_10K",
+          "description": "THICK_FILM_RESISTOR 10K 0402",
+          "name": "RESISTOR",
+          "grade": "正常",
+          "unit": "ea"
+        },
+        {
+          "model": "RES_0402_10K",
+          "description": "THICK_FILM_RESISTOR 10K 0402",
+          "name": "RESISTOR",
+          "grade": "优选",
+          "unit": "ea"
+        }
+      ]
+    },
+    "C.C2106M21": {
+      "expected_confidence": "high",
+      "expected_reason": "truncation_prefix_completion",
+      "manual_choice_required": false,
+      "selected_signature": {
+        "model": "EMMC_BGA153_64G",
+        "description": "eMMC BGA153 64GB",
+        "name": "EMMC",
+        "grade": "优选",
+        "unit": "ea"
+      },
+      "allowed_signatures": [
+        {
+          "model": "EMMC_BGA153",
+          "description": "eMMC BGA153",
+          "name": "EMMC",
+          "grade": "优选",
+          "unit": "ea"
+        },
+        {
+          "model": "EMMC_BGA153_64G",
+          "description": "eMMC BGA153 64GB",
+          "name": "EMMC",
+          "grade": "优选",
+          "unit": "ea"
+        }
+      ]
+    }
+  },
+  "risk_expectations": {
+    "shield_candidate": {
+      "reference": "SH1",
+      "part_number": "MECH.SHIELD.01",
+      "requires_confirmation": true,
+      "enters_final_bom": true,
+      "excluded_from_nc": true
+    },
+    "version_warnings": [
+      {"reference": "U2106", "kind": "eMMC"},
+      {"reference": "U3101", "kind": "DDR"}
+    ],
+    "duplicate_reference": {
+      "reference": "R7701",
+      "part_numbers": ["R.R7701M21", "R.R7702M21"]
+    }
+  }
+}

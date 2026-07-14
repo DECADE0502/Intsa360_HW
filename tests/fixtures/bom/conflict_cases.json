@@ -1,0 +1,192 @@
+{
+  "capture_columns": [
+    {"field": "Item", "header": "{Item}"},
+    {"field": "Quantity", "header": "{Quantity}"},
+    {"field": "Reference", "header": "{Reference}"},
+    {"field": "Part Number", "header": "{Part Number}"},
+    {"field": "Value", "header": "{Value}"},
+    {"field": "Model", "header": "{规格型号}"},
+    {"field": "Description", "header": "{器件描述（新整理）}"},
+    {"field": "Name", "header": "{物料名称}"},
+    {"field": "Grade", "header": "{等级}"},
+    {"field": "Unit", "header": "{单位}"},
+    {"field": "PCB Footprint", "header": "{PCB Footprint}"},
+    {"field": "PCB Package", "header": "{PCB封装}"}
+  ],
+  "rows": {
+    "c1105_primary": {
+      "Item": 1,
+      "Quantity": 2,
+      "Reference": "C1105 C1106",
+      "Part Number": "C.C1105M21",
+      "Value": "10uF",
+      "Model": "CAP_0402_10UF_6V3",
+      "Description": "MLCC 10uF 6.3V X5R 0402",
+      "Name": "CERAMIC_CAPACITOR",
+      "Grade": "优选",
+      "Unit": "ea",
+      "PCB Footprint": "0402",
+      "PCB Package": "0402"
+    },
+    "c1105_variant": {
+      "Item": 2,
+      "Quantity": 1,
+      "Reference": "C1107",
+      "Part Number": "C.C1105M21",
+      "Value": "10uF",
+      "Model": "CAP_0402_10UF_10V",
+      "Description": "MLCC 10uF 10V X5R 0402",
+      "Name": "CERAMIC_CAPACITOR",
+      "Grade": "正常",
+      "Unit": "ea",
+      "PCB Footprint": "0402",
+      "PCB Package": "0402"
+    },
+    "c1225_standard": {
+      "Item": 3,
+      "Quantity": 1,
+      "Reference": "R1225",
+      "Part Number": "C.C1225M21",
+      "Value": "10K",
+      "Model": "RES_0402_10K",
+      "Description": "THICK_FILM_RESISTOR 10K 0402",
+      "Name": "RESISTOR",
+      "Grade": "正常",
+      "Unit": "ea",
+      "PCB Footprint": "0402",
+      "PCB Package": "0402"
+    },
+    "c1225_preferred": {
+      "Item": 4,
+      "Quantity": 1,
+      "Reference": "R1226",
+      "Part Number": "C.C1225M21",
+      "Value": "10K",
+      "Model": "RES_0402_10K",
+      "Description": "THICK_FILM_RESISTOR 10K 0402",
+      "Name": "RESISTOR",
+      "Grade": "优选",
+      "Unit": "ea",
+      "PCB Footprint": "0402",
+      "PCB Package": "0402"
+    },
+    "c2106_truncated": {
+      "Item": 5,
+      "Quantity": 1,
+      "Reference": "U2106",
+      "Part Number": "C.C2106M21",
+      "Value": "eMMC",
+      "Model": "EMMC_BGA153",
+      "Description": "eMMC BGA153",
+      "Name": "EMMC",
+      "Grade": "优选",
+      "Unit": "ea",
+      "PCB Footprint": "BGA153",
+      "PCB Package": "BGA153"
+    },
+    "c2106_complete": {
+      "Item": 6,
+      "Quantity": 1,
+      "Reference": "U2107",
+      "Part Number": "C.C2106M21",
+      "Value": "eMMC",
+      "Model": "EMMC_BGA153_64G",
+      "Description": "eMMC BGA153 64GB",
+      "Name": "EMMC",
+      "Grade": "优选",
+      "Unit": "ea",
+      "PCB Footprint": "BGA153",
+      "PCB Package": "BGA153"
+    },
+    "ddr_warning": {
+      "Item": 7,
+      "Quantity": 1,
+      "Reference": "U3101",
+      "Part Number": "IC.DDR4M21",
+      "Value": "DDR4",
+      "Model": "DDR4_BGA96",
+      "Description": "DDR4 MEMORY BGA96",
+      "Name": "DDR4",
+      "Grade": "正常",
+      "Unit": "ea",
+      "PCB Footprint": "BGA96",
+      "PCB Package": "BGA96"
+    },
+    "shield_candidate": {
+      "Item": 8,
+      "Quantity": 1,
+      "Reference": "SH1",
+      "Part Number": "MECH.SHIELD.01",
+      "Value": "SHIELD",
+      "Model": "SHIELD_BRACKET",
+      "Description": "SHIELDED BRACKET",
+      "Name": "SHIELD_BRACKET",
+      "Grade": "正常",
+      "Unit": "ea",
+      "PCB Footprint": "MECH",
+      "PCB Package": "MECH"
+    },
+    "duplicate_ref_primary": {
+      "Item": 9,
+      "Quantity": 1,
+      "Reference": "R7701",
+      "Part Number": "R.R7701M21",
+      "Value": "1K",
+      "Model": "RES_0402_1K",
+      "Description": "THICK_FILM_RESISTOR 1K 0402",
+      "Name": "RESISTOR",
+      "Grade": "正常",
+      "Unit": "ea",
+      "PCB Footprint": "0402",
+      "PCB Package": "0402"
+    },
+    "duplicate_ref_secondary": {
+      "Item": 10,
+      "Quantity": 1,
+      "Reference": "R7701",
+      "Part Number": "R.R7702M21",
+      "Value": "4K7",
+      "Model": "RES_0402_4K7",
+      "Description": "THICK_FILM_RESISTOR 4K7 0402",
+      "Name": "RESISTOR",
+      "Grade": "正常",
+      "Unit": "ea",
+      "PCB Footprint": "0402",
+      "PCB Package": "0402"
+    }
+  },
+  "cases": {
+    "known_conflicts": {
+      "row_ids": [
+        "c1105_primary",
+        "c1105_variant",
+        "c1225_standard",
+        "c1225_preferred",
+        "c2106_truncated",
+        "c2106_complete"
+      ]
+    },
+    "process_warnings": {
+      "row_ids": [
+        "ddr_warning",
+        "shield_candidate",
+        "duplicate_ref_primary",
+        "duplicate_ref_secondary"
+      ]
+    },
+    "golden": {
+      "row_ids": [
+        "c1105_primary",
+        "c1105_variant",
+        "c1225_standard",
+        "c1225_preferred",
+        "c2106_truncated",
+        "c2106_complete",
+        "ddr_warning",
+        "shield_candidate",
+        "duplicate_ref_primary",
+        "duplicate_ref_secondary"
+      ]
+    }
+  }
+}
