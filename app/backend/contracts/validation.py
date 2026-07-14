@@ -12,6 +12,7 @@ _WINDOWS_RESERVED_NAMES = {
     *(f"LPT{index}" for index in range(1, 10)),
 }
 _WINDOWS_INVALID_COMPONENT_CHARS = frozenset('<>:"|?*')
+_WINDOWS_DEVICE_DIGIT_TRANSLATION = str.maketrans({"¹": "1", "²": "2", "³": "3"})
 
 
 def _require_windows_safe_component(value: str) -> None:
@@ -21,7 +22,7 @@ def _require_windows_safe_component(value: str) -> None:
         raise ValueError("Windows path components cannot end with a space or dot")
     if any(ord(character) < 32 or character in _WINDOWS_INVALID_COMPONENT_CHARS for character in value):
         raise ValueError("path contains a character that is invalid on Windows")
-    basename = value.split(".", 1)[0].upper()
+    basename = value.split(".", 1)[0].upper().translate(_WINDOWS_DEVICE_DIGIT_TRANSLATION)
     if basename in _WINDOWS_RESERVED_NAMES:
         raise ValueError("path uses a reserved Windows device name")
 

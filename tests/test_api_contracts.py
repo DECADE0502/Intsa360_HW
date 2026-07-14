@@ -72,6 +72,8 @@ class ApiContractTests(unittest.TestCase):
             ".",
             "NUL",
             "reports/COM1.xlsx",
+            "reports/COM¹.xlsx",
+            "reports/LPT³.xlsx",
             "reports/report.xlsx:payload",
             "reports/report.xlsx.",
         ):
@@ -182,6 +184,8 @@ class ApiContractTests(unittest.TestCase):
             "..",
             "NUL",
             "COM1.zip",
+            "COM¹.zip",
+            "LPT³.zip",
             "runtime.zip:payload",
             "runtime.zip.",
             "  ",
@@ -321,16 +325,17 @@ class ApiContractTests(unittest.TestCase):
                 ReleaseManifestV3(version=version, **base)
 
     def test_dynamic_contract_fields_accept_only_json_values(self) -> None:
-        invalid = object()
-        cases = (
-            (ApiError, {"code": "invalid", "message": "输入无效", "details": {"value": invalid}}),
-            (Asset, {"id": uuid4(), "kind": AssetKind.BOM, "format": "xlsx", "display_name": "BOM", "relative_path": "bom/main.xlsx", "sha256": "a" * 64, "size": 1, "created_at": NOW, "metadata": {"value": invalid}}),
-            (ToolRun, {"id": uuid4(), "tool_id": "bom_process", "status": ToolRunStatus.QUEUED, "created_at": NOW, "params": {"value": invalid}}),
-            (Job, {"id": uuid4(), "kind": "tool_run", "status": JobStatus.RUNNING, "phase": JobPhase.PROCESSING, "progress": 1, "message": "开始", "cancellable": True, "created_at": NOW, "updated_at": NOW, "result": {"value": invalid}}),
-        )
-        for model, payload in cases:
-            with self.subTest(model=model.__name__), self.assertRaises(ValidationError):
-                model(**payload)
+        for invalid in (object(), float("nan"), float("inf"), float("-inf")):
+            cases = (
+                (ApiError, {"code": "invalid", "message": "输入无效", "details": {"value": invalid}}),
+                (Asset, {"id": uuid4(), "kind": AssetKind.BOM, "format": "xlsx", "display_name": "BOM", "relative_path": "bom/main.xlsx", "sha256": "a" * 64, "size": 1, "created_at": NOW, "metadata": {"value": invalid}}),
+                (ToolRun, {"id": uuid4(), "tool_id": "bom_process", "status": ToolRunStatus.QUEUED, "created_at": NOW, "params": {"value": invalid}}),
+                (ToolRun, {"id": uuid4(), "tool_id": "bom_process", "status": ToolRunStatus.QUEUED, "created_at": NOW, "decisions": {"value": invalid}}),
+                (Job, {"id": uuid4(), "kind": "tool_run", "status": JobStatus.RUNNING, "phase": JobPhase.PROCESSING, "progress": 1, "message": "开始", "cancellable": True, "created_at": NOW, "updated_at": NOW, "result": {"value": invalid}}),
+            )
+            for model, payload in cases:
+                with self.subTest(model=model.__name__, invalid=repr(invalid)), self.assertRaises(ValidationError):
+                    model(**payload)
 
     def test_every_public_model_rejects_unknown_fields(self) -> None:
         release_asset = {
