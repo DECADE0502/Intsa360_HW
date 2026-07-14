@@ -12,6 +12,7 @@ set ::IAC_CNV  "$::IAC_ROOT/tools/bom/convert_cadence_bom.py"
 namespace eval ::IAC {
     variable SHORTCUTS
     array set SHORTCUTS {}
+    variable EXPORT_SEQUENCE 0
     variable PROP_NAMES {
         "Color" "Designator" "Graphic ID" "Implementation" "Implementation Path" "Implementation Type"
         "Location X-Coordinate" "Location Y-Coordinate" "Name" "Part Number" "Part Reference" "Part Type"
@@ -248,13 +249,18 @@ namespace eval ::IAC {
         return $row
     }
 
-    proc CleanDesignName { value } {
+    proc DisplayDsnName { value } {
         set name [string trim $value]
         if {$name eq ""} { return "" }
         set tail [file tail $name]
         if {$tail ne ""} { set name $tail }
         set root [file rootname $name]
         if {$root ne ""} { set name $root }
+        return $name
+    }
+    proc CleanDesignName { value } {
+        set name [::IAC::DisplayDsnName $value]
+        if {$name eq ""} { return "" }
         regsub -all {[\\/:*?"<>|]} $name "_" name
         return $name
     }
@@ -294,7 +300,7 @@ namespace eval ::IAC {
                 $s -delete
             }
         }
-        return [::IAC::CleanDesignName $ret]
+        return [::IAC::DisplayDsnName $ret]
     }
     proc JsonEscape { value } {
         return [string map [list "\\" "\\\\" "\"" "\\\"" "\n" "\\n" "\r" "\\r" "\t" "\\t"] $value]
@@ -315,53 +321,77 @@ namespace eval ::IAC {
     }
 
     # ---- \u5bfc\u51fa + \u5904\u7406 ----
+    proc CreateExportJob { dsn } {
+        variable EXPORT_SEQUENCE
+        set safeDsn [::IAC::CleanDesignName $dsn]
+        if {$safeDsn eq ""} { set safeDsn "BOM" }
+        set jobRoot [file normalize "$::IAC_ROOT/data/jobs"]
+        if {[catch {file mkdir $jobRoot} err]} {
+            return -code error "Cannot create BOM export job root $jobRoot: $err"
+        }
+        set stamp [clock seconds]
+        set processId [pid]
+        set sequence [incr EXPORT_SEQUENCE]
+        set jobName "${safeDsn}-${stamp}-${processId}-${sequence}"
+        set jobDir [file normalize [file join $jobRoot $jobName]]
+        if {[file exists $jobDir]} {
+            return -code error "BOM export job directory already exists: $jobDir"
+        }
+        if {[catch {file mkdir $jobDir} err]} {
+            return -code error "Cannot create BOM export job directory $jobDir: $err"
+        }
+        if {![file isdirectory $jobDir]} {
+            return -code error "BOM export job directory is unavailable: $jobDir"
+        }
+        set jsonPath [file join $jobDir "parts.json"]
+        set xlsxPath [file join $jobDir "bom.xlsx"]
+        return [list $jobDir $jsonPath $xlsxPath]
+    }
+    proc ReportExportFailure { jobDir message } {
+        set detail "IAC: BOM export failed for job $jobDir: $message"
+        ::IAC::log $detail
+        catch {tk_messageBox -icon error -type ok -title "insta360_HW BOM Export" -message $detail}
+        return 0
+    }
     proc ExportAndProcess { args } {
-        set dsnRaw [::IAC::GetDsnName]
-        set dsn [::IAC::CleanDesignName $dsnRaw]
+        set dsn [::IAC::GetDsnName]
         if {$dsn eq ""} { set dsn "BOM" }
-        ::IAC::log "IAC: ExportAndProcess design name = $dsn"
-        set inbox [file normalize "$::IAC_ROOT/data/inbox/${dsn}.xlsx"]
-        catch { file mkdir [file dirname $inbox] }
-        set exported 0
+        if {[catch {set job [::IAC::CreateExportJob $dsn]} err]} {
+            return [::IAC::ReportExportFailure "<unavailable>" $err]
+        }
+        set jobDir [lindex $job 0]
+        set jsonPath [lindex $job 1]
+        set xlsxPath [lindex $job 2]
+        ::IAC::log "IAC: ExportAndProcess design name = $dsn job = $jobDir"
 
-        # 1) Tcl \u8bfb\u53d6\u8bbe\u8ba1 \u2192 JSON \u2192 Python \u8f6c xlsx
-        if {[file exists $::IAC_CNV]} { catch {
-            set parts [::IAC::ReadParts]
-            ::IAC::log "IAC: ReadParts count = [llength $parts]"
-            if {[llength $parts] > 0} {
-                set jf [file normalize "$::IAC_ROOT/data/inbox/_bom_data.json"]
-                set fh [open $jf w]; fconfigure $fh -encoding utf-8; puts $fh [::IAC::PartsToJson $parts]; close $fh
-                exec $::IAC_PY "$::IAC_CNV" "$jf" "$inbox"
-                if {[file exists $inbox] && [file size $inbox] > 100} { set exported 1 }
-            }
-        }}
-
-        # 2) cadence_export.ps1
-        if {!$exported} {
-            set exp "$::IAC_ROOT/cadence/cadence_export.ps1"
-            if {[file exists $exp]} { catch {
-                exec cmd /c start /wait "" cmd /c "powershell -NoProfile -EP Bypass -File \"$exp\" -Out \"$inbox\""
-                if {[file exists $inbox] && [file size $inbox] > 100} { set exported 1 }
-            }}
+        if {![file exists $::IAC_CNV]} {
+            return [::IAC::ReportExportFailure $jobDir "BOM converter is missing: $::IAC_CNV"]
+        }
+        set parts [::IAC::ReadParts]
+        ::IAC::log "IAC: ReadParts count = [llength $parts] job = $jobDir"
+        if {[llength $parts] == 0} {
+            return [::IAC::ReportExportFailure $jobDir "No BOM parts were read from the active Capture design"]
         }
 
-        # 3) \u590d\u7528\u5df2\u6709 xlsx
-        if {!$exported} {
-            foreach f [glob -nocomplain "$::IAC_ROOT/data/inbox/*.xlsx"] {
-                if {[file exists $f] && [file size $f] > 100 && $f ne $inbox} { set inbox $f; set exported 1; break }
-            }
+        set jsonHandle ""
+        if {[catch {
+            set jsonHandle [open $jsonPath w]
+            fconfigure $jsonHandle -encoding utf-8
+            puts $jsonHandle [::IAC::PartsToJson $parts]
+            close $jsonHandle
+            set jsonHandle ""
+        } err]} {
+            if {$jsonHandle ne ""} { catch {close $jsonHandle} }
+            return [::IAC::ReportExportFailure $jobDir "Cannot write job JSON: $err"]
         }
-
-        # \u515c\u5e95\uff1a\u5982\u679c ReadParts \u5931\u8d25\u6216 inbox \u6ca1\u6709\u6587\u4ef6\uff0c\u53d6\u6700\u8fd1\u4e00\u4e2a\u5df2\u6709\u7684 xlsx
-        if {!$exported || ![file exists $inbox] || [file size $inbox] <= 100} {
-            set found ""
-            foreach f [lsort -decreasing [glob -nocomplain "$::IAC_ROOT/data/inbox/*.xlsx"]] {
-                if {[file exists $f] && [file size $f] > 100} { set found $f; break }
-            }
-            if {$found ne ""} { set inbox $found; set exported 1 }
+        if {[catch {exec $::IAC_PY $::IAC_CNV $jsonPath $xlsxPath} err]} {
+            return [::IAC::ReportExportFailure $jobDir "BOM conversion failed: $err"]
         }
-        set src [expr {$exported && [file exists $inbox] && [file size $inbox] > 100 ? $inbox : ""}]
-        ::IAC::launch $src $dsn
+        if {![file exists $xlsxPath] || [file size $xlsxPath] <= 100} {
+            return [::IAC::ReportExportFailure $jobDir "BOM conversion did not produce a valid workbook"]
+        }
+        ::IAC::launch $xlsxPath $dsn
+        return 1
     }
 }
 

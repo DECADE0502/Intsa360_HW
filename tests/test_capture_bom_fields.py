@@ -56,6 +56,19 @@ class CaptureBomFieldTests(unittest.TestCase):
             )
         self.assertIn("NewEffectivePropsIter", text)
 
+    def test_tcl_display_dsn_is_a_basename_without_its_extension(self) -> None:
+        text = TCL_TEMPLATE.read_text(encoding="utf-8")
+        start = text.index("proc DisplayDsnName")
+        end = text.index("proc CleanDesignName", start)
+        display_proc = text[start:end]
+        get_start = text.index("proc GetDsnName")
+        get_end = text.index("proc JsonEscape", get_start)
+        get_proc = text[get_start:get_end]
+
+        self.assertIn("file tail", display_proc)
+        self.assertIn("file rootname", display_proc)
+        self.assertIn("return [::IAC::DisplayDsnName $ret]", get_proc)
+
     def test_frontend_capture_config_contains_practical_fields(self) -> None:
         text = FRONTEND_WIZARD.read_text(encoding="utf-8")
         expected = (

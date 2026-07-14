@@ -13,6 +13,7 @@ from openpyxl import load_workbook
 ROOT = Path(__file__).resolve().parents[1]
 CONVERTER = ROOT / "tools" / "bom" / "convert_cadence_bom.py"
 TCL_TEMPLATE = ROOT / "cadence" / "iac_bom_tool.tcl"
+CADENCE_EXPORT = ROOT / "cadence" / "cadence_export.ps1"
 
 
 class CadenceIntegrationTests(unittest.TestCase):
@@ -159,10 +160,13 @@ class CadenceIntegrationTests(unittest.TestCase):
         self.assertIn("NewEffectivePropsIter", proc)
         self.assertIn('if {$propname eq "Name"}', proc)
         self.assertNotIn('if {$ret ne ""} { return $ret }', proc)
-        self.assertIn("return [::IAC::CleanDesignName $ret]", proc)
+        self.assertIn("return [::IAC::DisplayDsnName $ret]", proc)
 
-    def test_tcl_template_sanitizes_full_dsn_path_before_inbox_filename(self) -> None:
+    def test_tcl_template_sanitizes_full_dsn_path_for_the_job_directory(self) -> None:
         text = TCL_TEMPLATE.read_text(encoding="utf-8")
+        display_start = text.index("proc DisplayDsnName")
+        display_end = text.index("proc CleanDesignName")
+        display_proc = text[display_start:display_end]
         clean_start = text.index("proc CleanDesignName")
         clean_end = text.index("proc GetDsnName")
         clean_proc = text[clean_start:clean_end]
@@ -170,12 +174,51 @@ class CadenceIntegrationTests(unittest.TestCase):
         export_end = text.index("# ----", export_start)
         export_proc = text[export_start:export_end]
 
-        self.assertIn("file tail", clean_proc)
-        self.assertIn("file rootname", clean_proc)
+        self.assertIn("file tail", display_proc)
+        self.assertIn("file rootname", display_proc)
         self.assertIn('regsub -all {[\\\\/:*?"<>|]}', clean_proc)
-        self.assertIn("set dsnRaw [::IAC::GetDsnName]", export_proc)
-        self.assertIn("set dsn [::IAC::CleanDesignName $dsnRaw]", export_proc)
-        self.assertIn('${dsn}.xlsx', export_proc)
+        self.assertIn("set dsn [::IAC::GetDsnName]", export_proc)
+        self.assertIn("CreateExportJob", export_proc)
+        self.assertNotIn('${dsn}.xlsx', export_proc)
+
+    def test_tcl_template_allocates_a_unique_job_directory_and_json_for_each_export(self) -> None:
+        text = TCL_TEMPLATE.read_text(encoding="utf-8")
+        start = text.index("proc CreateExportJob")
+        end = text.index("proc ReportExportFailure", start)
+        job_proc = text[start:end]
+
+        self.assertIn('set jobRoot [file normalize "$::IAC_ROOT/data/jobs"]', job_proc)
+        self.assertIn("set processId [pid]", job_proc)
+        self.assertIn("set sequence [incr EXPORT_SEQUENCE]", job_proc)
+        self.assertIn('set jsonPath [file join $jobDir "parts.json"]', job_proc)
+        self.assertIn('set xlsxPath [file join $jobDir "bom.xlsx"]', job_proc)
+        self.assertIn("return [list $jobDir $jsonPath $xlsxPath]", job_proc)
+
+    def test_cadence_export_fails_closed_without_reusing_inbox_or_user_workbooks(self) -> None:
+        text = TCL_TEMPLATE.read_text(encoding="utf-8")
+        export_start = text.index("proc ExportAndProcess")
+        export_end = text.index("# ----", export_start)
+        export_proc = text[export_start:export_end]
+        ps1 = CADENCE_EXPORT.read_text(encoding="utf-8")
+
+        self.assertIn("proc ReportExportFailure", text)
+        self.assertIn("tk_messageBox -icon error", text)
+        self.assertNotIn("data/inbox", export_proc)
+        self.assertNotIn("glob -nocomplain", export_proc)
+        self.assertNotIn("Get-ChildItem", ps1)
+        self.assertNotIn("Copy-Item", ps1)
+        self.assertIn("COM BOM export failed", ps1)
+
+    def test_tcl_template_uses_process_and_sequence_in_each_job_path_for_parallel_exports(self) -> None:
+        text = TCL_TEMPLATE.read_text(encoding="utf-8")
+        start = text.index("proc CreateExportJob")
+        end = text.index("proc ReportExportFailure", start)
+        job_proc = text[start:end]
+
+        self.assertIn("variable EXPORT_SEQUENCE 0", text)
+        self.assertIn("set processId [pid]", job_proc)
+        self.assertIn("set sequence [incr EXPORT_SEQUENCE]", job_proc)
+        self.assertIn('set jobName "${safeDsn}-${stamp}-${processId}-${sequence}"', job_proc)
 
     def test_tcl_template_uses_capture_sample_property_accessors(self) -> None:
         text = TCL_TEMPLATE.read_text(encoding="utf-8")
