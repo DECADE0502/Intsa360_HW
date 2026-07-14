@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import Request
 
 from app.backend.paths import AppPaths
+from app.backend.services.jobs import PersistentJobService
 from app.backend.tool_registry import ToolRegistry, build_registry
 
 
@@ -17,6 +18,8 @@ class AppContext:
     paths: AppPaths
     _registry: ToolRegistry | None = None
     _registry_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    _jobs: PersistentJobService | None = None
+    _jobs_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     @property
     def registry(self) -> ToolRegistry:
@@ -25,6 +28,14 @@ class AppContext:
                 if self._registry is None:
                     self._registry = build_registry(self.root)
         return self._registry
+
+    @property
+    def jobs(self) -> PersistentJobService:
+        if self._jobs is None:
+            with self._jobs_lock:
+                if self._jobs is None:
+                    self._jobs = PersistentJobService(self.paths.platform_jobs_dir)
+        return self._jobs
 
 
 def build_context(root: Path) -> AppContext:

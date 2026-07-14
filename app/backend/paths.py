@@ -133,6 +133,10 @@ class AppPaths:
         return self.data_dir / "history"
 
     @property
+    def platform_jobs_dir(self) -> Path:
+        return self.data_dir / "jobs"
+
+    @property
     def config_dir(self) -> Path:
         return self.state_root / "config"
 
@@ -177,6 +181,7 @@ class AppPaths:
             self.runtime_log_dir,
             self.uploads_dir,
             self.history_dir,
+            self.platform_jobs_dir,
             self.config_dir,
             self.user_plugins_dir / "scripts",
             self.lifecycle_jobs_dir,
