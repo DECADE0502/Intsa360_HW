@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
+from pathlib import PureWindowsPath
 
 from pydantic import AnyHttpUrl, Field, field_validator
 
@@ -25,7 +26,13 @@ class ReleaseAsset(ContractModel):
     @field_validator("name")
     @classmethod
     def require_plain_filename(cls, value: str) -> str:
-        if value != value.strip() or not value.strip() or "/" in value or "\\" in value or value in {".", ".."}:
+        if (
+            value != value.strip()
+            or not value.strip()
+            or PureWindowsPath(value).drive
+            or any(character in value for character in '<>:"/\\|?*')
+            or value in {".", ".."}
+        ):
             raise ValueError("release asset name must be a plain filename")
         return value
 

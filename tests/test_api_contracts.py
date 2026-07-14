@@ -147,7 +147,7 @@ class ApiContractTests(unittest.TestCase):
             "url": "https://example.com/runtime.zip",
             "sha256": "a" * 64,
         }
-        for name in ("../runtime.zip", "nested/runtime.zip", r"nested\runtime.zip", "  "):
+        for name in ("../runtime.zip", "nested/runtime.zip", r"nested\runtime.zip", "C:runtime.zip", "C:.", "  "):
             with self.subTest(name=name), self.assertRaises(ValidationError):
                 ReleaseAsset(name=name, size=1, **base)
         for size in (True, 1.5, "1024"):
@@ -232,6 +232,30 @@ class ApiContractTests(unittest.TestCase):
         for model, payload in cases:
             with self.subTest(model=str(model)), self.assertRaises(ValidationError):
                 model(**payload, unexpected="forbidden")
+
+    def test_every_public_model_serializes_to_json_values(self) -> None:
+        asset_id = uuid4()
+        run_id = uuid4()
+        release_asset = ReleaseAsset(
+            name="runtime.zip",
+            url="https://example.com/runtime.zip",
+            size=1024,
+            sha256="a" * 64,
+        )
+        models_and_expected = (
+            (ApiError(code="invalid", message="输入无效"), ("code", "invalid")),
+            (ApiEnvelope[dict[str, str]](ok=True, request_id=uuid4(), data={"status": "ok"}), ("data", {"status": "ok"})),
+            (Asset(id=asset_id, kind=AssetKind.BOM, format="xlsx", display_name="BOM", relative_path=r"bom\main.xlsx", sha256="a" * 64, size=1, created_at=NOW), ("relative_path", "bom/main.xlsx")),
+            (ToolRun(id=run_id, tool_id="bom_process", status=ToolRunStatus.QUEUED, created_at=NOW), ("id", str(run_id))),
+            (Job(id=uuid4(), kind="tool_run", status=JobStatus.RUNNING, phase=JobPhase.PROCESSING, progress=1, message="开始", cancellable=True, created_at=NOW, updated_at=NOW), ("phase", "processing")),
+            (PluginState(id="quick_nc_toggle", name="Quick NC Toggle", source=PluginSource.PLATFORM, enabled=True, entry_script="nc.tcl", activation=ActivationMode.RESTART), ("activation", "restart")),
+            (release_asset, ("size", 1024)),
+            (ReleaseManifestV3(version="0.4.0", revision="b" * 40, build_kind=BuildKind.PUBLISHED, published_at=NOW, min_updater_version="0.3.3", assets=[release_asset], signature="signature"), ("build_kind", "published")),
+        )
+        for model, (key, expected) in models_and_expected:
+            with self.subTest(model=model.__class__.__name__):
+                payload = model.model_dump(mode="json")
+                self.assertEqual(payload[key], expected)
 
     def test_contract_json_schema_is_deterministic(self) -> None:
         first = ReleaseManifestV3.model_json_schema()
