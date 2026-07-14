@@ -137,6 +137,10 @@ class AppPaths:
         return self.data_dir / "jobs"
 
     @property
+    def platform_database_path(self) -> Path:
+        return self.data_dir / "platform.db"
+
+    @property
     def config_dir(self) -> Path:
         return self.state_root / "config"
 

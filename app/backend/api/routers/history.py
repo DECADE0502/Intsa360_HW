@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from app.backend import assets, history
 from app.backend.api.common import error_payload
 from app.backend.api.context import AppContext, get_context
+from app.backend.repositories.assets_repository import AssetsRepository
 
 
 router = APIRouter(tags=["history"])
@@ -48,3 +49,7 @@ def delete_history(run_id: str, context: AppContext = Depends(get_context)):
 def list_assets(context: AppContext = Depends(get_context)) -> dict[str, object]:
     return assets.list_assets(context.root)
 
+
+@router.post("/assets/rebuild")
+def rebuild_assets(context: AppContext = Depends(get_context)) -> dict[str, object]:
+    return {"status": "ok", **AssetsRepository(context.root).rebuild_metadata()}
