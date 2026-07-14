@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -60,6 +63,44 @@ class ReleaseDocsTests(unittest.TestCase):
         self.assertIn("py_compile", text)
         self.assertIn("npm run build", text)
         self.assertIn("English UI text found", text)
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows PowerShell only")
+    def test_verify_all_probe_skips_incapable_python_and_selects_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rejected = root / "python-without-pytest.cmd"
+            fallback = root / "python-with-pytest.cmd"
+            rejected_marker = root / "rejected.txt"
+            fallback_marker = root / "fallback.txt"
+            rejected.write_text(
+                f'@echo called>"{rejected_marker}"\n@exit /b 1\n',
+                encoding="ascii",
+            )
+            fallback.write_text(
+                f'@echo called>"{fallback_marker}"\n@exit /b 0\n',
+                encoding="ascii",
+            )
+
+            def ps_quote(path: Path) -> str:
+                return str(path).replace("'", "''")
+
+            script = ps_quote(ROOT / "scripts" / "verify_all.ps1")
+            command = (
+                "$ErrorActionPreference='Stop'; "
+                f"& '{script}' -ProbeOnly -PythonCandidates "
+                f"@('{ps_quote(rejected)}','{ps_quote(fallback)}')"
+            )
+            result = subprocess.run(
+                ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(rejected_marker.exists())
+            self.assertTrue(fallback_marker.exists())
+            self.assertEqual(Path(result.stdout.strip()).resolve(), fallback.resolve())
 
 
 if __name__ == "__main__":

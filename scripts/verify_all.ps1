@@ -1,21 +1,47 @@
+param(
+  [string[]]$PythonCandidates = @(),
+  [switch]$ProbeOnly
+)
+
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$PythonCandidates = @(
-  "C:\Users\Administrator\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
-)
-$cmd = Get-Command python.exe -ErrorAction SilentlyContinue
-if ($cmd) { $PythonCandidates += $cmd.Source }
 
-$Python = $null
-foreach ($candidate in ($PythonCandidates | Select-Object -Unique)) {
-  if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
-  & $candidate -c "import pytest" 2>$null
-  if ($LASTEXITCODE -eq 0) {
-    $Python = $candidate
-    break
+function Test-PytestPython {
+  param([Parameter(Mandatory=$true)][string]$Candidate)
+  if (-not (Test-Path -LiteralPath $Candidate -PathType Leaf)) { return $false }
+
+  $process = $null
+  try {
+    $process = Start-Process -FilePath $Candidate -ArgumentList '-c "import pytest"' -Wait -PassThru -WindowStyle Hidden
+    return ($process.ExitCode -eq 0)
+  } catch {
+    return $false
+  } finally {
+    if ($process) { $process.Dispose() }
   }
 }
-if (-not $Python) { throw "Python with pytest not found" }
+
+function Find-PytestPython {
+  param([Parameter(Mandatory=$true)][string[]]$Candidates)
+  foreach ($candidate in ($Candidates | Select-Object -Unique)) {
+    if (Test-PytestPython -Candidate $candidate) { return $candidate }
+  }
+  throw "Python with pytest not found"
+}
+
+if ($PythonCandidates.Count -eq 0) {
+  $PythonCandidates = @(
+    "C:\Users\Administrator\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
+  )
+  $cmd = Get-Command python.exe -ErrorAction SilentlyContinue
+  if ($cmd) { $PythonCandidates += $cmd.Source }
+}
+
+$Python = Find-PytestPython -Candidates $PythonCandidates
+if ($ProbeOnly) {
+  Write-Output $Python
+  return
+}
 
 Push-Location $Root
 try {
