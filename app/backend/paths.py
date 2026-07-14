@@ -9,7 +9,10 @@ from typing import Any
 
 STATE_ROOT_ENV = "INSTA360_HW_STATE_ROOT"
 PRODUCT = "Insta360_HW"
-INSTALL_SCHEMA = 2
+SUPPORTED_RUNTIME_LAYOUTS = {
+    2: "runtime-v2",
+    3: "runtime-v3",
+}
 
 
 def _resolve_root(value: Path | str, *, label: str) -> Path:
@@ -35,9 +38,10 @@ def _read_install_manifest(root: Path) -> dict[str, Any] | None:
         raise ValueError("runtime install manifest must be an object")
     if raw.get("product") != PRODUCT:
         raise ValueError("runtime install manifest does not identify Insta360_HW")
-    if type(raw.get("schema")) is not int or raw["schema"] != INSTALL_SCHEMA:
+    schema = raw.get("schema")
+    if type(schema) is not int or schema not in SUPPORTED_RUNTIME_LAYOUTS:
         raise ValueError("runtime install manifest has an unsupported schema")
-    if raw.get("layout") != "runtime-v2":
+    if raw.get("layout") != SUPPORTED_RUNTIME_LAYOUTS[schema]:
         raise ValueError("runtime install manifest has an unsupported layout")
     return raw
 
@@ -176,6 +180,22 @@ class AppPaths:
     def lifecycle_cache_dir(self) -> Path:
         return self.lifecycle_dir / "cache"
 
+    @property
+    def lifecycle_v3_dir(self) -> Path:
+        return self.lifecycle_dir / "v3"
+
+    @property
+    def lifecycle_v3_jobs_dir(self) -> Path:
+        return self.lifecycle_v3_dir / "jobs"
+
+    @property
+    def lifecycle_v3_transactions_dir(self) -> Path:
+        return self.lifecycle_v3_dir / "transactions"
+
+    @property
+    def lifecycle_v3_cache_dir(self) -> Path:
+        return self.lifecycle_v3_dir / "cache"
+
     def ensure_runtime_dirs(self) -> None:
         for path in (
             self.state_root,
@@ -191,5 +211,8 @@ class AppPaths:
             self.lifecycle_jobs_dir,
             self.lifecycle_transactions_dir,
             self.lifecycle_cache_dir,
+            self.lifecycle_v3_jobs_dir,
+            self.lifecycle_v3_transactions_dir,
+            self.lifecycle_v3_cache_dir,
         ):
             path.mkdir(parents=True, exist_ok=True)

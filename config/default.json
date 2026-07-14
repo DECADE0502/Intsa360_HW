@@ -8,9 +8,10 @@
     "autoload_dirs": []
   },
   "update": {
-    "schema": 2,
+    "schema": 3,
     "channel": "stable",
     "manifest_url": "https://github.com/DECADE0502/Intsa360_HW/releases/latest/download/update-manifest.json",
+    "signed_manifest_url": "https://github.com/DECADE0502/Intsa360_HW/releases/latest/download/update-manifest-v3.json",
     "download_strategy": "release_runtime_zip"
   }
 }

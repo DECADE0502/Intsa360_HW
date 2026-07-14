@@ -11,10 +11,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from app.backend.lifecycle_update import cancel_update as _cancel_update
-from app.backend.lifecycle_update import check_update as _check_update
-from app.backend.lifecycle_update import run_update as _run_update
-from app.backend.lifecycle_update import update_status as _update_status
+from app.backend import lifecycle_update, lifecycle_v3
 from app.backend.paths import AppPaths
 
 
@@ -36,6 +33,11 @@ LIFECYCLE_JOB_PHASES = (
 )
 _TERMINAL_PHASES = {"completed", "failed", "cancelled"}
 _SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+
+
+def _update_backend(root: Path):
+    runtime = root.resolve()
+    return lifecycle_v3 if lifecycle_v3.is_versioned_install(runtime) else lifecycle_update
 
 
 def read_version(root: Path) -> str:
@@ -119,7 +121,7 @@ def _update_check_payload(root: Path, raw: dict[str, object]) -> dict[str, objec
 def check_update(root: Path) -> dict[str, object]:
     """Check exactly one release manifest without treating network loss as an API failure."""
     try:
-        raw = _check_update(root)
+        raw = _update_backend(root).check_update(root)
     except Exception as exc:  # noqa: BLE001
         raw = {
             "remote_status": "error",
@@ -168,7 +170,7 @@ def _update_status_payload(raw: dict[str, object]) -> dict[str, object]:
 
 def update_status(root: Path) -> dict[str, object]:
     try:
-        raw = _update_status(root)
+        raw = _update_backend(root).update_status(root)
     except Exception as exc:  # noqa: BLE001
         raw = {"phase": "failed", "message": "无法读取更新任务状态。", "error": str(exc)}
     return _update_status_payload(raw if isinstance(raw, dict) else {})
@@ -176,7 +178,7 @@ def update_status(root: Path) -> dict[str, object]:
 
 def run_update(root: Path) -> dict[str, object]:
     try:
-        raw = _run_update(root)
+        raw = _update_backend(root).run_update(root)
     except Exception as exc:  # noqa: BLE001
         raw = {"status": "error", "error": str(exc)}
     raw = raw if isinstance(raw, dict) else {}
@@ -191,7 +193,7 @@ def run_update(root: Path) -> dict[str, object]:
 
 def cancel_update(root: Path, job_id: str = "") -> dict[str, object]:
     try:
-        raw = _cancel_update(root, job_id)
+        raw = _update_backend(root).cancel_update(root, job_id)
     except Exception as exc:  # noqa: BLE001
         raw = {"status": "error", "error": str(exc)}
     raw = raw if isinstance(raw, dict) else {}

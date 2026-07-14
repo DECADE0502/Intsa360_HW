@@ -3,6 +3,7 @@
 /uploads/
 /outputs/
 /history/
+/lifecycle/
 /config/local.json
 
 # Python

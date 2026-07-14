@@ -3,6 +3,7 @@ param(
   [string]$Name = "",
   [switch]$Restart,
   [switch]$NoOpen,
+  [string]$StateRoot = "",
   [int]$PreferredPort = 0
 )
 
@@ -16,7 +17,11 @@ $Root = Get-HwAgentRoot -StartPath $Root
 $Python = Find-Python -Root $Root
 $Python = [System.IO.Path]::GetFullPath($Python)
 $BackendScript = (Resolve-Path -LiteralPath (Join-Path $Root "app\backend\suite_app.py")).Path
-$StateRoot = Get-HwLifecycleStateRoot -RuntimeRoot $Root
+$StateRoot = if ([string]::IsNullOrWhiteSpace($StateRoot)) {
+  Get-HwLifecycleStateRoot -RuntimeRoot $Root
+} else {
+  [System.IO.Path]::GetFullPath($StateRoot).TrimEnd("\")
+}
 $env:INSTA360_HW_STATE_ROOT = $StateRoot
 $RuntimeStateDir = Join-Path $StateRoot "runtime"
 $LogDir = Join-Path $StateRoot "data\reports\runtime"
