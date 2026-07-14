@@ -1,8 +1,10 @@
 {
+  "conflict_codes": ["C.C1105M21", "C.C1225M21", "C.C2106M21"],
   "recommendations": {
     "C.C1105M21": {
       "expected_confidence": "low",
       "expected_reason": "multiple_complete_candidates",
+      "high_confidence": false,
       "manual_choice_required": true,
       "allowed_signatures": [
         {
@@ -24,6 +26,7 @@
     "C.C1225M21": {
       "expected_confidence": "high",
       "expected_reason": "grade_only_conflict",
+      "high_confidence": true,
       "manual_choice_required": false,
       "selected_signature": {
         "model": "RES_0402_10K",
@@ -52,6 +55,7 @@
     "C.C2106M21": {
       "expected_confidence": "high",
       "expected_reason": "truncation_prefix_completion",
+      "high_confidence": true,
       "manual_choice_required": false,
       "selected_signature": {
         "model": "EMMC_BGA153_64G",
@@ -108,11 +112,65 @@
       "bom_part_number": "R.SIZE.M21",
       "bom_model": "RES_0603_10K",
       "bom_description": "THICK_FILM_RESISTOR 10K 0603",
-      "bom_package": "0603"
+      "bom_package": "0603",
+      "netlist_size": "0402",
+      "bom_size": "0603"
     },
     "duplicate_reference": {
       "reference": "R7701",
       "part_numbers": ["R.R7701M21", "R.R7702M21"]
     }
+  },
+  "processed_templates": {
+    "plm": {
+      "sheet_title": "PLM",
+      "group_header": ["父项信息", "", "子项信息", "", "", "", "", "", "BOM明细", "", "", "", "", "", "", "", "", "", ""],
+      "header_row": 2,
+      "data_row": 3,
+      "column_count": 19,
+      "headers": ["父项编码", "描述", "子项编码", "名称", "型号", "描述", "单位", "数量", "位号", "备注", "物料优选等级", "物料优选等级备注", "替代组编码", "替代策略", "替代方式", "替代优先级", "发料方式", "是否参与MRP运算", "是否跳层"],
+      "row": ["PARENT.SANITIZED.01", "SANITIZED BOARD", "C.C1105M21", "CERAMIC_CAPACITOR", "CAP_0402_10UF_6V3", "MLCC 10uF 6.3V X5R 0402", "ea", 2, "C1105,C1106", "", "优选", "", "", "", "", "", "DIRECT", "YES", "NO"],
+      "reader": {
+        "reference": "C1105,C1106",
+        "refs": ["C1105", "C1106"],
+        "part_number": "C.C1105M21",
+        "model": "CAP_0402_10UF_6V3",
+        "grade": "优选",
+        "description": "MLCC 10uF 6.3V X5R 0402",
+        "quantity": 2,
+        "name": "CERAMIC_CAPACITOR",
+        "package": "MLCC 10uF 6.3V X5R 0402",
+        "value": "MLCC 10uF 6.3V X5R 0402"
+      }
+    },
+    "oa": {
+      "sheet_title": "OA",
+      "header_row": 1,
+      "data_row": 2,
+      "column_count": 16,
+      "headers": ["序号", "编码（父）*##bmf", "描述（父）##msf", "编码（子）*##bm", "描述（子）##ms", "数量*##sl", "单位*##dw", "位号##wh", "备注##bz", "替代组编码##tdzbm", "替代策略##tdcl", "发料方式##tdfs", "物料优选等级##tdyxj", "领料方式*##flfs", "是否参与MRP运算*##sfcymrpys", "是否跳层*##sftc"],
+      "row": ["", "PARENT.SANITIZED.01", "SANITIZED BOARD", "C.C1105M21", "MLCC 10uF 6.3V X5R 0402", 2, "ea", "C1105,C1106", "", "", "", "", "优选", "DIRECT", "YES", "NO"],
+      "reader": {
+        "reference": "C1105,C1106",
+        "refs": ["C1105", "C1106"],
+        "part_number": "C.C1105M21",
+        "model": "",
+        "grade": "优选",
+        "description": "MLCC 10uF 6.3V X5R 0402",
+        "quantity": 2,
+        "name": "MLCC 10uF 6.3V X5R 0402",
+        "package": "MLCC 10uF 6.3V X5R 0402",
+        "value": "MLCC 10uF 6.3V X5R 0402"
+      }
+    }
+  },
+  "workbook_expectations": {
+    "core_properties": {
+      "creator": "sanitized-golden-fixtures",
+      "last_modified_by": "sanitized-golden-fixtures",
+      "created": "2000-01-01T00:00:00Z",
+      "modified": "2000-01-01T00:00:00Z"
+    },
+    "zip_timestamp": [2000, 1, 1, 0, 0, 0]
   }
 }
