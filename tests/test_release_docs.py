@@ -68,13 +68,16 @@ class ReleaseDocsTests(unittest.TestCase):
         self.assertIn("npm run build", text)
         self.assertIn("English UI text found", text)
 
-    def test_verify_all_uses_and_restores_a_canonical_test_temp_root(self) -> None:
+    def test_verify_all_uses_a_short_windows_safe_test_temp_root_and_restores_environment(self) -> None:
         text = (ROOT / "scripts" / "verify_all.ps1").read_text(encoding="utf-8")
 
         self.assertIn("[Environment+SpecialFolder]::LocalApplicationData", text)
-        self.assertIn("Insta360_HW_Verify", text)
-        self.assertIn("verify-temp", text)
-        self.assertNotIn('("Insta360_HW\\verify-temp\\"', text)
+        self.assertIn('Join-Path $LocalAppData ("Temp\\ihv\\"', text)
+        self.assertIn(".Substring(0, 12)", text)
+        self.assertNotIn("Insta360_HW_Verify", text)
+        self.assertNotIn("verify-temp", text)
+        self.assertIn('$VerifyPytestRoot = Join-Path $VerifyTempRoot "p"', text)
+        self.assertIn("-m pytest -q --basetemp $VerifyPytestRoot", text)
         self.assertIn("$env:TEMP = $VerifyTempRoot", text)
         self.assertIn("$env:TMP = $VerifyTempRoot", text)
         self.assertIn("$env:TEMP = $OriginalTemp", text)

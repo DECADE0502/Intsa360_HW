@@ -47,16 +47,17 @@ $OriginalTemp = $env:TEMP
 $OriginalTmp = $env:TMP
 $LocalAppData = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)
 if (-not $LocalAppData) { throw "Local application data directory not found" }
-$VerifyTempRoot = Join-Path $LocalAppData ("Temp\Insta360_HW_Verify\verify-temp\" + [Guid]::NewGuid().ToString("N"))
+$VerifyTempRoot = Join-Path $LocalAppData ("Temp\ihv\" + [Guid]::NewGuid().ToString("N").Substring(0, 12))
 New-Item -ItemType Directory -Force -Path $VerifyTempRoot | Out-Null
 $VerifyTempRoot = (Resolve-Path -LiteralPath $VerifyTempRoot).Path
+$VerifyPytestRoot = Join-Path $VerifyTempRoot "p"
 
 Push-Location $Root
 try {
   $env:TEMP = $VerifyTempRoot
   $env:TMP = $VerifyTempRoot
 
-  & $Python -m pytest -q
+  & $Python -m pytest -q --basetemp $VerifyPytestRoot
   if ($LASTEXITCODE -ne 0) { throw "pytest failed" }
 
   & $Python -m py_compile app\backend\suite_app.py app\backend\update_api.py app\backend\tools\bom_process.py tools\bom\convert_cadence_bom.py
