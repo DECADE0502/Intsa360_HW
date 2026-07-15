@@ -185,6 +185,98 @@ class ReleaseIdentityTests(unittest.TestCase):
         self.assertIn(entrypoint, release)
         self.assertIn("Embedded Python entrypoint verification failed.", release)
 
+    def test_runtime_builder_writes_launcher_identity_as_utf8_without_bom(self) -> None:
+        release = (ROOT / "scripts" / "build_release.ps1").read_text(encoding="utf-8")
+
+        for name in ("VERSION", "REVISION", "install_manifest.json"):
+            self.assertIn(
+                f'[System.IO.File]::WriteAllText((Join-Path $Staging "{name}")',
+                release,
+            )
+        self.assertNotIn(
+            'Set-Content -LiteralPath (Join-Path $Staging "install_manifest.json") -Encoding UTF8',
+            release,
+        )
+
+    def test_runtime_builder_runs_the_compiled_launcher_identity_probe(self) -> None:
+        release = (ROOT / "scripts" / "build_release.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("launcher_identity_probe.ps1", release)
+        self.assertIn("Launcher runtime identity verification failed.", release)
+
+    @unittest.skipUnless(os.name == "nt", "Windows launcher verification")
+    def test_launcher_identity_probe_runs_under_windows_powershell(self) -> None:
+        version = "1.2.3"
+        revision = "c" * 40
+        with tempfile.TemporaryDirectory() as raw_temp:
+            temp = Path(raw_temp)
+            launcher = temp / "Insta360_HW.exe"
+            runtime = temp / "runtime"
+            runtime.mkdir()
+            (runtime / "VERSION").write_text(version + "\n", encoding="utf-8")
+            (runtime / "REVISION").write_text(revision + "\n", encoding="utf-8")
+            (runtime / "install_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "schema": 3,
+                        "product": "Insta360_HW",
+                        "version": version,
+                        "revision": revision,
+                        "build_kind": "dev",
+                        "layout": "runtime-v3",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            built = subprocess.run(
+                [
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    str(ROOT / "launcher" / "build.ps1"),
+                    "-Output",
+                    str(launcher),
+                    "-Version",
+                    version,
+                ],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=60,
+            )
+            self.assertEqual(0, built.returncode, built.stdout + built.stderr)
+
+            probed = subprocess.run(
+                [
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    str(ROOT / "scripts" / "release" / "launcher_identity_probe.ps1"),
+                    "-LauncherPath",
+                    str(launcher),
+                    "-RuntimeRoot",
+                    str(runtime),
+                    "-Version",
+                    version,
+                    "-Revision",
+                    revision,
+                ],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=30,
+            )
+            self.assertEqual(0, probed.returncode, probed.stdout + probed.stderr)
+            self.assertIn("Launcher runtime identity verified", probed.stdout)
+
     def test_runtime_builder_finalizes_without_python_cache_after_validation(self) -> None:
         release = (ROOT / "scripts" / "build_release.ps1").read_text(encoding="utf-8")
         validator_call = '& (Join-Path $runtimePyDir "python.exe") $ValidatorPath $Staging'

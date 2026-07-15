@@ -203,6 +203,9 @@ if (-not $ready) {
 
   Write-LauncherLog "Service verified PID $($process.Id) port $Port token $Token version $Version"
   if (-not $NoOpen -and -not $waitingPageOpened) { Open-Suite -Port $Port }
+} catch {
+  Write-LauncherLog ("Launch failed: " + $_.Exception.ToString())
+  throw
 } finally {
   if ($serviceMutexHeld) { $serviceMutex.ReleaseMutex() | Out-Null }
   $serviceMutex.Dispose()

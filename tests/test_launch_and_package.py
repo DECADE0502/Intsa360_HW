@@ -35,6 +35,7 @@ class LaunchAndPackageTests(unittest.TestCase):
         self.assertIn("Global\\Insta360_HW_ServiceLaunch_V2", text)
         self.assertIn("AbandonedMutexException", text)
         self.assertIn("ReleaseMutex", text)
+        self.assertIn("Launch failed:", text)
         self.assertNotIn("Get-NetTCPConnection", text)
         self.assertNotIn("codex-primary-runtime\\dependencies\\python\\python.exe", text)
         self.assertIn("WScript.Shell", vbs)

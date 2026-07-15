@@ -146,6 +146,26 @@ function Copy-TreeVerified {
   }
 }
 
+function Assert-InstallDestinationCapacity {
+  param(
+    [Parameter(Mandatory=$true)][string]$Payload,
+    [Parameter(Mandatory=$true)][string]$Version,
+    [Parameter(Mandatory=$true)][string]$Revision
+  )
+  $runtimeId = Get-HwV3RuntimeId -Version $Version -Revision $Revision
+  $probeJobId = "0" * 32
+  $incomingRoot = Join-Path (Join-Path $InstallRoot "runtime") `
+    ("." + $runtimeId + "." + $probeJobId + ".incoming")
+  foreach ($item in Get-ChildItem -LiteralPath $Payload -Recurse -Force) {
+    $relative = $item.FullName.Substring($Payload.Length).TrimStart([char[]]"\/")
+    $destination = Join-Path $incomingRoot $relative
+    $maximumSupportedPath = if ($item.PSIsContainer) { 248 } else { 260 }
+    if ($destination.Length -ge $maximumSupportedPath) {
+      throw "Selected installation directory is too long for this runtime. Choose a shorter installation path."
+    }
+  }
+}
+
 function Move-DirectoryWithRetry {
   param(
     [Parameter(Mandatory=$true)][string]$Source,
@@ -266,6 +286,7 @@ Assert-HwV3RuntimeTree -Path $PayloadRoot -ExpectedVersion $payloadVersion -Expe
 $payloadLauncher = Join-Path $PayloadRoot "Insta360_HW.exe"
 if (-not (Test-Path -LiteralPath $payloadLauncher -PathType Leaf)) { throw "Setup payload has no stable launcher." }
 $payloadTreeSha256 = Get-HwV3TreeSha256 -Path $PayloadRoot
+Assert-InstallDestinationCapacity -Payload $PayloadRoot -Version $payloadVersion -Revision $payloadRevision
 
 New-Item -ItemType Directory -Force -Path $InstallRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $StateRoot | Out-Null

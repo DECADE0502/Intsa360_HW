@@ -379,6 +379,156 @@ def test_stable_launcher_resolves_active_runtime_and_forwards_state_root() -> No
     assert '-StateRoot "{1}"' in runtime
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows launcher build")
+def test_stable_launcher_accepts_utf8_bom_runtime_identity(tmp_path: Path) -> None:
+    launcher = tmp_path / "Insta360_HW.exe"
+    built = subprocess.run(
+        [
+            POWERSHELL,
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(ROOT / "launcher" / "build.ps1"),
+            "-Output",
+            str(launcher),
+            "-Version",
+            NEW_VERSION,
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=60,
+    )
+    assert built.returncode == 0, built.stdout + built.stderr
+
+    install_root = tmp_path / "installed app"
+    relative = _runtime_relative(NEW_VERSION, NEW_REVISION)
+    runtime_root = install_root / Path(relative)
+    runtime_root.mkdir(parents=True)
+    (runtime_root / "VERSION").write_text(NEW_VERSION + "\n", encoding="utf-8-sig")
+    (runtime_root / "REVISION").write_text(NEW_REVISION + "\n", encoding="utf-8-sig")
+    (runtime_root / "install_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema": 3,
+                "product": "Insta360_HW",
+                "version": NEW_VERSION,
+                "revision": NEW_REVISION,
+                "build_kind": "published",
+                "layout": "runtime-v3",
+            }
+        ),
+        encoding="utf-8-sig",
+    )
+    (install_root / "installation.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 3,
+                "product": "Insta360_HW",
+                "layout": "versioned-runtime-v3",
+                "active_runtime": relative,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    command = (
+        "Add-Type -AssemblyName System.Runtime.Serialization; "
+        f"$assembly = [Reflection.Assembly]::LoadFile('{_powershell_quote(launcher)}'); "
+        "$type = $assembly.GetType('Program', $true); "
+        "$method = $type.GetMethod('ResolveActiveRuntime', "
+        "[Reflection.BindingFlags]'NonPublic,Static'); "
+        "try { "
+        f"$resolved = $method.Invoke($null, [object[]]@('{_powershell_quote(install_root)}')); "
+        "[Console]::Out.WriteLine($resolved) "
+        "} catch { "
+        "$failure = if ($_.Exception.InnerException) { $_.Exception.InnerException } else { $_.Exception }; "
+        "[Console]::Error.WriteLine($failure.ToString()); exit 1 "
+        "}"
+    )
+    resolved = subprocess.run(
+        [POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=30,
+    )
+
+    assert resolved.returncode == 0, resolved.stdout + resolved.stderr
+    assert str(runtime_root.resolve()).lower() in resolved.stdout.strip().lower()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows launcher build")
+def test_stable_launcher_waits_for_script_process_not_long_lived_child(tmp_path: Path) -> None:
+    launcher = tmp_path / "Insta360_HW.exe"
+    built = subprocess.run(
+        [
+            POWERSHELL,
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(ROOT / "launcher" / "build.ps1"),
+            "-Output",
+            str(launcher),
+            "-Version",
+            NEW_VERSION,
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=60,
+    )
+    assert built.returncode == 0, built.stdout + built.stderr
+
+    script = tmp_path / "spawn_child.ps1"
+    script.write_text(
+        "$stdout = Join-Path $PSScriptRoot 'child.stdout.log'\n"
+        "$stderr = Join-Path $PSScriptRoot 'child.stderr.log'\n"
+        "Start-Process -FilePath powershell.exe "
+        "-ArgumentList '-NoProfile -Command \"Start-Sleep -Seconds 6\"' "
+        "-WindowStyle Hidden -RedirectStandardOutput $stdout "
+        "-RedirectStandardError $stderr | Out-Null\n"
+        "exit 0\n",
+        encoding="utf-8-sig",
+    )
+    state_root = tmp_path / "state"
+    state_root.mkdir()
+    command = (
+        "Add-Type -AssemblyName System.Runtime.Serialization; "
+        f"$assembly = [Reflection.Assembly]::LoadFile('{_powershell_quote(launcher)}'); "
+        "$type = $assembly.GetType('Program', $true); "
+        "$method = $type.GetMethod('RunPowerShellHidden', "
+        "[Reflection.BindingFlags]'NonPublic,Static'); "
+        "$arguments = New-Object 'object[]' 4; "
+        f"$arguments[0] = '{_powershell_quote(tmp_path)}'; "
+        f"$arguments[1] = '{_powershell_quote(script)}'; "
+        "$arguments[2] = ''; "
+        f"$arguments[3] = '{_powershell_quote(state_root)}'; "
+        "$timer = [Diagnostics.Stopwatch]::StartNew(); "
+        "$code = $method.Invoke($null, $arguments); "
+        "$timer.Stop(); "
+        "[Console]::Out.WriteLine(('{0}|{1}' -f $code, $timer.ElapsedMilliseconds))"
+    )
+    invoked = subprocess.run(
+        [POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=15,
+    )
+
+    assert invoked.returncode == 0, invoked.stdout + invoked.stderr
+    code, elapsed_ms = invoked.stdout.strip().split("|")
+    assert code == "0"
+    assert int(elapsed_ms) < 3000, invoked.stdout
+
+
 def test_cadence_update_uses_original_user_plugin_state_path() -> None:
     worker = (ROOT / "scripts" / "lifecycle_v3" / "Worker.ps1").read_text(encoding="utf-8")
 

@@ -8,7 +8,6 @@ using System.Runtime.Serialization.Json;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
-using System.Threading.Tasks;
 using System.Windows.Forms;
 
 [DataContract]
@@ -86,6 +85,7 @@ internal static class Program
     private const int MaxLogBytes = 512 * 1024;
     private const int MaxLogFiles = 5;
     private const int ScriptTimeoutMilliseconds = 120000;
+    private static readonly UTF8Encoding StrictUtf8 = new UTF8Encoding(false, true);
     private static readonly Regex RuntimePointerPattern = new Regex(
         @"^runtime/((?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?\+[0-9a-fA-F]{40})$",
         RegexOptions.CultureInvariant);
@@ -379,28 +379,17 @@ internal static class Program
             UseShellExecute = false,
             WindowStyle = ProcessWindowStyle.Hidden,
             CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8,
         };
         info.EnvironmentVariables["INSTA360_HW_STATE_ROOT"] = stateRoot;
         using (var process = Process.Start(info))
         {
             if (process == null) return 1;
-            Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
-            Task<string> stderrTask = process.StandardError.ReadToEndAsync();
             if (!process.WaitForExit(ScriptTimeoutMilliseconds))
             {
                 try { process.Kill(); } catch { }
                 WriteLog(stateRoot, "PowerShell command timed out: " + script);
                 return 1460;
             }
-            Task.WaitAll(stdoutTask, stderrTask);
-            string stdout = stdoutTask.Result;
-            string stderr = stderrTask.Result;
-            if (!string.IsNullOrWhiteSpace(stdout)) WriteLog(stateRoot, "[stdout] " + stdout.Trim());
-            if (!string.IsNullOrWhiteSpace(stderr)) WriteLog(stateRoot, "[stderr] " + stderr.Trim());
             return process.ExitCode;
         }
     }
@@ -459,7 +448,8 @@ internal static class Program
         try
         {
             if (!File.Exists(path)) return null;
-            using (var stream = File.OpenRead(path))
+            string json = ReadUtf8File(path);
+            using (var stream = new MemoryStream(Encoding.UTF8.GetBytes(json), false))
             {
                 var serializer = new DataContractJsonSerializer(typeof(T));
                 return serializer.ReadObject(stream) as T;
@@ -470,8 +460,15 @@ internal static class Program
 
     private static string ReadText(string path)
     {
-        try { return File.ReadAllText(path, Encoding.UTF8).Trim(); }
+        try { return ReadUtf8File(path).Trim(); }
         catch { return ""; }
+    }
+
+    private static string ReadUtf8File(string path)
+    {
+        byte[] bytes = File.ReadAllBytes(path);
+        int offset = bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF ? 3 : 0;
+        return StrictUtf8.GetString(bytes, offset, bytes.Length - offset);
     }
 
     private static bool SamePath(string left, string right)

@@ -49,6 +49,7 @@ if ($SourceDateEpoch -le 0) { throw "A valid git commit timestamp is required fo
 $Staging = Join-Path (Split-Path -Parent $Release) ("." + (Split-Path -Leaf $Release) + "." + [guid]::NewGuid().ToString("N") + ".staging")
 if (Test-Path -LiteralPath $Staging) { Remove-Item -LiteralPath $Staging -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $Staging | Out-Null
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
 function Copy-ReleaseTree {
   param([Parameter(Mandatory=$true)][string]$Source, [Parameter(Mandatory=$true)][string]$Destination)
@@ -123,13 +124,14 @@ try {
       Copy-Item -LiteralPath $source -Destination (Join-Path $Staging $name) -Force
     }
   }
-  Set-Content -LiteralPath (Join-Path $Staging "VERSION") -Value $Version -Encoding UTF8
-  Set-Content -LiteralPath (Join-Path $Staging "REVISION") -Value $Revision -Encoding UTF8
+  [System.IO.File]::WriteAllText((Join-Path $Staging "VERSION"), $Version + [Environment]::NewLine, $utf8NoBom)
+  [System.IO.File]::WriteAllText((Join-Path $Staging "REVISION"), $Revision + [Environment]::NewLine, $utf8NoBom)
   $noticePath = Join-Path $Staging "UPDATE_NOTICE.json"
   $notice = Get-Content -LiteralPath $noticePath -Raw -Encoding UTF8 | ConvertFrom-Json
   if ([string]$notice.version -cne $Version) { throw "UPDATE_NOTICE.json version does not match VERSION." }
   $notice.revision = $Revision
-  $notice | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $noticePath -Encoding UTF8
+  $noticeJson = $notice | ConvertTo-Json -Depth 10
+  [System.IO.File]::WriteAllText($noticePath, $noticeJson + [Environment]::NewLine, $utf8NoBom)
 
   Write-Host "[4/6] Preparing verified embedded Python..." -ForegroundColor Cyan
   . (Join-Path $Root "scripts\lib\EmbeddedPython.ps1")
@@ -156,7 +158,15 @@ try {
     runtime_paths = @("app/backend", "app/frontend", "cadence", "config", "plugins", "scripts", "tools", "runtime")
     excluded_dev_paths = @("frontend", "tests", "docs", ".git", "data")
   }
-  $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $Staging "install_manifest.json") -Encoding UTF8
+  $manifestJson = $manifest | ConvertTo-Json -Depth 6
+  [System.IO.File]::WriteAllText((Join-Path $Staging "install_manifest.json"), `
+    $manifestJson + [Environment]::NewLine, $utf8NoBom)
+
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
+    (Join-Path $Root "scripts\release\launcher_identity_probe.ps1") `
+    -LauncherPath (Join-Path $Staging "Insta360_HW.exe") -RuntimeRoot $Staging `
+    -Version $Version -Revision $Revision
+  if ($LASTEXITCODE -ne 0) { throw "Launcher runtime identity verification failed." }
 
   Write-Host "[6/6] Validating runtime-v3 payload..." -ForegroundColor Cyan
   $validator = @'
@@ -180,7 +190,6 @@ validate_payload(root, manifest)
 '@
   $ValidatorPath = Join-Path ([System.IO.Path]::GetTempPath()) `
     ("insta360_runtime_validator_" + [guid]::NewGuid().ToString("N") + ".py")
-  $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
   [System.IO.File]::WriteAllText($ValidatorPath, $validator, $utf8NoBom)
   try {
     & (Join-Path $runtimePyDir "python.exe") $ValidatorPath $Staging

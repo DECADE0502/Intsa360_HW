@@ -13,6 +13,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def _remove_tree_with_retry(path: Path) -> None:
+    for attempt in range(8):
+        try:
+            shutil.rmtree(path)
+            return
+        except FileNotFoundError:
+            return
+        except OSError:
+            if attempt == 7:
+                raise
+            time.sleep(0.05 * (attempt + 1))
+
+
 def _write_payload(root: Path, version: str, revision: str, launcher: bytes) -> None:
     required_files = (
         "launch_tool_suite.ps1",
@@ -198,6 +211,21 @@ class SetupLifecycleV3Tests(unittest.TestCase):
             self.assertEqual(metadata["generation"], 1)
             self.assertEqual((install_root / "Insta360_HW.exe").read_bytes(), b"launcher-v1")
             self.assertTrue((install_root / metadata["active_runtime"] / "app/backend/suite_app.py").is_file())
+
+    def test_install_rejects_unsupported_destination_length_before_copy(self) -> None:
+        base = Path(tempfile.mkdtemp())
+        try:
+            install_root = base / ("long-install-root-" + "x" * 120)
+            state_root, payload = base / "state", base / "payload"
+            _write_payload(payload, "1.2.3", "9" * 40, b"launcher-v1")
+
+            result = _run_install(install_root, state_root, payload, "Install")
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Selected installation directory is too long", result.stdout + result.stderr)
+            self.assertFalse(install_root.exists())
+        finally:
+            _remove_tree_with_retry(base)
 
     def test_failed_upgrade_restores_pointer_launcher_and_old_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
