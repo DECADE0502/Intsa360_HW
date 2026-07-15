@@ -110,6 +110,7 @@ class DistributionLifecycleV2Tests(unittest.TestCase):
             "'D:\\work\\cdssetup\\OrCAD_Capture\\tclscripts\\capAutoLoad') }; "
             "function Find-CadenceVendorAutoLoadDirs { @('C:\\Cadence\\SPB_17.4\\tools\\capture\\tclscripts\\capAutoLoad',"
             "'D:\\Cadence\\SPB_16.6\\tools\\capture\\tclscripts\\capAutoLoad') }; "
+            "function Get-HwAgentCadenceOwnershipAutoLoadDirs { @() }; "
             "$paths=@(Get-HwAgentCadenceCleanupAutoLoadDirs); "
             "if($paths.Count -ne 4){Write-Error ('count=' + $paths.Count);exit 2}; "
             "if($paths | Where-Object { $_ -match 'capAutoLoad[A-Z]:' }){Write-Error 'concatenated path';exit 3}; "
@@ -281,6 +282,24 @@ class DistributionLifecycleV2Tests(unittest.TestCase):
             installer.index("Copy-Item -LiteralPath $logPath -Destination $previousLog"),
             installer.index("Set-Content -LiteralPath $logPath"),
         )
+
+    def test_setup_scales_lifecycle_percent_to_native_progress_ranges(self) -> None:
+        setup = (ROOT / "HWAgent_Setup.iss").read_text(encoding="utf-8-sig")
+        normalized = " ".join(setup.split())
+
+        self.assertIn("function ScaleProgress", setup)
+        self.assertIn(
+            "UninstallProgressForm.ProgressBar.Position := "
+            "ScaleProgress(ProgressValue, UninstallProgressForm.ProgressBar.Max)",
+            normalized,
+        )
+        self.assertIn(
+            "WizardForm.ProgressGauge.Position := "
+            "ScaleProgress(ProgressValue, WizardForm.ProgressGauge.Max)",
+            normalized,
+        )
+        self.assertNotIn("ProgressGauge.Position := ProgressValue", setup)
+        self.assertNotIn("ProgressBar.Position := ProgressValue", setup)
 
     def test_setup_maintenance_uninstall_uses_standard_uninstaller_or_repairs_it(self) -> None:
         setup = (ROOT / "HWAgent_Setup.iss").read_text(encoding="utf-8-sig")

@@ -498,6 +498,19 @@ begin
   else Result := '正在处理，请稍候';
 end;
 
+function ScaleProgress(const Percent, Maximum: Integer): Integer;
+var
+  BoundedPercent: Integer;
+begin
+  BoundedPercent := Percent;
+  if BoundedPercent < 0 then BoundedPercent := 0;
+  if BoundedPercent > 100 then BoundedPercent := 100;
+  if Maximum <= 0 then
+    Result := 0
+  else
+    Result := (BoundedPercent * Maximum) div 100;
+end;
+
 function RunLifecycleAsync(
   const Operation, EntryPath, ActionOrMode: String;
   const IsUninstall: Boolean): Integer;
@@ -545,12 +558,14 @@ begin
         ProgressValue := 0;
       ReadJsonString(ProgressPath, 'stage', Stage);
       if IsUninstall then begin
-        UninstallProgressForm.ProgressBar.Position := ProgressValue;
+        UninstallProgressForm.ProgressBar.Position :=
+          ScaleProgress(ProgressValue, UninstallProgressForm.ProgressBar.Max);
         UninstallProgressForm.StatusLabel.Caption := ProgressText(Stage);
         UninstallProgressForm.Refresh;
       end else begin
         WizardForm.ProgressGauge.Style := npbstNormal;
-        WizardForm.ProgressGauge.Position := ProgressValue;
+        WizardForm.ProgressGauge.Position :=
+          ScaleProgress(ProgressValue, WizardForm.ProgressGauge.Max);
         WizardForm.StatusLabel.Caption := ProgressText(Stage);
         WizardForm.Refresh;
       end;
@@ -643,7 +658,8 @@ begin
     UninstallCleanupRan := True;
     if PreserveUserData then Mode := 'PreserveData' else Mode := 'PurgeData';
     ScriptPath := ExpandConstant('{app}\maintenance\Uninstall.ps1');
-    UninstallProgressForm.ProgressBar.Position := 2;
+    UninstallProgressForm.ProgressBar.Position :=
+      ScaleProgress(2, UninstallProgressForm.ProgressBar.Max);
     UninstallProgressForm.StatusLabel.Caption := '正在准备卸载';
     ResultCode := RunLifecycleAsync('Uninstall', ScriptPath, Mode, True);
     if ResultCode <> 0 then begin
@@ -654,12 +670,14 @@ begin
         MB_OK);
       RaiseException('Lifecycle cleanup failed');
     end;
-    UninstallProgressForm.ProgressBar.Position := 92;
+    UninstallProgressForm.ProgressBar.Position :=
+      ScaleProgress(92, UninstallProgressForm.ProgressBar.Max);
     UninstallProgressForm.StatusLabel.Caption := '正在删除程序文件和快捷方式';
   end;
 
   if CurUninstallStep = usPostUninstall then begin
-    UninstallProgressForm.ProgressBar.Position := 100;
+    UninstallProgressForm.ProgressBar.Position :=
+      ScaleProgress(100, UninstallProgressForm.ProgressBar.Max);
     UninstallProgressForm.StatusLabel.Caption := '卸载完成';
     if not UninstallSilent then
       MsgBox('卸载完成。点击“确定”关闭卸载程序。', mbInformation, MB_OK);

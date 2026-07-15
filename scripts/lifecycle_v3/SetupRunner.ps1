@@ -16,6 +16,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $resultCode = 9001
+$process = $null
 
 function ConvertTo-ProcessArgument {
   param([Parameter(Mandatory=$true)][AllowEmptyString()][string]$Value)
@@ -43,7 +44,16 @@ try {
   if ($SkipCadence) { $arguments += "-SkipCadence" }
   if ($SkipRecoveryRegistration) { $arguments += "-SkipRecoveryRegistration" }
   $argumentLine = (($arguments | ForEach-Object { ConvertTo-ProcessArgument -Value ([string]$_) }) -join " ")
-  $process = Start-Process -FilePath $powershell -ArgumentList $argumentLine -WindowStyle Hidden -Wait -PassThru
+  $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+  $startInfo.FileName = $powershell
+  $startInfo.Arguments = $argumentLine
+  $startInfo.UseShellExecute = $false
+  $startInfo.CreateNoWindow = $true
+  $startInfo.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+  $process = New-Object System.Diagnostics.Process
+  $process.StartInfo = $startInfo
+  if (-not $process.Start()) { throw "Lifecycle process could not be started." }
+  $process.WaitForExit()
   $resultCode = [int]$process.ExitCode
 } catch {
   try {
@@ -52,6 +62,10 @@ try {
     Add-Content -LiteralPath $runnerLog -Encoding UTF8 -Value ((Get-Date).ToString("s") + " " + $_.Exception.ToString())
   } catch {}
 } finally {
+  if ($null -ne $process) {
+    try { $process.Dispose() }
+    catch {}
+  }
   try {
     $target = [System.IO.Path]::GetFullPath($ResultPath)
     $parent = Split-Path -Parent $target

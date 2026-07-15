@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -629,6 +630,88 @@ class SetupLifecycleV3Tests(unittest.TestCase):
             self.assertTrue(result_path.is_file(), runner.stdout + runner.stderr)
             self.assertEqual(result_path.read_text(encoding="utf-8"), "0")
             self.assertTrue((install_root / "installation.json").is_file())
+
+    def test_setup_runner_waits_only_for_the_lifecycle_process(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            entry = base / "spawn-service.ps1"
+            child_pid_path = base / "service.pid"
+            result_path, progress_path = base / "result.txt", base / "progress.json"
+            entry.write_text(
+                """
+param(
+  [string]$InstallRoot,
+  [string]$StateRoot,
+  [string]$ProgressPath,
+  [string]$PayloadRoot,
+  [string]$Action
+)
+$powershell = Join-Path $env:SystemRoot "System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+$service = Start-Process -FilePath $powershell `
+  -ArgumentList @("-NoProfile", "-Command", "Start-Sleep -Seconds 60") `
+  -WindowStyle Hidden -PassThru
+Set-Content -LiteralPath $env:HWAGENT_TEST_SERVICE_PID -Value $service.Id
+exit 0
+""".strip()
+                + "\n",
+                encoding="utf-8",
+            )
+            env = {**os.environ, "HWAGENT_TEST_SERVICE_PID": str(child_pid_path)}
+            command = [
+                "powershell.exe",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(ROOT / "scripts" / "lifecycle_v3" / "SetupRunner.ps1"),
+                "-Operation",
+                "Install",
+                "-EntryPath",
+                str(entry),
+                "-InstallRoot",
+                str(base / "install"),
+                "-StateRoot",
+                str(base / "state"),
+                "-PayloadRoot",
+                str(base / "payload"),
+                "-Action",
+                "Install",
+                "-ResultPath",
+                str(result_path),
+                "-ProgressPath",
+                str(progress_path),
+            ]
+            started = time.monotonic()
+            runner = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=env,
+            )
+            timed_out = False
+            try:
+                stdout, stderr = runner.communicate(timeout=8)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                runner.kill()
+                stdout, stderr = runner.communicate(timeout=5)
+            finally:
+                if child_pid_path.is_file():
+                    child_pid = child_pid_path.read_text(encoding="utf-8-sig").strip()
+                    subprocess.run(
+                        ["taskkill.exe", "/PID", child_pid, "/T", "/F"],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        check=False,
+                    )
+
+            self.assertFalse(timed_out, stdout + stderr)
+            self.assertLess(time.monotonic() - started, 8)
+            self.assertTrue(result_path.is_file(), stdout + stderr)
+            self.assertEqual(result_path.read_text(encoding="utf-8"), "0")
 
 
 if __name__ == "__main__":
