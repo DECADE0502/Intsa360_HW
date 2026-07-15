@@ -56,6 +56,27 @@ function Test-HwV3ProcessIdentity {
   } catch { return $false }
 }
 
+function Get-HwV3RuntimeBackendProcesses {
+  param([Parameter(Mandatory=$true)][string]$RuntimeRoot)
+  $expectedExe = [System.IO.Path]::GetFullPath((Join-Path $RuntimeRoot "runtime\python\python.exe")).TrimEnd("\")
+  $expectedBackend = [System.IO.Path]::GetFullPath((Join-Path $RuntimeRoot "app\backend\suite_app.py"))
+  $matches = @()
+  foreach ($process in @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)) {
+    try {
+      if ([string]::IsNullOrWhiteSpace([string]$process.ExecutablePath) -or
+          [string]::IsNullOrWhiteSpace([string]$process.CommandLine)) { continue }
+      $actualExe = [System.IO.Path]::GetFullPath([string]$process.ExecutablePath).TrimEnd("\")
+      if ($actualExe -ine $expectedExe) { continue }
+      if (([string]$process.CommandLine).IndexOf(
+          $expectedBackend,
+          [System.StringComparison]::OrdinalIgnoreCase
+        ) -lt 0) { continue }
+      $matches += $process
+    } catch {}
+  }
+  return @($matches)
+}
+
 function Test-HwV3Service {
   param([Parameter(Mandatory=$true)][string]$RuntimeRoot, [Parameter(Mandatory=$true)][string]$StateRoot)
   $identity = Read-HwV3Json -Path (Get-HwV3ServiceStatePath -StateRoot $StateRoot)
@@ -82,11 +103,26 @@ function Stop-HwV3Service {
   param([Parameter(Mandatory=$true)][string]$RuntimeRoot, [Parameter(Mandatory=$true)][string]$StateRoot)
   $path = Get-HwV3ServiceStatePath -StateRoot $StateRoot
   $identity = Read-HwV3Json -Path $path
-  if ($null -eq $identity) { return }
-  if ((Test-HwV3ServiceIdentity -Identity $identity -RuntimeRoot $RuntimeRoot -StateRoot $StateRoot) -and
+
+  $ownedPids = New-Object 'System.Collections.Generic.HashSet[int]'
+  if ($null -ne $identity -and
+      (Test-HwV3ServiceIdentity -Identity $identity -RuntimeRoot $RuntimeRoot -StateRoot $StateRoot) -and
       (Test-HwV3ProcessIdentity -Identity $identity -RuntimeRoot $RuntimeRoot)) {
-    Stop-Process -Id ([int]$identity.pid) -Force -ErrorAction Stop
-    try { Wait-Process -Id ([int]$identity.pid) -Timeout 10 -ErrorAction SilentlyContinue } catch {}
+    [void]$ownedPids.Add([int]$identity.pid)
+  }
+  foreach ($process in @(Get-HwV3RuntimeBackendProcesses -RuntimeRoot $RuntimeRoot)) {
+    [void]$ownedPids.Add([int]$process.ProcessId)
+  }
+  foreach ($ownedPid in @($ownedPids)) {
+    Stop-Process -Id $ownedPid -Force -ErrorAction SilentlyContinue
+  }
+  foreach ($ownedPid in @($ownedPids)) {
+    try { Wait-Process -Id $ownedPid -Timeout 10 -ErrorAction SilentlyContinue } catch {}
+  }
+  $remaining = @(Get-HwV3RuntimeBackendProcesses -RuntimeRoot $RuntimeRoot)
+  if ($remaining.Count -gt 0) {
+    $remainingPids = (($remaining | ForEach-Object { [string]$_.ProcessId }) -join ", ")
+    throw "Unable to stop remaining owned backend process: $remainingPids"
   }
   Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
 }

@@ -97,6 +97,31 @@ function Test-HwLifecycleLegacyProcessIdentity {
   } catch { return $false }
 }
 
+function Get-HwLifecycleRuntimeBackendProcesses {
+  param([Parameter(Mandatory=$true)][string]$RuntimeRoot)
+  $expectedExecutable = [System.IO.Path]::GetFullPath(
+    (Join-Path $RuntimeRoot "runtime\python\python.exe")
+  ).TrimEnd("\")
+  $expectedBackend = [System.IO.Path]::GetFullPath(
+    (Join-Path $RuntimeRoot "app\backend\suite_app.py")
+  )
+  $matches = @()
+  foreach ($processInfo in @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)) {
+    try {
+      if ([string]::IsNullOrWhiteSpace([string]$processInfo.ExecutablePath) -or
+          [string]::IsNullOrWhiteSpace([string]$processInfo.CommandLine)) { continue }
+      $actualExecutable = [System.IO.Path]::GetFullPath([string]$processInfo.ExecutablePath).TrimEnd("\")
+      if ($actualExecutable -ine $expectedExecutable) { continue }
+      if (([string]$processInfo.CommandLine).IndexOf(
+          $expectedBackend,
+          [System.StringComparison]::OrdinalIgnoreCase
+        ) -lt 0) { continue }
+      $matches += $processInfo
+    } catch {}
+  }
+  return @($matches)
+}
+
 function Get-HwLifecycleHealth {
   param([Parameter(Mandatory=$true)][int]$Port, [int]$TimeoutMs = 1500)
   try {
@@ -120,9 +145,12 @@ function Test-HwLifecycleService {
   if ($null -eq $health) { return $false }
   try {
     $expectedRoot = [System.IO.Path]::GetFullPath($RuntimeRoot).TrimEnd("\\")
+    $expectedState = [System.IO.Path]::GetFullPath($StateRoot).TrimEnd("\\")
     $actualRoot = [System.IO.Path]::GetFullPath([string]$health.root).TrimEnd("\\")
+    $actualState = [System.IO.Path]::GetFullPath([string]$health.state_root).TrimEnd("\\")
     return $health.product -eq "Insta360_HW" -and $health.status -eq "ok" -and
       $actualRoot -ieq $expectedRoot -and
+      $actualState -ieq $expectedState -and
       [string]$health.version -eq [string]$identity.version -and
       [string]$health.instance_token -eq [string]$identity.instance_token -and
       [int]$health.pid -eq [int]$identity.pid
@@ -137,17 +165,31 @@ function Stop-HwLifecycleService {
   )
   $statePath = Get-HwLifecycleServiceStatePath -StateRoot $StateRoot
   $identity = Read-HwLifecycleJson -Path $statePath
-  if ($null -eq $identity) { return }
 
-  $ownedProcess = $false
-  if (Test-HwLifecycleServiceIdentity -Identity $identity -RuntimeRoot $RuntimeRoot -StateRoot $StateRoot) {
-    $ownedProcess = Test-HwLifecycleProcessIdentity -Identity $identity -RuntimeRoot $RuntimeRoot
-  } elseif ($AllowLegacyIdentity) {
-    $ownedProcess = Test-HwLifecycleLegacyProcessIdentity -Identity $identity -RuntimeRoot $RuntimeRoot
+  $ownedPids = New-Object 'System.Collections.Generic.HashSet[int]'
+  if ($null -ne $identity) {
+    $ownedProcess = $false
+    if (Test-HwLifecycleServiceIdentity -Identity $identity -RuntimeRoot $RuntimeRoot -StateRoot $StateRoot) {
+      $ownedProcess = Test-HwLifecycleProcessIdentity -Identity $identity -RuntimeRoot $RuntimeRoot
+    } elseif ($AllowLegacyIdentity) {
+      $ownedProcess = Test-HwLifecycleLegacyProcessIdentity -Identity $identity -RuntimeRoot $RuntimeRoot
+    }
+    if ($ownedProcess) { [void]$ownedPids.Add([int]$identity.pid) }
   }
-  if ($ownedProcess) {
-    Stop-Process -Id ([int]$identity.pid) -Force -ErrorAction Stop
-    try { Wait-Process -Id ([int]$identity.pid) -Timeout 10 -ErrorAction SilentlyContinue } catch {}
+  foreach ($processInfo in @(Get-HwLifecycleRuntimeBackendProcesses -RuntimeRoot $RuntimeRoot)) {
+    [void]$ownedPids.Add([int]$processInfo.ProcessId)
+  }
+
+  foreach ($ownedPid in @($ownedPids)) {
+    Stop-Process -Id $ownedPid -Force -ErrorAction SilentlyContinue
+  }
+  foreach ($ownedPid in @($ownedPids)) {
+    try { Wait-Process -Id $ownedPid -Timeout 10 -ErrorAction SilentlyContinue } catch {}
+  }
+  $remaining = @(Get-HwLifecycleRuntimeBackendProcesses -RuntimeRoot $RuntimeRoot)
+  if ($remaining.Count -gt 0) {
+    $remainingPids = (($remaining | ForEach-Object { [string]$_.ProcessId }) -join ", ")
+    throw "Unable to stop remaining owned backend process: $remainingPids"
   }
   Remove-Item -LiteralPath $statePath -Force -ErrorAction SilentlyContinue
 }
@@ -160,7 +202,7 @@ function Start-HwLifecycleService {
   $launcher = Join-Path $RuntimeRoot "launch_tool_suite.ps1"
   if (-not (Test-Path -LiteralPath $launcher -PathType Leaf)) { throw "缺少服务启动脚本：$launcher" }
   $env:INSTA360_HW_STATE_ROOT = $StateRoot
-  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcher -Restart -NoOpen
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $launcher -Restart -NoOpen -StateRoot $StateRoot
   if ($LASTEXITCODE -ne 0) { throw "后端服务启动失败，错误码：$LASTEXITCODE。" }
   foreach ($attempt in 1..30) {
     if (Test-HwLifecycleService -RuntimeRoot $RuntimeRoot -StateRoot $StateRoot) { return }

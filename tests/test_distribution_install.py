@@ -238,36 +238,34 @@ class DistributionLifecycleV2Tests(unittest.TestCase):
         self.assertIn("TInputOptionWizardPage", setup)
         self.assertIn("CreateInputOptionPage", setup)
         self.assertIn("DisplayVersion", setup)
-        self.assertIn("已检测到已安装版本", setup)
-        self.assertIn("安装记录存在，但程序文件不完整", setup)
-        self.assertIn("修复/重装", setup)
+        self.assertIn("检测到版本", setup)
+        self.assertIn("入口、运行时或标准卸载器不完整", setup)
+        self.assertIn("修复当前安装", setup)
+        self.assertIn("重新安装", setup)
         self.assertIn("卸载 Insta360硬件提效平台", setup)
         self.assertIn("取消，不做任何更改", setup)
-        self.assertIn("SelectedValueIndex := MAINTENANCE_REPAIR", setup)
+        self.assertIn("SelectedValueIndex := 0", setup)
         self.assertIn("function ShouldSkipPage", setup)
+        self.assertIn("PageID = wpSelectDir", setup)
 
-    def test_setup_maintenance_uninstall_repairs_before_launching_fresh_uninstaller(self) -> None:
+    def test_setup_maintenance_uninstall_uses_standard_uninstaller_or_repairs_it(self) -> None:
         setup = (ROOT / "HWAgent_Setup.iss").read_text(encoding="utf-8-sig")
         next_start = setup.index("function NextButtonClick")
         next_end = setup.index("procedure CancelButtonClick", next_start)
         next_block = setup[next_start:next_end]
-        uninstall_start = next_block.index("MAINTENANCE_UNINSTALL:")
-        uninstall_end = next_block.index("MAINTENANCE_CANCEL:", uninstall_start)
-        uninstall_block = next_block[uninstall_start:uninstall_end]
         deinit_start = setup.index("procedure DeinitializeSetup")
         deinit_end = setup.index("function HasUninstallParameter", deinit_start)
         deinit_block = setup[deinit_start:deinit_end]
 
-        self.assertIn("MaintenanceUninstallRequested := True", next_block)
-        self.assertNotIn("ExistingUninstaller", uninstall_block)
-        self.assertNotIn("WizardForm.Close", uninstall_block)
-        self.assertIn("SetupLifecycleSucceeded and MaintenanceUninstallRequested", deinit_block)
+        self.assertIn("Selected = UninstallIndex", next_block)
+        self.assertIn("StartExistingUninstaller()", next_block)
+        self.assertIn("MaintenanceUninstallAfterRepair := True", next_block)
+        self.assertIn("SetupLifecycleSucceeded and MaintenanceUninstallAfterRepair", deinit_block)
         self.assertIn("ExpandConstant('{uninstallexe}')", deinit_block)
         self.assertIn("ewNoWait", deinit_block)
         self.assertIn("function ShouldLaunchPlatform", setup)
         self.assertIn("Check: ShouldLaunchPlatform", setup)
-        self.assertIn("先修复卸载组件", setup)
-        self.assertLess(setup.index("function NextButtonClick"), setup.index("function PrepareToInstall"))
+        self.assertIn("标准卸载器缺失", setup)
 
     def test_setup_registers_one_standard_windows_and_geek_uninstaller(self) -> None:
         setup = (ROOT / "HWAgent_Setup.iss").read_text(encoding="utf-8-sig")
@@ -282,7 +280,7 @@ class DistributionLifecycleV2Tests(unittest.TestCase):
         self.assertNotIn("QuietUninstallString", registry_section)
         self.assertIn("ExistingUninstaller := AddBackslash(ExistingInstallDir) + 'unins000.exe'", setup)
 
-    def test_uninstall_command_line_modes_are_explicit_and_silent_defaults_to_preserve(self) -> None:
+    def test_uninstall_command_line_modes_are_explicit_and_default_to_purge(self) -> None:
         setup = (ROOT / "HWAgent_Setup.iss").read_text(encoding="utf-8-sig")
 
         self.assertIn("function HasUninstallParameter", setup)
@@ -291,8 +289,9 @@ class DistributionLifecycleV2Tests(unittest.TestCase):
         self.assertIn("'/PURGEDATA'", setup)
         self.assertIn("'/PRESERVEDATA'", setup)
         self.assertIn("if PurgeRequested and PreserveRequested", setup)
-        self.assertIn("else if PurgeRequested then", setup)
-        self.assertIn("else if PreserveRequested or UninstallSilent then", setup)
+        self.assertIn("PreserveUserData := False", setup)
+        self.assertIn("if PreserveRequested then", setup)
+        self.assertNotIn("PreserveRequested or UninstallSilent", setup)
 
     def test_setup_never_predeletes_the_previous_runtime_before_install_commits(self) -> None:
         setup = (ROOT / "HWAgent_Setup.iss").read_text(encoding="utf-8-sig")
@@ -424,38 +423,40 @@ class DistributionLifecycleV2Tests(unittest.TestCase):
             self.assertEqual(recovered[0].read_text(encoding="utf-8"), "legacy-history")
             self.assertFalse((state_root / "lifecycle" / "setup" / "active").exists())
 
-    def test_setup_wires_transaction_recovery_begin_commit_and_rollback(self) -> None:
+    def test_setup_stages_v3_runtime_and_delegates_atomic_commit_and_rollback(self) -> None:
         setup = (ROOT / "HWAgent_Setup.iss").read_text(encoding="utf-8-sig")
+        installer = (ROOT / "scripts" / "lifecycle_v3" / "Install.ps1").read_text(encoding="utf-8-sig")
 
-        self.assertIn("SetupTransaction.ps1", setup)
-        self.assertIn("ExtractTemporaryFile", setup)
-        self.assertIn("RunSetupTransaction('Recover')", setup)
-        self.assertIn("RunSetupTransaction('Begin')", setup)
-        self.assertIn("RunSetupTransaction('PrepareReplace')", setup)
-        self.assertIn("RunSetupTransaction('Commit')", setup)
-        self.assertIn("RunSetupTransaction('Rollback')", setup)
+        self.assertIn(r'{tmp}\Insta360_HW_payload', setup)
+        self.assertIn("SetupRunner.ps1", setup)
+        self.assertIn("RunLifecycleAsync", setup)
+        self.assertNotIn("SetupTransaction.ps1", setup)
+        self.assertIn("Write-HwV3JsonAtomic -Path $installationPath", installer)
+        self.assertIn("$originalMetadata", installer)
+        self.assertIn("if ($pointerCommitted", installer)
         self.assertIn("procedure DeinitializeSetup", setup)
-        self.assertLess(setup.index("RunSetupTransaction('Recover')"), setup.index("RunSetupTransaction('Begin')"))
-        self.assertLess(setup.index("RunSetupTransaction('Begin')"), setup.index("-PrepareUpgrade"))
-        self.assertLess(setup.index("-PrepareUpgrade"), setup.index("RunSetupTransaction('PrepareReplace')"))
 
     def test_setup_recovers_interrupted_update_before_upgrade_or_uninstall(self) -> None:
-        setup = (ROOT / "HWAgent_Setup.iss").read_text(encoding="utf-8-sig")
+        installer = (ROOT / "scripts" / "lifecycle_v3" / "Install.ps1").read_text(encoding="utf-8-sig")
+        uninstaller = (ROOT / "scripts" / "lifecycle_v3" / "Uninstall.ps1").read_text(encoding="utf-8-sig")
 
-        self.assertIn("ExistingRecovery", setup)
-        self.assertIn("UninstallRecovery", setup)
-        self.assertLess(setup.index("if FileExists(ExistingRecovery)"), setup.index("if FileExists(ExistingLifecycle)"))
-        self.assertIn("-NoRestart", setup)
+        for source in (installer, uninstaller):
+            self.assertIn('Join-Path $InstallRoot ".recovery"', source)
+            self.assertIn('Join-Path $PSScriptRoot "Recover.ps1"', source)
+            self.assertLess(source.index('Join-Path $PSScriptRoot "Recover.ps1"'), source.index("Enter-HwV3LifecycleMutex"))
 
     def test_setup_postinstall_starts_and_health_checks_the_backend(self) -> None:
         setup = (ROOT / "HWAgent_Setup.iss").read_text(encoding="utf-8-sig")
+        installer = (ROOT / "scripts" / "lifecycle_v3" / "Install.ps1").read_text(encoding="utf-8-sig")
         start = setup.index("if CurStep = ssPostInstall")
         end = setup.index("function InitializeUninstall", start)
         postinstall = setup[start:end]
 
-        self.assertIn("Install.ps1", postinstall)
-        self.assertIn("if MaintenanceUninstallRequested then", postinstall)
-        self.assertIn("Parameters := Parameters + ' -NoStart -SkipCadence'", postinstall)
+        self.assertIn("lifecycle_v3\\Install.ps1", postinstall)
+        self.assertIn("RunLifecycleAsync('Install'", postinstall)
+        self.assertIn("RaiseException", postinstall)
+        self.assertIn("Start-HwV3Service -RuntimeRoot $newRuntime", installer)
+        self.assertIn('Invoke-HwV3Fault -FaultAt $FaultAt -Point "runtime_verified"', installer)
 
     def test_protocol_registration_has_one_installer_owned_authority(self) -> None:
         launcher = (ROOT / "launcher" / "Insta360_HW.cs").read_text(encoding="utf-8")
@@ -472,6 +473,17 @@ class DistributionLifecycleV2Tests(unittest.TestCase):
             text = (ROOT / name).read_text(encoding="utf-8")
             self.assertNotIn("exit $LASTEXITCODE", text, name)
             self.assertIn("exit 0", text, name)
+
+    def test_source_lifecycle_wrappers_dispatch_only_to_v3(self) -> None:
+        installer = (ROOT / "install.ps1").read_text(encoding="utf-8-sig")
+        uninstaller = (ROOT / "uninstall.ps1").read_text(encoding="utf-8-sig")
+
+        self.assertIn(r"scripts\lifecycle_v3\Install.ps1", installer)
+        self.assertIn("PayloadRoot", installer)
+        self.assertNotIn(r"scripts\lifecycle\Install.ps1", installer)
+        self.assertIn('[string]$Mode = "PurgeData"', uninstaller)
+        self.assertIn(r"scripts\lifecycle_v3\Uninstall.ps1", uninstaller)
+        self.assertNotIn(r"scripts\lifecycle\Uninstall.ps1", uninstaller)
 
     def test_release_root_exposes_only_the_main_application_entry(self) -> None:
         builder = (ROOT / "scripts" / "build_release.ps1").read_text(encoding="utf-8")

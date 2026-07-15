@@ -44,6 +44,178 @@ function Exit-HwV3LifecycleMutex {
   finally { $Mutex.Dispose() }
 }
 
+function Restore-HwV2InterruptedSetup {
+  param(
+    [Parameter(Mandatory=$true)][string]$InstallRoot,
+    [Parameter(Mandatory=$true)][string]$StateRoot,
+    [switch]$SkipRecoveryRegistration
+  )
+  $install = Get-HwV3FullPath -Path $InstallRoot -Label "InstallRoot"
+  $state = Get-HwV3FullPath -Path $StateRoot -Label "StateRoot"
+  $transactionRoot = Join-Path $state "lifecycle\setup\active"
+  if (-not (Test-Path -LiteralPath $transactionRoot -PathType Container)) { return $false }
+
+  $mutex = New-Object System.Threading.Mutex($false, "Global\Insta360_HW_SetupTransaction_V1")
+  $locked = $false
+  try {
+    try { $locked = $mutex.WaitOne([TimeSpan]::FromSeconds(30)) }
+    catch [System.Threading.AbandonedMutexException] { $locked = $true }
+    if (-not $locked) { throw "Timed out waiting for the legacy setup transaction." }
+
+    $journalPath = Join-Path $transactionRoot "journal.json"
+    $journal = Read-HwV3Json -Path $journalPath -Required
+    if ([int]$journal.schema -ne 1 -or [string]$journal.product -ne $script:HwV3Product) {
+      throw "Legacy setup transaction identity is invalid."
+    }
+    if ((Get-HwV3FullPath -Path ([string]$journal.install_root) -Label "legacy install_root") -ine $install -or
+        (Get-HwV3FullPath -Path ([string]$journal.state_root) -Label "legacy state_root") -ine $state) {
+      throw "Legacy setup transaction roots do not match this installation."
+    }
+
+    $backupRoot = Join-Path $transactionRoot "backup"
+    if ((Get-HwV3FullPath -Path ([string]$journal.backup_root) -Label "legacy backup_root") -ine
+        (Get-HwV3FullPath -Path $backupRoot -Label "legacy backup root")) {
+      throw "Legacy setup transaction backup path is invalid."
+    }
+    $phase = [string]$journal.phase
+    if ($phase -notin @("backing_up", "prepared", "replacing", "rolling_back", "committed", "rolled_back")) {
+      throw "Legacy setup transaction phase is unsupported: $phase"
+    }
+
+    if ($phase -in @("replacing", "rolling_back")) {
+      if ([bool]$journal.had_existing_runtime) {
+        if (-not (Test-Path -LiteralPath $backupRoot -PathType Container)) {
+          throw "Legacy setup rollback backup is missing."
+        }
+        foreach ($item in Get-ChildItem -LiteralPath $backupRoot -Recurse -Force) {
+          if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Legacy setup rollback backup contains a reparse point: $($item.FullName)"
+          }
+        }
+      }
+
+      if (Test-Path -LiteralPath $install -PathType Container) {
+        foreach ($item in Get-ChildItem -LiteralPath $install -Force) {
+          if ($item.Name -ieq "maintenance" -or $item.Name -match '^unins\d{3}\.(exe|dat|msg)$') { continue }
+          if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            if ($item.PSIsContainer) { [System.IO.Directory]::Delete($item.FullName) }
+            else { [System.IO.File]::Delete($item.FullName) }
+          } else {
+            Remove-Item -LiteralPath $item.FullName -Recurse -Force
+          }
+        }
+      }
+
+      if ([bool]$journal.had_existing_runtime) {
+        New-Item -ItemType Directory -Force -Path $install | Out-Null
+        & (Get-HwV3RobocopyPath) $backupRoot $install /E /COPY:DAT /DCOPY:DAT /XJ /R:2 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
+        if ($LASTEXITCODE -ge 8) { throw "Legacy setup rollback restore failed with robocopy exit code $LASTEXITCODE." }
+      }
+    }
+
+    if (-not $SkipRecoveryRegistration) {
+      $runOnce = "HKLM:\Software\Microsoft\Windows\CurrentVersion\RunOnce"
+      try {
+        $command = [string](Get-ItemPropertyValue -LiteralPath $runOnce -Name "Insta360_HW_SetupRecovery" -ErrorAction Stop)
+        if ($command.IndexOf($transactionRoot, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+          Remove-ItemProperty -LiteralPath $runOnce -Name "Insta360_HW_SetupRecovery" -Force
+        }
+      } catch [System.Management.Automation.ItemNotFoundException] {}
+      catch [System.Management.Automation.PSArgumentException] {}
+    }
+    Remove-Item -LiteralPath $transactionRoot -Recurse -Force
+    return $true
+  } finally {
+    if ($locked) { try { $mutex.ReleaseMutex() | Out-Null } catch {} }
+    $mutex.Dispose()
+  }
+}
+
+function Restore-HwV2InterruptedUpdates {
+  param(
+    [Parameter(Mandatory=$true)][string]$InstallRoot,
+    [Parameter(Mandatory=$true)][string]$StateRoot,
+    [Parameter(Mandatory=$true)][string]$WorkerPath,
+    [switch]$NoRestart,
+    [switch]$SkipCadence,
+    [switch]$SkipRecoveryRegistration
+  )
+  $install = Get-HwV3FullPath -Path $InstallRoot -Label "InstallRoot"
+  $state = Get-HwV3FullPath -Path $StateRoot -Label "StateRoot"
+  $worker = [System.IO.Path]::GetFullPath($WorkerPath)
+  if (-not (Test-Path -LiteralPath $worker -PathType Leaf)) {
+    throw "Legacy update recovery worker is missing: $worker"
+  }
+  $transactions = Join-Path $state "lifecycle\transactions"
+  if (-not (Test-Path -LiteralPath $transactions -PathType Container)) { return 0 }
+
+  $pending = @()
+  foreach ($directory in Get-ChildItem -LiteralPath $transactions -Directory -Force -ErrorAction SilentlyContinue) {
+    if ($directory.Name -cnotmatch '^[0-9a-f]{32}$') { continue }
+    if (($directory.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+      throw "Legacy update transaction must not be a reparse point."
+    }
+    $journal = Read-HwV3Json -Path (Join-Path $directory.FullName "journal.json") -Required
+    if ([int]$journal.schema -ne 2 -or [string]$journal.product -ne "Insta360_HW" -or
+        [string]$journal.job_id -cne $directory.Name -or
+        (Get-HwV3FullPath -Path ([string]$journal.install_root) -Label "legacy update install_root") -ine $install -or
+        (Get-HwV3FullPath -Path ([string]$journal.state_root) -Label "legacy update state_root") -ine $state) {
+      throw "Legacy update transaction identity is invalid."
+    }
+    $pending += [pscustomobject]@{ directory = $directory; journal = $journal }
+  }
+
+  $recovered = 0
+  foreach ($item in @($pending | Sort-Object { [string]$_.journal.updated_at })) {
+    $jobId = [string]$item.journal.job_id
+    $phase = [string]$item.journal.phase
+    if ($phase -notin @("completed", "rolled_back")) {
+      $arguments = @(
+        "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $worker,
+        "-Action", "Recover", "-InstallRoot", $install, "-StateRoot", $state,
+        "-JobId", $jobId
+      )
+      if ($NoRestart) { $arguments += "-NoRestart" }
+      if ($SkipCadence) { $arguments += "-SkipCadence" }
+      if ($SkipRecoveryRegistration) { $arguments += "-SkipRecoveryRegistration" }
+      & (Get-HwV3PowerShellPath) @arguments
+      if ($LASTEXITCODE -ne 0) {
+        throw "Legacy update recovery failed for $jobId with exit code $LASTEXITCODE."
+      }
+      $item.journal = Read-HwV3Json -Path (Join-Path $item.directory.FullName "journal.json") -Required
+      $phase = [string]$item.journal.phase
+      $recovered += 1
+    }
+    if ($phase -notin @("completed", "rolled_back")) {
+      throw "Legacy update transaction did not reach a terminal state: $jobId"
+    }
+
+    $parent = Split-Path -Parent $install
+    $leaf = Split-Path -Leaf $install
+    foreach ($suffix in @("candidate", "backup", "failed")) {
+      $owned = Join-Path $parent ("." + $leaf + "." + $jobId + "." + $suffix)
+      $journalField = $suffix + "_root"
+      $journalPath = [string]$item.journal.$journalField
+      if (-not [string]::IsNullOrWhiteSpace($journalPath) -and
+          [System.IO.Path]::GetFullPath($journalPath).TrimEnd("\") -ine
+          [System.IO.Path]::GetFullPath($owned).TrimEnd("\")) {
+        throw "Legacy update transaction contains an invalid $journalField."
+      }
+      if (Test-Path -LiteralPath $owned) {
+        $ownedItem = Get-Item -LiteralPath $owned -Force
+        if (($ownedItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+          throw "Legacy update cleanup refused a reparse point: $owned"
+        }
+        Remove-Item -LiteralPath $owned -Recurse -Force
+      }
+    }
+    Remove-Item -LiteralPath $item.directory.FullName -Recurse -Force
+    Remove-Item -LiteralPath (Join-Path $state ("lifecycle\jobs\" + $jobId + ".json")) `
+      -Force -ErrorAction SilentlyContinue
+  }
+  return $recovered
+}
+
 function Assert-HwV3JobId {
   param([Parameter(Mandatory=$true)][string]$JobId)
   if ($JobId -notmatch '^[0-9a-fA-F]{32}$') { throw "Lifecycle job ID must be 32 hexadecimal characters." }
@@ -196,9 +368,14 @@ function Assert-HwV3RuntimeTree {
     "app\backend\suite_app.py", "runtime\python\python.exe",
     "scripts\lifecycle_v3\Worker.ps1", "scripts\lifecycle_v3\Recover.ps1",
     "scripts\lifecycle_v3\Resume.ps1", "scripts\lifecycle_v3\Contract.ps1",
-    "scripts\lifecycle_v3\Runtime.ps1", "scripts\lifecycle\Contract.ps1",
-    "scripts\lifecycle\Runtime.ps1",
-    "scripts\lib\Paths.ps1", "config\update_public_key.pem"
+    "scripts\lifecycle_v3\Runtime.ps1", "scripts\lifecycle_v3\Install.ps1",
+    "scripts\lifecycle_v3\Uninstall.ps1", "scripts\lifecycle_v3\SetupRunner.ps1",
+    "scripts\lifecycle_v3\SetupRecover.ps1",
+    "scripts\lifecycle\Contract.ps1",
+    "scripts\lifecycle\Runtime.ps1", "scripts\lifecycle\Recover.ps1",
+    "scripts\lifecycle\Worker.ps1",
+    "scripts\remove_cadence_loader.ps1", "scripts\lib\Paths.ps1",
+    "cadence\iac_bom_tool.tcl", "config\capabilities.json", "config\update_public_key.pem"
   )
   if ($RequireCadence) { $required += @("scripts\lib\Cadence.ps1", "scripts\lib\TclScripts.ps1") }
   foreach ($relative in $required) {

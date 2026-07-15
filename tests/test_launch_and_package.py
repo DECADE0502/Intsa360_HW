@@ -46,7 +46,19 @@ class LaunchAndPackageTests(unittest.TestCase):
             self.assertIn(member, text)
         self.assertIn("health.Version != identity.Version", text)
         self.assertIn("SamePath(stateRoot, health.StateRoot)", text)
+        self.assertIn("mutex.WaitOne(ScriptTimeoutMilliseconds)", text)
+        self.assertIn("Launcher operation timed out", text)
+        self.assertIn("Platform did not pass final health verification", text)
         self.assertNotIn("first-run", text.lower())
+
+    def test_service_restart_reclaims_exact_runtime_processes_without_state_file(self) -> None:
+        runtime = (ROOT / "scripts" / "lifecycle" / "Runtime.ps1").read_text(encoding="utf-8-sig")
+
+        self.assertIn("Get-HwLifecycleRuntimeBackendProcesses", runtime)
+        self.assertIn("app\\backend\\suite_app.py", runtime)
+        self.assertIn("runtime\\python\\python.exe", runtime)
+        self.assertIn("remaining owned backend process", runtime)
+        self.assertIn("[string]$health.state_root", runtime)
 
     def test_waiting_page_is_readable_chinese_and_redirects_to_target(self) -> None:
         text = (ROOT / "app" / "frontend" / "waiting.html").read_text(encoding="utf-8")

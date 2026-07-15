@@ -4,8 +4,15 @@
 #endif
 #define MyAppPublisher "Insta360"
 #define MyAppExeName "Insta360_HW.exe"
-#define ReleaseDir "..\HWAgent_release"
-#define IconFile "..\HWAgent_release\app\frontend\assets\insta360_icon.ico"
+#ifndef ReleaseDir
+  #define ReleaseDir "..\HWAgent_release"
+#endif
+#ifndef IconFile
+  #define IconFile "..\HWAgent_release\app\frontend\assets\insta360_icon.ico"
+#endif
+#ifndef InstallerOutputDir
+  #define InstallerOutputDir ".."
+#endif
 
 [Setup]
 AppId={{B7F3AC9E-2D5E-4A8C-9F6E-1A3D4E5F6B72}
@@ -16,7 +23,7 @@ AppPublisher={#MyAppPublisher}
 DefaultDirName={autopf}\Insta360\HWAgent
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
-OutputDir=..
+OutputDir={#InstallerOutputDir}
 OutputBaseFilename=Insta360_HW_Setup
 Compression=lzma2/ultra64
 SolidCompression=yes
@@ -37,13 +44,22 @@ RestartIfNeededByRun=no
 ChangesAssociations=yes
 SetupLogging=yes
 UsePreviousAppDir=yes
+AllowCancelDuringInstall=no
 
 [Languages]
 Name: "chinesesimp"; MessagesFile: "installer\ChineseSimplified.isl"
 
 [Files]
-Source: "{#ReleaseDir}\scripts\lifecycle\SetupTransaction.ps1"; DestName: "SetupTransaction.ps1"; Flags: dontcopy
-Source: "{#ReleaseDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion; Excludes: "data\*,config\local.json,plugins\user\*"
+Source: "{#ReleaseDir}\*"; DestDir: "{tmp}\Insta360_HW_payload"; Flags: recursesubdirs createallsubdirs ignoreversion deleteafterinstall
+Source: "{#ReleaseDir}\scripts\lifecycle_v3\SetupRunner.ps1"; DestDir: "{app}\maintenance"; Flags: ignoreversion
+Source: "{#ReleaseDir}\scripts\lifecycle_v3\SetupRecover.ps1"; DestDir: "{app}\maintenance"; Flags: ignoreversion
+Source: "{#ReleaseDir}\scripts\lifecycle_v3\Contract.ps1"; DestDir: "{app}\maintenance"; Flags: ignoreversion
+Source: "{#ReleaseDir}\scripts\lifecycle_v3\Runtime.ps1"; DestDir: "{app}\maintenance"; Flags: ignoreversion
+Source: "{#ReleaseDir}\scripts\lifecycle_v3\Recover.ps1"; DestDir: "{app}\maintenance"; Flags: ignoreversion
+Source: "{#ReleaseDir}\scripts\lifecycle_v3\Uninstall.ps1"; DestDir: "{app}\maintenance"; Flags: ignoreversion
+Source: "{#ReleaseDir}\scripts\remove_cadence_loader.ps1"; DestDir: "{app}\maintenance\scripts"; Flags: ignoreversion
+Source: "{#ReleaseDir}\scripts\lib\*.ps1"; DestDir: "{app}\maintenance\scripts\lib"; Flags: ignoreversion
+Source: "{#ReleaseDir}\scripts\lifecycle\*.ps1"; DestDir: "{app}\maintenance\legacy_lifecycle"; Flags: ignoreversion
 
 [Registry]
 Root: HKLM; Subkey: "Software\Classes\insta360-hw"; ValueType: string; ValueName: ""; ValueData: "URL:Insta360_HW reconnect protocol"; Flags: uninsdeletekey
@@ -69,9 +85,6 @@ Type: filesandordirs; Name: "{app}"
 [Code]
 const
   UninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{B7F3AC9E-2D5E-4A8C-9F6E-1A3D4E5F6B72}_is1';
-  MAINTENANCE_REPAIR = 0;
-  MAINTENANCE_UNINSTALL = 1;
-  MAINTENANCE_CANCEL = 2;
 
 var
   PreserveUserData: Boolean;
@@ -82,20 +95,145 @@ var
   ExistingInstallDir: String;
   ExistingUninstaller: String;
   ExistingInstallPage: TInputOptionWizardPage;
+  UpgradeIndex: Integer;
+  RepairIndex: Integer;
+  ReinstallIndex: Integer;
+  UninstallIndex: Integer;
+  CancelIndex: Integer;
+  SelectedInstallAction: String;
   MaintenanceCloseRequested: Boolean;
-  MaintenanceUninstallRequested: Boolean;
-  SetupTransactionHelper: String;
-  SetupTransactionStarted: Boolean;
+  MaintenanceUninstallAfterRepair: Boolean;
   SetupLifecycleSucceeded: Boolean;
+
+function ReadJsonString(const FileName, Key: String; var Value: String): Boolean;
+var
+  Text: AnsiString;
+  KeyPosition: Integer;
+  ColonPosition: Integer;
+  QuotePosition: Integer;
+begin
+  Result := False;
+  Value := '';
+  if not LoadStringFromFile(FileName, Text) then
+    Exit;
+  KeyPosition := Pos('"' + Key + '"', Text);
+  if KeyPosition = 0 then
+    Exit;
+  Delete(Text, 1, KeyPosition + Length(Key) + 1);
+  ColonPosition := Pos(':', Text);
+  if ColonPosition = 0 then
+    Exit;
+  Delete(Text, 1, ColonPosition);
+  Text := TrimLeft(Text);
+  if (Length(Text) = 0) or (Text[1] <> #34) then
+    Exit;
+  Delete(Text, 1, 1);
+  QuotePosition := Pos('"', Text);
+  if QuotePosition = 0 then
+    Exit;
+  Value := Copy(Text, 1, QuotePosition - 1);
+  Result := True;
+end;
+
+function ReadJsonInteger(const FileName, Key: String; var Value: Integer): Boolean;
+var
+  Text: AnsiString;
+  KeyPosition: Integer;
+  ColonPosition: Integer;
+  DigitCount: Integer;
+begin
+  Result := False;
+  Value := 0;
+  if not LoadStringFromFile(FileName, Text) then
+    Exit;
+  KeyPosition := Pos('"' + Key + '"', Text);
+  if KeyPosition = 0 then
+    Exit;
+  Delete(Text, 1, KeyPosition + Length(Key) + 1);
+  ColonPosition := Pos(':', Text);
+  if ColonPosition = 0 then
+    Exit;
+  Delete(Text, 1, ColonPosition);
+  Text := TrimLeft(Text);
+  DigitCount := 0;
+  while (DigitCount < Length(Text)) and (Text[DigitCount + 1] >= '0') and
+    (Text[DigitCount + 1] <= '9') do
+    DigitCount := DigitCount + 1;
+  if DigitCount = 0 then
+    Exit;
+  Value := StrToIntDef(Copy(Text, 1, DigitCount), -1);
+  Result := Value >= 0;
+end;
+
+function ExtractExecutablePath(const CommandLine: String): String;
+var
+  Text: String;
+  EndQuote: Integer;
+  SpacePosition: Integer;
+begin
+  Text := Trim(CommandLine);
+  Result := '';
+  if Text = '' then
+    Exit;
+  if Text[1] = #34 then begin
+    Delete(Text, 1, 1);
+    EndQuote := Pos('"', Text);
+    if EndQuote > 0 then
+      Result := Copy(Text, 1, EndQuote - 1);
+  end else begin
+    SpacePosition := Pos(' ', Text);
+    if SpacePosition = 0 then
+      Result := Text
+    else
+      Result := Copy(Text, 1, SpacePosition - 1);
+  end;
+end;
+
+function VersionFromRuntimePointer(const Pointer: String): String;
+var
+  RuntimeName: String;
+  Index: Integer;
+begin
+  RuntimeName := Pointer;
+  StringChangeEx(RuntimeName, '/', '\', True);
+  RuntimeName := ExtractFileName(RuntimeName);
+  Result := '';
+  for Index := Length(RuntimeName) downto 1 do begin
+    if RuntimeName[Index] = '+' then begin
+      Result := Copy(RuntimeName, 1, Index - 1);
+      Exit;
+    end;
+  end;
+end;
+
+function ResolveActiveRuntime(const InstallDir: String; var RuntimeDir: String): Boolean;
+var
+  Pointer: String;
+begin
+  Result := False;
+  RuntimeDir := '';
+  if not ReadJsonString(AddBackslash(InstallDir) + 'installation.json', 'active_runtime', Pointer) then
+    Exit;
+  if (Pos('runtime/', Lowercase(Pointer)) <> 1) or (Pos('..', Pointer) > 0) or (Pos('\', Pointer) > 0) then
+    Exit;
+  StringChangeEx(Pointer, '/', '\', True);
+  RuntimeDir := AddBackslash(InstallDir) + Pointer;
+  Result := DirExists(RuntimeDir);
+end;
 
 function DetectExistingInstall(): Boolean;
 var
   FoundRegistry: Boolean;
-  RegisteredUninstaller: String;
+  RegisteredCommand: String;
+  ActiveRuntime: String;
+  Pointer: String;
+  DefaultInstallDir: String;
 begin
   ExistingVersion := '';
   ExistingInstallDir := '';
   ExistingUninstaller := '';
+  ExistingRuntimeHealthy := False;
+  DefaultInstallDir := ExpandConstant('{autopf}\Insta360\HWAgent');
   FoundRegistry := RegKeyExists(HKLM64, UninstallKey);
   if not FoundRegistry then
     FoundRegistry := RegKeyExists(HKLM32, UninstallKey);
@@ -105,58 +243,118 @@ begin
       RegQueryStringValue(HKLM32, UninstallKey, 'InstallLocation', ExistingInstallDir);
     if not RegQueryStringValue(HKLM64, UninstallKey, 'DisplayVersion', ExistingVersion) then
       RegQueryStringValue(HKLM32, UninstallKey, 'DisplayVersion', ExistingVersion);
+    RegisteredCommand := '';
+    if not RegQueryStringValue(HKLM64, UninstallKey, 'UninstallString', RegisteredCommand) then
+      RegQueryStringValue(HKLM32, UninstallKey, 'UninstallString', RegisteredCommand);
+    ExistingUninstaller := ExtractExecutablePath(RegisteredCommand);
   end;
+
   if ExistingInstallDir = '' then
-    ExistingInstallDir := ExpandConstant('{autopf}\Insta360\HWAgent');
-
-  ExistingUninstaller := AddBackslash(ExistingInstallDir) + 'unins000.exe';
-  if FoundRegistry and (not FileExists(ExistingUninstaller)) then begin
-    RegisteredUninstaller := '';
-    if not RegQueryStringValue(HKLM64, UninstallKey, 'UninstallString', RegisteredUninstaller) then
-      RegQueryStringValue(HKLM32, UninstallKey, 'UninstallString', RegisteredUninstaller);
-    if RegisteredUninstaller <> '' then
-      ExistingUninstaller := RemoveQuotes(RegisteredUninstaller);
-  end;
-
-  Result := FoundRegistry or DirExists(ExistingInstallDir);
+    ExistingInstallDir := DefaultInstallDir;
+  Result := FoundRegistry or FileExists(AddBackslash(ExistingInstallDir) + 'installation.json');
   if not Result then
     Exit;
 
+  if ExistingUninstaller = '' then
+    ExistingUninstaller := AddBackslash(ExistingInstallDir) + 'unins000.exe';
+  if (ExistingVersion = '') and
+    ReadJsonString(AddBackslash(ExistingInstallDir) + 'installation.json', 'active_runtime', Pointer) then
+    ExistingVersion := VersionFromRuntimePointer(Pointer);
   if ExistingVersion = '' then
     ExistingVersion := '未知';
-  ExistingRuntimeHealthy :=
+
+  ExistingRuntimeHealthy := ResolveActiveRuntime(ExistingInstallDir, ActiveRuntime) and
     FileExists(AddBackslash(ExistingInstallDir) + 'Insta360_HW.exe') and
-    FileExists(AddBackslash(ExistingInstallDir) + 'VERSION') and
-    FileExists(AddBackslash(ExistingInstallDir) + 'install_manifest.json') and
-    FileExists(AddBackslash(ExistingInstallDir) + 'scripts\lifecycle\Install.ps1') and
+    FileExists(AddBackslash(ActiveRuntime) + 'VERSION') and
+    FileExists(AddBackslash(ActiveRuntime) + 'scripts\lifecycle_v3\Install.ps1') and
+    FileExists(AddBackslash(ActiveRuntime) + 'scripts\lifecycle_v3\Uninstall.ps1') and
     FileExists(ExistingUninstaller);
+end;
+
+function NumericVersionCore(const Version: String): String;
+var
+  DashPosition: Integer;
+  PlusPosition: Integer;
+  CutPosition: Integer;
+begin
+  Result := Version;
+  DashPosition := Pos('-', Result);
+  PlusPosition := Pos('+', Result);
+  CutPosition := 0;
+  if DashPosition > 0 then
+    CutPosition := DashPosition;
+  if (PlusPosition > 0) and ((CutPosition = 0) or (PlusPosition < CutPosition)) then
+    CutPosition := PlusPosition;
+  if CutPosition > 0 then
+    Result := Copy(Result, 1, CutPosition - 1);
+end;
+
+function TakeVersionPart(var Version: String): Integer;
+var
+  DotPosition: Integer;
+  Part: String;
+begin
+  DotPosition := Pos('.', Version);
+  if DotPosition = 0 then begin
+    Part := Version;
+    Version := '';
+  end else begin
+    Part := Copy(Version, 1, DotPosition - 1);
+    Delete(Version, 1, DotPosition);
+  end;
+  Result := StrToIntDef(Part, 0);
+end;
+
+function CompareSemanticVersion(const Left, Right: String): Integer;
+var
+  LeftCore: String;
+  RightCore: String;
+  Index: Integer;
+  LeftPart: Integer;
+  RightPart: Integer;
+begin
+  LeftCore := NumericVersionCore(Left);
+  RightCore := NumericVersionCore(Right);
+  Result := 0;
+  for Index := 1 to 3 do begin
+    LeftPart := TakeVersionPart(LeftCore);
+    RightPart := TakeVersionPart(RightCore);
+    if LeftPart < RightPart then begin Result := -1; Exit; end;
+    if LeftPart > RightPart then begin Result := 1; Exit; end;
+  end;
+end;
+
+procedure AddMaintenanceOption(const Caption: String; var OptionIndex, OptionCount: Integer);
+begin
+  OptionIndex := OptionCount;
+  ExistingInstallPage.Add(Caption);
+  OptionCount := OptionCount + 1;
 end;
 
 procedure InitializeWizard();
 var
   Detail: String;
-  RepairLabel: String;
+  OptionCount: Integer;
+  VersionComparison: Integer;
 begin
+  SelectedInstallAction := 'Install';
+  UpgradeIndex := -1;
+  RepairIndex := -1;
+  ReinstallIndex := -1;
+  UninstallIndex := -1;
+  CancelIndex := -1;
   ExistingInstallDetected := DetectExistingInstall();
-  if ExistingInstallDetected then begin
-    if not ExistingRuntimeHealthy then begin
-      Detail :=
-        '已检测到已安装版本 ' + ExistingVersion + '。' + #13#10 + #13#10 +
-        '安装记录存在，但程序文件不完整。建议先执行修复/重装，以恢复完整程序和标准卸载器。';
-    end else if ExistingVersion = '{#MyAppVersion}' then begin
-      Detail :=
-        '已检测到已安装版本 ' + ExistingVersion + '。' + #13#10 + #13#10 +
-        '当前安装包版本相同，可以修复/重装，也可以直接卸载。';
-    end else begin
-      Detail :=
-        '已检测到已安装版本 ' + ExistingVersion + '。' + #13#10 + #13#10 +
-        '可以安装版本 {#MyAppVersion}，也可以直接卸载当前版本。';
-    end;
-  end else begin
-    Detail := '未检测到已有安装，将执行全新安装。';
-  end;
+  if ExistingInstallDetected then
+    WizardForm.DirEdit.Text := ExistingInstallDir;
 
-  RepairLabel := '修复/重装 Insta360硬件提效平台 {#MyAppVersion}（保留用户数据）';
+  if ExistingInstallDetected then begin
+    if not ExistingRuntimeHealthy then
+      Detail := '检测到版本 ' + ExistingVersion + '，但入口、运行时或标准卸载器不完整。'
+    else
+      Detail := '已检测到版本 ' + ExistingVersion + '，安装目录将固定为：' + ExistingInstallDir;
+  end else
+    Detail := '未检测到已有安装，将执行全新安装。';
+
   ExistingInstallPage := CreateInputOptionPage(
     wpWelcome,
     '维护 Insta360硬件提效平台',
@@ -164,47 +362,90 @@ begin
     '请选择要执行的操作：',
     True,
     False);
-  ExistingInstallPage.Add(RepairLabel);
-  ExistingInstallPage.Add('卸载 Insta360硬件提效平台（将先修复卸载组件）');
-  ExistingInstallPage.Add('取消，不做任何更改');
-  ExistingInstallPage.SelectedValueIndex := MAINTENANCE_REPAIR;
+  OptionCount := 0;
+  if ExistingInstallDetected then begin
+    if ExistingVersion = '未知' then begin
+      AddMaintenanceOption('修复当前安装（使用本安装包恢复完整程序）', RepairIndex, OptionCount);
+      AddMaintenanceOption('重新安装 {#MyAppVersion}（用户数据不受影响）', ReinstallIndex, OptionCount);
+    end else begin
+      VersionComparison := CompareSemanticVersion('{#MyAppVersion}', ExistingVersion);
+      if VersionComparison > 0 then
+        AddMaintenanceOption('升级到 {#MyAppVersion}（保留旧运行时用于回退）', UpgradeIndex, OptionCount)
+      else if VersionComparison = 0 then begin
+        AddMaintenanceOption('修复当前安装（校验并恢复入口、运行时和 Cadence 集成）', RepairIndex, OptionCount);
+        AddMaintenanceOption('重新安装 {#MyAppVersion}（重新写入程序文件）', ReinstallIndex, OptionCount);
+      end else
+        ExistingInstallPage.SubCaptionLabel.Caption :=
+          Detail + #13#10 + '此 Setup 比已安装版本旧，已禁止隐式降级。请使用相同或更新版本的 Setup。';
+    end;
+    AddMaintenanceOption('卸载 Insta360硬件提效平台', UninstallIndex, OptionCount);
+    AddMaintenanceOption('取消，不做任何更改', CancelIndex, OptionCount);
+    ExistingInstallPage.SelectedValueIndex := 0;
+  end;
 end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
-  Result := (PageID = ExistingInstallPage.ID) and (not ExistingInstallDetected);
+  Result := ((PageID = ExistingInstallPage.ID) and (not ExistingInstallDetected)) or
+    ((PageID = wpSelectDir) and ExistingInstallDetected);
+end;
+
+function StartExistingUninstaller(): Boolean;
+var
+  ResultCode: Integer;
+begin
+  Result := False;
+  if not FileExists(ExistingUninstaller) then
+    Exit;
+  Result := Exec(
+    ExistingUninstaller,
+    '',
+    ExistingInstallDir,
+    SW_SHOWNORMAL,
+    ewNoWait,
+    ResultCode);
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
+var
+  Selected: Integer;
+  VersionComparison: Integer;
 begin
   Result := True;
   if (not ExistingInstallDetected) or (CurPageID <> ExistingInstallPage.ID) then
     Exit;
-
-  case ExistingInstallPage.SelectedValueIndex of
-    MAINTENANCE_REPAIR:
-      begin
-        MaintenanceUninstallRequested := False;
-        Result := True;
-      end;
-    MAINTENANCE_UNINSTALL:
-      begin
-        MaintenanceUninstallRequested := True;
-        Result := True;
-      end;
-    MAINTENANCE_CANCEL:
-      begin
-        Result := False;
-        MaintenanceUninstallRequested := False;
-        MaintenanceCloseRequested := True;
-        WizardForm.Close;
-      end;
+  Selected := ExistingInstallPage.SelectedValueIndex;
+  if Selected = UpgradeIndex then
+    SelectedInstallAction := 'Upgrade'
+  else if Selected = RepairIndex then
+    SelectedInstallAction := 'Repair'
+  else if Selected = ReinstallIndex then
+    SelectedInstallAction := 'Reinstall'
+  else if Selected = UninstallIndex then begin
+    if StartExistingUninstaller() then begin
+      MaintenanceCloseRequested := True;
+      Result := False;
+      WizardForm.Close;
+      Exit;
+    end;
+    VersionComparison := CompareSemanticVersion('{#MyAppVersion}', ExistingVersion);
+    if (ExistingVersion <> '未知') and (VersionComparison < 0) then begin
+      MsgBox('标准卸载器缺失，且此 Setup 版本较旧，无法安全修复卸载组件。请使用相同或更新版本的 Setup。', mbError, MB_OK);
+      Result := False;
+      Exit;
+    end;
+    MaintenanceUninstallAfterRepair := True;
+    if ExistingVersion = '未知' then
+      SelectedInstallAction := 'Repair'
+    else if VersionComparison > 0 then
+      SelectedInstallAction := 'Upgrade'
+    else
+      SelectedInstallAction := 'Reinstall';
+  end else if Selected = CancelIndex then begin
+    MaintenanceCloseRequested := True;
+    Result := False;
+    WizardForm.Close;
   end;
-end;
-
-function ShouldLaunchPlatform(): Boolean;
-begin
-  Result := not MaintenanceUninstallRequested;
 end;
 
 procedure CancelButtonClick(CurPageID: Integer; var Cancel, Confirm: Boolean);
@@ -220,190 +461,111 @@ begin
   Result := ExpandConstant('{localappdata}\Insta360_HW');
 end;
 
-function RunSetupTransaction(const Action: String): Integer;
-var
-  ResultCode: Integer;
-  Parameters: String;
+function ProgressText(const Stage: String): String;
 begin
-  if SetupTransactionHelper = '' then begin
-    try
-      ExtractTemporaryFile('SetupTransaction.ps1');
-      SetupTransactionHelper := ExpandConstant('{tmp}\SetupTransaction.ps1');
-    except
-      Result := 9002;
-      Exit;
-    end;
-  end;
+  if Stage = 'recovering_interrupted_setup' then Result := '正在恢复上次中断的安装'
+  else if Stage = 'recovering_legacy_setup' then Result := '正在恢复旧版安装事务'
+  else if Stage = 'recovering_legacy_update' then Result := '正在恢复旧版更新事务'
+  else if Stage = 'recovering_interrupted_operation' then Result := '正在恢复上次未完成的操作'
+  else if Stage = 'validating_payload' then Result := '正在校验安装包'
+  else if Stage = 'acquiring_lifecycle' then Result := '正在等待其他平台操作完成'
+  else if Stage = 'migrating_user_state' then Result := '正在迁移并保护用户数据'
+  else if Stage = 'copying_runtime' then Result := '正在写入版本化运行时'
+  else if Stage = 'snapshotting_integration' then Result := '正在备份 Cadence 集成'
+  else if Stage = 'activating_runtime' then Result := '正在切换活动版本'
+  else if Stage = 'deploying_cadence' then Result := '正在部署 Cadence 集成'
+  else if Stage = 'verifying_service' then Result := '正在启动并验证平台服务'
+  else if Stage = 'stopping_service' then Result := '正在停止平台服务'
+  else if Stage = 'removing_cadence' then Result := '正在移除 Cadence 集成'
+  else if Stage = 'removing_recovery' then Result := '正在清理恢复任务'
+  else if Stage = 'cleaning_state' then Result := '正在清理平台状态'
+  else if Stage = 'purging_user_data' then Result := '正在删除用户数据'
+  else if Stage = 'completed' then Result := '操作已完成'
+  else Result := '正在处理，请稍候';
+end;
 
+function RunLifecycleAsync(
+  const Operation, EntryPath, ActionOrMode: String;
+  const IsUninstall: Boolean): Integer;
+var
+  RunnerPath: String;
+  ProgressPath: String;
+  ResultPath: String;
+  Parameters: String;
+  Started: Boolean;
+  ProcessCode: Integer;
+  ProgressValue: Integer;
+  Stage: String;
+  ResultText: AnsiString;
+begin
+  Result := 9001;
+  RunnerPath := ExpandConstant('{app}\maintenance\SetupRunner.ps1');
+  if not FileExists(RunnerPath) then
+    Exit;
+  ProgressPath := GenerateUniqueName(ExpandConstant('{tmp}'), '.progress.json');
+  ResultPath := GenerateUniqueName(ExpandConstant('{tmp}'), '.result.txt');
   Parameters :=
-    '-Action ' + Action + ' ' +
+    '-NoProfile -ExecutionPolicy Bypass -File "' + RunnerPath + '" ' +
+    '-Operation ' + Operation + ' ' +
+    '-EntryPath "' + EntryPath + '" ' +
     '-InstallRoot "' + ExpandConstant('{app}') + '" ' +
-    '-StateRoot "' + StateRoot() + '"';
-  if not Exec(
-    'powershell.exe',
-    '-NoProfile -ExecutionPolicy Bypass -File "' + SetupTransactionHelper + '" ' + Parameters,
-    ExpandConstant('{tmp}'),
-    SW_HIDE,
-    ewWaitUntilTerminated,
-    ResultCode) then
-    ResultCode := 9001;
-  Result := ResultCode;
-end;
+    '-StateRoot "' + StateRoot() + '" ' +
+    '-ProgressPath "' + ProgressPath + '" ' +
+    '-ResultPath "' + ResultPath + '" ';
+  if Operation = 'Install' then
+    Parameters := Parameters +
+      '-PayloadRoot "' + ExpandConstant('{tmp}\Insta360_HW_payload') + '" ' +
+      '-Action ' + ActionOrMode
+  else
+    Parameters := Parameters + '-Mode ' + ActionOrMode;
 
-function RunSetupLifecycle(const ScriptPath, Parameters, StatusText: String): Integer;
-var
-  ResultCode: Integer;
-begin
-  WizardForm.StatusLabel.Caption := StatusText;
-  WizardForm.ProgressGauge.Visible := True;
-  WizardForm.ProgressGauge.Style := npbstMarquee;
-  try
-    if not Exec(
-      'powershell.exe',
-      '-NoProfile -ExecutionPolicy Bypass -File "' + ScriptPath + '" ' + Parameters,
-      ExpandConstant('{app}'),
-      SW_HIDE,
-      ewWaitUntilTerminated,
-      ResultCode) then
-      ResultCode := 9001;
-  finally
-    WizardForm.ProgressGauge.Style := npbstNormal;
-  end;
-  Result := ResultCode;
-end;
-
-function PrepareToInstall(var NeedsRestart: Boolean): String;
-var
-  ExistingRecovery: String;
-  ExistingLifecycle: String;
-  ExistingWrapper: String;
-  Parameters: String;
-  ResultCode: Integer;
-begin
-  Result := '';
-  NeedsRestart := False;
-  ExistingRecovery := ExpandConstant('{app}\scripts\lifecycle\Recover.ps1');
-  ExistingLifecycle := ExpandConstant('{app}\scripts\lifecycle\Install.ps1');
-  ExistingWrapper := ExpandConstant('{app}\uninstall.ps1');
-  WizardForm.StatusLabel.Caption := '正在停止旧版本并迁移用户数据...';
-
-  ResultCode := RunSetupTransaction('Recover');
-  if ResultCode <> 0 then begin
-    Result :=
-      '检测到未完成的安装，但自动恢复失败，未对现有版本执行任何新操作。错误码：' +
-      IntToStr(ResultCode) + #13#10 +
-      '请重新启动电脑后再次运行 Setup。';
+  Started := Exec('powershell.exe', Parameters, ExpandConstant('{app}'), SW_HIDE, ewNoWait, ProcessCode);
+  if not Started then begin
+    Result := 9001;
     Exit;
   end;
-  SetupTransactionStarted := False;
 
-  ResultCode := 0;
-  if FileExists(ExistingRecovery) then begin
-    Parameters :=
-      '-InstallRoot "' + ExpandConstant('{app}') + '" ' +
-      '-StateRoot "' + StateRoot() + '" -NoRestart';
-    if not Exec(
-      'powershell.exe',
-      '-NoProfile -ExecutionPolicy Bypass -File "' + ExistingRecovery + '" ' + Parameters,
-      ExpandConstant('{app}'),
-      SW_HIDE,
-      ewWaitUntilTerminated,
-      ResultCode) then
-      ResultCode := 9001;
-    if ResultCode <> 0 then begin
-      Result :=
-        '检测到未完成的更新，但自动恢复失败，安装尚未开始。' + #13#10 +
-        '请重新启动电脑后再试，或将 %LOCALAPPDATA%\Insta360_HW 中的日志发送给维护人员。';
-      Exit;
+  while not FileExists(ResultPath) do begin
+    if FileExists(ProgressPath) then begin
+      if not ReadJsonInteger(ProgressPath, 'progress', ProgressValue) then
+        ProgressValue := 0;
+      ReadJsonString(ProgressPath, 'stage', Stage);
+      if IsUninstall then begin
+        UninstallProgressForm.ProgressBar.Position := ProgressValue;
+        UninstallProgressForm.StatusLabel.Caption := ProgressText(Stage);
+        UninstallProgressForm.Refresh;
+      end else begin
+        WizardForm.ProgressGauge.Style := npbstNormal;
+        WizardForm.ProgressGauge.Position := ProgressValue;
+        WizardForm.StatusLabel.Caption := ProgressText(Stage);
+        WizardForm.Refresh;
+      end;
     end;
+    Sleep(150);
   end;
+  if LoadStringFromFile(ResultPath, ResultText) then
+    Result := StrToIntDef(Trim(ResultText), 9001);
+  DeleteFile(ProgressPath);
+  DeleteFile(ResultPath);
+end;
 
-  ResultCode := RunSetupTransaction('Begin');
-  if ResultCode <> 0 then begin
-    RunSetupTransaction('Rollback');
-    Result :=
-      '无法创建旧版本安全备份，安装尚未开始。错误码：' + IntToStr(ResultCode) + #13#10 +
-      '请确认磁盘空间充足后重试。';
-    Exit;
-  end;
-  SetupTransactionStarted := True;
-
-  if FileExists(ExistingLifecycle) then begin
-    Parameters :=
-      '-InstallRoot "' + ExpandConstant('{app}') + '" ' +
-      '-StateRoot "' + StateRoot() + '" -PrepareUpgrade -NoStart -SkipCadence';
-    if not Exec(
-      'powershell.exe',
-      '-NoProfile -ExecutionPolicy Bypass -File "' + ExistingLifecycle + '" ' + Parameters,
-      ExpandConstant('{app}'),
-      SW_HIDE,
-      ewWaitUntilTerminated,
-      ResultCode) then
-      ResultCode := 9001;
-  end else if FileExists(ExistingWrapper) then begin
-    Parameters :=
-      '-PreUpgrade -InstallDir "' + ExpandConstant('{app}') + '" ' +
-      '-StateRoot "' + StateRoot() + '"';
-    if not Exec(
-      'powershell.exe',
-      '-NoProfile -ExecutionPolicy Bypass -File "' + ExistingWrapper + '" ' + Parameters,
-      ExpandConstant('{app}'),
-      SW_HIDE,
-      ewWaitUntilTerminated,
-      ResultCode) then
-      ResultCode := 9001;
-  end else begin
-    ResultCode := 0;
-  end;
-
-  if ResultCode <> 0 then begin
-    Result :=
-      '无法安全停止旧版本或迁移用户数据，安装尚未开始。' + #13#10 +
-      '请关闭平台后重试，并查看 %LOCALAPPDATA%\Insta360_HW\data\reports\runtime 中的日志。';
-    Exit;
-  end;
-
-  WizardForm.StatusLabel.Caption := '正在准备全新运行时文件...';
-  ResultCode := RunSetupTransaction('PrepareReplace');
-  if ResultCode <> 0 then begin
-    Result :=
-      '无法安全替换旧版本文件，Setup 将恢复原版本。错误码：' + IntToStr(ResultCode) + #13#10 +
-      '请关闭平台后重试。';
-    Exit;
-  end;
+function ShouldLaunchPlatform(): Boolean;
+begin
+  Result := SetupLifecycleSucceeded and (not MaintenanceUninstallAfterRepair);
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   ResultCode: Integer;
-  Parameters: String;
-  LifecycleStatus: String;
+  InstallEntry: String;
 begin
   if CurStep = ssPostInstall then begin
-    Parameters :=
-      '-InstallRoot "' + ExpandConstant('{app}') + '" ' +
-      '-StateRoot "' + StateRoot() + '"';
-    if MaintenanceUninstallRequested then begin
-      Parameters := Parameters + ' -NoStart -SkipCadence';
-      LifecycleStatus := '正在刷新并验证标准卸载组件...';
-    end else begin
-      LifecycleStatus := '正在初始化用户数据、部署 Cadence 集成并验证安装...';
-    end;
-    ResultCode := RunSetupLifecycle(
-      ExpandConstant('{app}\scripts\lifecycle\Install.ps1'),
-      Parameters,
-      LifecycleStatus);
+    InstallEntry := ExpandConstant('{tmp}\Insta360_HW_payload\scripts\lifecycle_v3\Install.ps1');
+    ResultCode := RunLifecycleAsync('Install', InstallEntry, SelectedInstallAction, False);
     if ResultCode <> 0 then
       RaiseException(
-        '安装后验证失败，错误码：' + IntToStr(ResultCode) +
-        '。Setup 将恢复原版本。' + #13#10 +
+        '安装验证失败，错误码：' + IntToStr(ResultCode) + '。原版本已自动回退。' + #13#10 +
         '详细日志：%LOCALAPPDATA%\Insta360_HW\logs\install_latest.log');
-
-    ResultCode := RunSetupTransaction('Commit');
-    if ResultCode <> 0 then
-      RaiseException(
-        '安装事务提交失败，错误码：' + IntToStr(ResultCode) +
-        '。Setup 将自动恢复旧版本。');
     SetupLifecycleSucceeded := True;
   end;
 end;
@@ -412,29 +574,9 @@ procedure DeinitializeSetup();
 var
   ResultCode: Integer;
 begin
-  if SetupTransactionStarted and (not SetupLifecycleSucceeded) then begin
-    ResultCode := RunSetupTransaction('Rollback');
-    if ResultCode <> 0 then
-      MsgBox(
-        '安装未完成，自动恢复旧版本失败。错误码：' + IntToStr(ResultCode) + #13#10 +
-        '请重新启动电脑后再次运行 Setup，Setup 会优先继续恢复。',
-        mbError,
-        MB_OK);
-  end;
-
-  if SetupLifecycleSucceeded and MaintenanceUninstallRequested then begin
-    if not Exec(
-      ExpandConstant('{uninstallexe}'),
-      '',
-      ExpandConstant('{app}'),
-      SW_SHOWNORMAL,
-      ewNoWait,
-      ResultCode) then
-      MsgBox(
-        '卸载组件已修复，但无法启动标准卸载器。系统错误码：' + IntToStr(ResultCode) +
-        '。请从 Windows“已安装的应用”启动卸载。',
-        mbError,
-        MB_OK);
+  if SetupLifecycleSucceeded and MaintenanceUninstallAfterRepair then begin
+    if not Exec(ExpandConstant('{uninstallexe}'), '', ExpandConstant('{app}'), SW_SHOWNORMAL, ewNoWait, ResultCode) then
+      MsgBox('卸载组件已恢复，但无法启动。请从 Windows“已安装的应用”启动卸载。', mbError, MB_OK);
   end;
 end;
 
@@ -459,96 +601,35 @@ begin
   PurgeRequested := HasUninstallParameter('/PURGEDATA');
   PreserveRequested := HasUninstallParameter('/PRESERVEDATA');
   if PurgeRequested and PreserveRequested then begin
-    MsgBox(
-      '卸载参数冲突：/PURGEDATA 与 /PRESERVEDATA 不能同时使用。',
-      mbError,
-      MB_OK);
+    MsgBox('卸载参数冲突：/PURGEDATA 与 /PRESERVEDATA 不能同时使用。', mbError, MB_OK);
     Result := False;
     Exit;
-  end else if PurgeRequested then begin
-    PreserveUserData := False;
-  end else if PreserveRequested or UninstallSilent then begin
-    PreserveUserData := True;
-  end else begin
-    PreserveUserData :=
-      MsgBox(
-        '是否保留历史记录、已处理文件、本机配置和用户插件？' + #13#10 + #13#10 +
-        '选择“是”：删除程序和 Cadence 集成，保留用户数据，重装后可继续使用。' + #13#10 +
-        '选择“否”：同时永久删除所有 Insta360_HW 本机数据。',
-        mbConfirmation,
-        MB_YESNO) = IDYES;
   end;
+  PreserveUserData := False;
+  if PreserveRequested then
+    PreserveUserData := True
+  else if (not PurgeRequested) and (not UninstallSilent) then
+    PreserveUserData := MsgBox(
+      '默认卸载会删除程序、Cadence 集成、历史记录、处理文件、本机配置和用户插件。' + #13#10 + #13#10 +
+      '是否改为保留用户数据？选择“是”将只删除程序和 Cadence 集成。',
+      mbConfirmation,
+      MB_YESNO or MB_DEFBUTTON2) = IDYES;
   Result := True;
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
-  UninstallRecovery: String;
-  RecoveryParameters: String;
-  RecoveryCode: Integer;
   ScriptPath: String;
-  Parameters: String;
   Mode: String;
   ResultCode: Integer;
 begin
-  if (CurUninstallStep = usUninstall) and not UninstallCleanupRan then begin
+  if (CurUninstallStep = usUninstall) and (not UninstallCleanupRan) then begin
     UninstallCleanupRan := True;
-    if PreserveUserData then
-      Mode := 'PreserveData'
-    else
-      Mode := 'PurgeData';
-
-    UninstallRecovery := ExpandConstant('{app}\scripts\lifecycle\Recover.ps1');
-    if FileExists(UninstallRecovery) then begin
-      RecoveryParameters :=
-        '-InstallRoot "' + ExpandConstant('{app}') + '" ' +
-        '-StateRoot "' + StateRoot() + '" -NoRestart';
-      UninstallProgressForm.ProgressBar.Position := 10;
-      UninstallProgressForm.StatusLabel.Caption := '正在检查并恢复未完成的更新...';
-      if not Exec(
-        'powershell.exe',
-        '-NoProfile -ExecutionPolicy Bypass -File "' + UninstallRecovery + '" ' + RecoveryParameters,
-        ExpandConstant('{app}'),
-        SW_HIDE,
-        ewWaitUntilTerminated,
-        RecoveryCode) then
-        RecoveryCode := 9001;
-      if RecoveryCode <> 0 then begin
-        MsgBox(
-          '检测到未完成的更新，但自动恢复失败。程序文件尚未删除。错误码：' + IntToStr(RecoveryCode),
-          mbError,
-          MB_OK);
-        RaiseException('Lifecycle recovery failed before uninstall');
-      end;
-    end;
-
-    ScriptPath := ExpandConstant('{app}\scripts\lifecycle\Uninstall.ps1');
-    if not FileExists(ScriptPath) then begin
-      MsgBox(
-        '卸载组件缺失，无法确认 Cadence 集成已安全移除。请先使用 Setup 执行修复安装，再重新卸载。',
-        mbError,
-        MB_OK);
-      RaiseException('Lifecycle uninstall component is missing');
-    end;
-
-    Parameters :=
-      '-InstallRoot "' + ExpandConstant('{app}') + '" ' +
-      '-StateRoot "' + StateRoot() + '" -Mode ' + Mode;
-    UninstallProgressForm.StatusLabel.Caption := '正在停止平台并移除 Cadence 集成...';
-    UninstallProgressForm.ProgressBar.Style := npbstMarquee;
-    try
-      if not Exec(
-        'powershell.exe',
-        '-NoProfile -ExecutionPolicy Bypass -File "' + ScriptPath + '" ' + Parameters,
-        ExpandConstant('{app}'),
-        SW_HIDE,
-        ewWaitUntilTerminated,
-        ResultCode) then
-        ResultCode := 9001;
-    finally
-      UninstallProgressForm.ProgressBar.Style := npbstNormal;
-    end;
-
+    if PreserveUserData then Mode := 'PreserveData' else Mode := 'PurgeData';
+    ScriptPath := ExpandConstant('{app}\maintenance\Uninstall.ps1');
+    UninstallProgressForm.ProgressBar.Position := 2;
+    UninstallProgressForm.StatusLabel.Caption := '正在准备卸载';
+    ResultCode := RunLifecycleAsync('Uninstall', ScriptPath, Mode, True);
     if ResultCode <> 0 then begin
       MsgBox(
         '卸载准备失败，程序文件尚未删除。错误码：' + IntToStr(ResultCode) + #13#10 +
@@ -557,12 +638,13 @@ begin
         MB_OK);
       RaiseException('Lifecycle cleanup failed');
     end;
-    UninstallProgressForm.ProgressBar.Position := 75;
-    UninstallProgressForm.StatusLabel.Caption := '正在删除程序文件和快捷方式...';
+    UninstallProgressForm.ProgressBar.Position := 92;
+    UninstallProgressForm.StatusLabel.Caption := '正在删除程序文件和快捷方式';
   end;
 
   if CurUninstallStep = usPostUninstall then begin
     UninstallProgressForm.ProgressBar.Position := 100;
+    UninstallProgressForm.StatusLabel.Caption := '卸载完成';
     if not UninstallSilent then
       MsgBox('卸载完成。点击“确定”关闭卸载程序。', mbInformation, MB_OK);
   end;

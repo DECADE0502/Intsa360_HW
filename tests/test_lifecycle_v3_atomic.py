@@ -12,6 +12,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from app.backend import lifecycle_v3
+from app.backend.lifecycle_v3_archive import REQUIRED_RUNTIME_FILES
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,20 +28,6 @@ def _runtime_relative(version: str, revision: str) -> str:
 
 
 def _write_runtime(path: Path, version: str, revision: str) -> None:
-    required = (
-        "launch_tool_suite.ps1",
-        "app/backend/suite_app.py",
-        "runtime/python/python.exe",
-        "scripts/lifecycle_v3/Worker.ps1",
-        "scripts/lifecycle_v3/Recover.ps1",
-        "scripts/lifecycle_v3/Resume.ps1",
-        "scripts/lifecycle_v3/Contract.ps1",
-        "scripts/lifecycle_v3/Runtime.ps1",
-        "scripts/lifecycle/Contract.ps1",
-        "scripts/lifecycle/Runtime.ps1",
-        "scripts/lib/Paths.ps1",
-        "config/update_public_key.pem",
-    )
     path.mkdir(parents=True)
     (path / "VERSION").write_text(version + "\n", encoding="utf-8")
     (path / "REVISION").write_text(revision + "\n", encoding="utf-8")
@@ -57,7 +44,9 @@ def _write_runtime(path: Path, version: str, revision: str) -> None:
         ),
         encoding="utf-8",
     )
-    for relative in required:
+    for relative in REQUIRED_RUNTIME_FILES:
+        if relative in {"VERSION", "REVISION", "install_manifest.json"}:
+            continue
         target = path / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(f"fixture:{relative}\n", encoding="utf-8")

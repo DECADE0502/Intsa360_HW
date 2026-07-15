@@ -101,25 +101,27 @@ internal static class Program
         bool createdNew;
         using (var mutex = new Mutex(true, MutexName, out createdNew))
         {
-            if (!createdNew)
-            {
-                WriteLog(stateRoot, "Another launcher instance is starting the platform.");
-                string existingUrl;
-                for (int attempt = 0; attempt < 25; attempt++)
-                {
-                    string activeRuntime = ResolveActiveRuntime(installRoot);
-                    if (TryGetHealthyPlatform(activeRuntime, stateRoot, out existingUrl))
-                    {
-                        if (!reconnect) OpenPlatformUrl(existingUrl);
-                        return 0;
-                    }
-                    Thread.Sleep(200);
-                }
-                return 0;
-            }
-
+            bool ownsLauncherMutex = createdNew;
             try
             {
+                if (!ownsLauncherMutex)
+                {
+                    WriteLog(stateRoot, "Another launcher operation is in progress; waiting for it to finish.");
+                    try
+                    {
+                        ownsLauncherMutex = mutex.WaitOne(ScriptTimeoutMilliseconds);
+                    }
+                    catch (AbandonedMutexException)
+                    {
+                        ownsLauncherMutex = true;
+                        WriteLog(stateRoot, "Recovered an abandoned launcher mutex.");
+                    }
+                    if (!ownsLauncherMutex)
+                    {
+                        throw new TimeoutException("Launcher operation timed out while waiting for another instance.");
+                    }
+                }
+
                 WriteLog(stateRoot, "Launcher started. install=" + installRoot + " state=" + stateRoot);
                 int recoveryCode = RunRecovery(installRoot, stateRoot);
                 if (recoveryCode != 0)
@@ -140,6 +142,23 @@ internal static class Program
                 {
                     throw new InvalidOperationException("Platform service launch failed with exit code " + exitCode + ".");
                 }
+
+                string healthyUrl = "";
+                bool healthy = false;
+                for (int attempt = 0; attempt < 40; attempt++)
+                {
+                    if (TryGetHealthyPlatform(runtimeRoot, stateRoot, out healthyUrl))
+                    {
+                        healthy = true;
+                        break;
+                    }
+                    Thread.Sleep(250);
+                }
+                if (!healthy)
+                {
+                    throw new InvalidOperationException("Platform did not pass final health verification.");
+                }
+                WriteLog(stateRoot, "Platform passed final health verification at " + healthyUrl + ".");
                 return 0;
             }
             catch (Exception ex)
@@ -151,6 +170,14 @@ internal static class Program
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
                 return 1;
+            }
+            finally
+            {
+                if (ownsLauncherMutex)
+                {
+                    try { mutex.ReleaseMutex(); }
+                    catch (ApplicationException) { }
+                }
             }
         }
     }
@@ -216,6 +243,8 @@ internal static class Program
 
     private static int RunRecovery(string installRoot, string stateRoot)
     {
+        int setupRecoveryCode = RunSetupRecovery(installRoot, stateRoot);
+        if (setupRecoveryCode != 0) return setupRecoveryCode;
         string protectedScript;
         string recoveryJobId;
         var recoveredJobs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -242,6 +271,32 @@ internal static class Program
         if (!File.Exists(script)) return 0;
         string args = "-InstallRoot " + Quote(runtimeRoot) + " -StateRoot " + Quote(stateRoot) + " -NoRestart";
         return RunPowerShellHidden(runtimeRoot, script, args, stateRoot);
+    }
+
+    private static int RunSetupRecovery(string installRoot, string stateRoot)
+    {
+        string setupRoot = Path.Combine(stateRoot, "lifecycle", "v3", "setup");
+        if (!Directory.Exists(setupRoot)) return 0;
+        bool pending = false;
+        foreach (string directory in Directory.GetDirectories(setupRoot))
+        {
+            var info = new DirectoryInfo(directory);
+            if ((info.Attributes & FileAttributes.ReparsePoint) != 0) continue;
+            if (!Regex.IsMatch(info.Name, "^[0-9a-fA-F]{32}$")) continue;
+            if (File.Exists(Path.Combine(directory, "journal.json")))
+            {
+                pending = true;
+                break;
+            }
+        }
+        if (!pending) return 0;
+        string recovery = Path.Combine(installRoot, "maintenance", "SetupRecover.ps1");
+        if (!File.Exists(recovery))
+        {
+            throw new FileNotFoundException("Stable setup recovery component is missing.", recovery);
+        }
+        string args = "-InstallRoot " + Quote(installRoot) + " -StateRoot " + Quote(stateRoot) + " -NoRestart";
+        return RunPowerShellElevated(Path.GetDirectoryName(recovery), recovery, args);
     }
 
     private static bool FindPendingV3Recovery(

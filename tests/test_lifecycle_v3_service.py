@@ -57,6 +57,12 @@ def test_v3_state_index_is_isolated_from_legacy_lifecycle_jobs(tmp_path: Path) -
 def test_v3_payload_contract_includes_actual_service_launcher_dependencies() -> None:
     assert "scripts/lifecycle/Contract.ps1" in REQUIRED_RUNTIME_FILES
     assert "scripts/lifecycle/Runtime.ps1" in REQUIRED_RUNTIME_FILES
+    assert "scripts/lifecycle_v3/Install.ps1" in REQUIRED_RUNTIME_FILES
+    assert "scripts/lifecycle_v3/Uninstall.ps1" in REQUIRED_RUNTIME_FILES
+    assert "scripts/lifecycle_v3/SetupRunner.ps1" in REQUIRED_RUNTIME_FILES
+    assert "scripts/remove_cadence_loader.ps1" in REQUIRED_RUNTIME_FILES
+    assert "cadence/iac_bom_tool.tcl" in REQUIRED_RUNTIME_FILES
+    assert "config/capabilities.json" in REQUIRED_RUNTIME_FILES
 
 
 def _write_runtime(root: Path, version: str, revision: str) -> None:
@@ -82,11 +88,20 @@ def _write_runtime(root: Path, version: str, revision: str) -> None:
         "scripts/lifecycle_v3/Resume.ps1": "fixture\n",
         "scripts/lifecycle_v3/Contract.ps1": "fixture\n",
         "scripts/lifecycle_v3/Runtime.ps1": "fixture\n",
+        "scripts/lifecycle_v3/Install.ps1": "fixture\n",
+        "scripts/lifecycle_v3/Uninstall.ps1": "fixture\n",
+        "scripts/lifecycle_v3/SetupRunner.ps1": "fixture\n",
+        "scripts/lifecycle_v3/SetupRecover.ps1": "fixture\n",
         "scripts/lifecycle/Contract.ps1": "fixture\n",
         "scripts/lifecycle/Runtime.ps1": "fixture\n",
+        "scripts/lifecycle/Recover.ps1": "fixture\n",
+        "scripts/lifecycle/Worker.ps1": "fixture\n",
+        "scripts/remove_cadence_loader.ps1": "fixture\n",
         "scripts/lib/Paths.ps1": "fixture\n",
         "scripts/lib/Cadence.ps1": "fixture\n",
         "scripts/lib/TclScripts.ps1": "fixture\n",
+        "cadence/iac_bom_tool.tcl": "fixture\n",
+        "config/capabilities.json": "{}\n",
         "config/update_public_key.pem": "fixture-key\n",
     }
     for relative, content in files.items():
