@@ -10,6 +10,7 @@ import threading
 import zipfile
 from ctypes import wintypes
 from pathlib import Path
+from urllib.error import HTTPError
 from unittest.mock import patch
 
 import pytest
@@ -202,6 +203,29 @@ def test_v3_installs_dispatch_to_v3_update_service(tmp_path: Path) -> None:
 
     check.assert_called_once_with(runtime)
     assert payload["remote_status"] == "ok"
+
+
+def test_v3_missing_latest_manifest_is_reported_as_not_published(tmp_path: Path) -> None:
+    _, runtime, _ = _installed_layout(tmp_path)
+    missing_manifest = HTTPError(
+        lifecycle_v3.DEFAULT_SIGNED_MANIFEST_URL,
+        404,
+        "Not Found",
+        None,
+        None,
+    )
+
+    with patch.object(lifecycle_v3, "urlopen", side_effect=missing_manifest):
+        payload = update_api.check_update(runtime)
+
+    assert payload["remote_status"] == "not_published"
+    assert payload["update_reason"] == "manifest_not_published"
+    assert payload["integrity_status"] == "manifest_not_published"
+    assert payload["has_update"] is False
+    assert payload["can_update"] is False
+    assert payload["error"] == ""
+    assert "签名" not in payload["message"]
+    assert "404" not in payload["message"]
 
 
 def test_malformed_versioned_layout_is_not_selected_by_directory_shape(tmp_path: Path) -> None:

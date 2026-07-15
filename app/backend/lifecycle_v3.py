@@ -8,6 +8,7 @@ import shutil
 import threading
 import time
 import uuid
+from urllib.error import HTTPError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
@@ -410,37 +411,71 @@ def _check_payload(root: Path, manifest: ReleaseManifestV3) -> dict[str, object]
     }
 
 
+def _manifest_failure_payload(
+    runtime: Path,
+    *,
+    remote_status: str,
+    update_reason: str,
+    integrity_status: str,
+    message: str,
+    error: str = "",
+) -> dict[str, object]:
+    return {
+        "status": "ok" if remote_status == "not_published" else "error",
+        "version": _read_runtime_text(runtime, "VERSION") or "0.0.0",
+        "revision": _read_runtime_text(runtime, "REVISION"),
+        "remote_version": "",
+        "remote_revision": "",
+        "display_remote": "",
+        "has_update": False,
+        "can_update": False,
+        "installed_runtime": _candidate_install_root(runtime) is not None,
+        "minimum_launcher_version": "",
+        "update_reason": update_reason,
+        "remote_status": remote_status,
+        "remote_revision_status": remote_status,
+        "notice_status": remote_status,
+        "update_notice": {},
+        "expected_sha256": "",
+        "integrity_verified": False,
+        "integrity_status": integrity_status,
+        "download_strategy": "none",
+        "message": message,
+        "error": error,
+    }
+
+
 def check_update(root: Path) -> dict[str, object]:
     runtime = Path(root).resolve()
-    local_version = _read_runtime_text(runtime, "VERSION") or "0.0.0"
-    local_revision = _read_runtime_text(runtime, "REVISION")
     try:
         manifest, _ = _fetch_manifest(runtime)
         return _check_payload(runtime, manifest)
+    except HTTPError as exc:
+        if exc.code == 404:
+            return _manifest_failure_payload(
+                runtime,
+                remote_status="not_published",
+                update_reason="manifest_not_published",
+                integrity_status="manifest_not_published",
+                message="当前仓库尚未发布与此客户端兼容的更新清单。",
+            )
+        return _manifest_failure_payload(
+            runtime,
+            remote_status="error",
+            update_reason="manifest_unavailable",
+            integrity_status="manifest_invalid",
+            message="无法读取或验证已签名更新清单。",
+            error=str(exc),
+        )
     except Exception as exc:  # noqa: BLE001
-        return {
-            "status": "error",
-            "version": local_version,
-            "revision": local_revision,
-            "remote_version": "",
-            "remote_revision": "",
-            "display_remote": "",
-            "has_update": False,
-            "can_update": False,
-            "installed_runtime": _candidate_install_root(runtime) is not None,
-            "minimum_launcher_version": "",
-            "update_reason": "manifest_unavailable",
-            "remote_status": "error",
-            "remote_revision_status": "error",
-            "notice_status": "error",
-            "update_notice": {},
-            "expected_sha256": "",
-            "integrity_verified": False,
-            "integrity_status": "manifest_invalid",
-            "download_strategy": "none",
-            "message": "无法读取或验证已签名更新清单。",
-            "error": str(exc),
-        }
+        return _manifest_failure_payload(
+            runtime,
+            remote_status="error",
+            update_reason="manifest_unavailable",
+            integrity_status="manifest_invalid",
+            message="无法读取或验证已签名更新清单。",
+            error=str(exc),
+        )
 
 
 def _prune_cache(paths: AppPaths) -> None:

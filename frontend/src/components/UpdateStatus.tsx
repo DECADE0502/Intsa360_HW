@@ -20,6 +20,7 @@ import {
 
 const { Text, Paragraph } = Typography;
 const UPDATE_ACK_KEY = "insta360_hw:update-acknowledged-job";
+const UPDATE_CHECK_MESSAGE_KEY = "insta360_hw:update-check-message";
 const UPDATE_PHASES = [
   ["downloading", "下载"],
   ["verifying", "校验"],
@@ -144,19 +145,22 @@ export function UpdateStatus({ version }: { version: string }) {
       const info = await checkUpdate();
       applyCheckResult(info, true);
       if (info.remote_status === "not_published") {
-        message.info(info.message || "仓库尚未发布可用的更新包。");
+        message.info({ key: UPDATE_CHECK_MESSAGE_KEY, content: info.message || "仓库尚未发布可用的更新包。" });
       } else if (info.remote_status !== "ok") {
-        message.error(info.message || info.error || "更新检查失败");
+        message.error({ key: UPDATE_CHECK_MESSAGE_KEY, content: info.message || info.error || "更新检查失败" });
       } else if (info.has_update && info.can_update) {
         if (info.update_notice && Object.keys(info.update_notice).length) setNoticeOpen(true);
-        message.info(`发现新版本 ${info.display_remote || info.remote_version}`);
+        message.info({ key: UPDATE_CHECK_MESSAGE_KEY, content: `发现新版本 ${info.display_remote || info.remote_version}` });
       } else if (info.has_update) {
-        message.warning(info.message || "发现新版本，但当前环境需要使用 Setup 安装包升级。");
+        message.warning({ key: UPDATE_CHECK_MESSAGE_KEY, content: info.message || "发现新版本，但当前环境需要使用 Setup 安装包升级。" });
       } else {
-        message.success(info.display_remote || info.remote_version ? `已是最新版本 ${info.display_remote || info.remote_version}` : "已是最新版本");
+        message.success({
+          key: UPDATE_CHECK_MESSAGE_KEY,
+          content: info.display_remote || info.remote_version ? `已是最新版本 ${info.display_remote || info.remote_version}` : "已是最新版本",
+        });
       }
     } catch (e) {
-      message.error((e as Error).message || "更新检查失败");
+      message.error({ key: UPDATE_CHECK_MESSAGE_KEY, content: (e as Error).message || "更新检查失败" });
     } finally {
       setChecking(false);
     }
