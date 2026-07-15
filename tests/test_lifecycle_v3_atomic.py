@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import base64
+import ctypes
 import hashlib
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -188,6 +190,60 @@ def _run_recover(install_root: Path, state_root: Path, job_id: str) -> subproces
         errors="replace",
         timeout=60,
     )
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows file sharing semantics")
+def test_tree_hash_retries_a_transient_file_sharing_violation(tmp_path: Path) -> None:
+    runtime = tmp_path / "runtime"
+    runtime.mkdir()
+    locked_file = runtime / "Recover.ps1"
+    locked_file.write_text("# fixture\n", encoding="utf-8")
+    ready = tmp_path / "hash-ready.txt"
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateFileW.argtypes = [
+        ctypes.c_wchar_p,
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.c_void_p,
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.c_void_p,
+    ]
+    kernel32.CreateFileW.restype = ctypes.c_void_p
+    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+    kernel32.CloseHandle.restype = ctypes.c_int
+    handle = kernel32.CreateFileW(str(locked_file), 0x80000000, 0, None, 3, 0x80, None)
+    invalid_handle = ctypes.c_void_p(-1).value
+    assert handle not in (None, invalid_handle), ctypes.get_last_error()
+
+    def quote(value: object) -> str:
+        return str(value).replace("'", "''")
+
+    command = (
+        f". '{quote(ROOT / 'scripts/lifecycle_v3/Contract.ps1')}'; "
+        f"Set-Content -LiteralPath '{quote(ready)}' -Value ready; "
+        f"Get-HwV3TreeSha256 -Path '{quote(runtime)}'"
+    )
+    process = subprocess.Popen(
+        [POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    try:
+        deadline = time.monotonic() + 15
+        while not ready.exists() and process.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert ready.exists(), "PowerShell did not reach the hash operation"
+        time.sleep(0.4)
+    finally:
+        kernel32.CloseHandle(handle)
+
+    stdout, stderr = process.communicate(timeout=15)
+    assert process.returncode == 0, stdout + stderr
 
 
 def test_layout_resolves_only_the_declared_active_runtime(tmp_path: Path) -> None:

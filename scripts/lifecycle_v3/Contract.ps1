@@ -402,13 +402,25 @@ function Assert-HwV3RuntimeTree {
   return $root
 }
 
+function Get-HwV3FileSha256WithRetry {
+  param([Parameter(Mandatory=$true)][string]$Path)
+  foreach ($attempt in 0..9) {
+    try {
+      return (Get-FileHash -LiteralPath $Path -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+    } catch {
+      if ($attempt -eq 9) { throw }
+      Start-Sleep -Milliseconds (100 * ($attempt + 1))
+    }
+  }
+}
+
 function Get-HwV3TreeSha256 {
   param([Parameter(Mandatory=$true)][string]$Path)
   $root = Get-HwV3FullPath -Path $Path -Label "TreeRoot"
   $records = New-Object System.Collections.Generic.List[string]
   foreach ($file in Get-ChildItem -LiteralPath $root -Recurse -Force -File) {
     $relative = $file.FullName.Substring($root.Length).TrimStart([char[]]"\/").Replace("\", "/")
-    $digest = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+    $digest = Get-HwV3FileSha256WithRetry -Path $file.FullName
     $records.Add($relative + "`t" + [string]$file.Length + "`t" + $digest + "`n") | Out-Null
   }
   $items = $records.ToArray()
