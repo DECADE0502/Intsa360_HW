@@ -70,12 +70,14 @@ class DistributionLifecycleV2Tests(unittest.TestCase):
         self.assertNotIn("codeload.github", production)
         self.assertNotIn("Stop-HwAgentServicesByPort", production)
 
-    def test_lifecycle_v2_files_are_packaged_by_release_builder(self) -> None:
+    def test_runtime_v3_is_primary_and_v2_files_are_only_a_recovery_bridge(self) -> None:
         builder = (ROOT / "scripts" / "build_release.ps1").read_text(encoding="utf-8")
-        self.assertIn('layout = "runtime-v2"', builder)
+        self.assertIn('layout = "runtime-v3"', builder)
+        self.assertIn("schema = 3", builder)
         self.assertIn('state_root = "%LOCALAPPDATA%\\Insta360_HW"', builder)
-        self.assertIn('foreach ($d in @("runtime"))', builder)
         self.assertIn('"data"', builder)
+        for name in ("Contract.ps1", "Runtime.ps1", "Worker.ps1", "Install.ps1", "Uninstall.ps1", "Recover.ps1"):
+            self.assertTrue((ROOT / "scripts" / "lifecycle_v3" / name).exists(), name)
         for name in ("Contract.ps1", "Runtime.ps1", "Worker.ps1", "Install.ps1", "Uninstall.ps1", "Recover.ps1"):
             self.assertTrue((ROOT / "scripts" / "lifecycle" / name).exists(), name)
 
@@ -123,60 +125,60 @@ class DistributionLifecycleV2Tests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_release_manifest_is_the_only_production_update_source(self) -> None:
-        backend = (ROOT / "app" / "backend" / "lifecycle_update.py").read_text(encoding="utf-8")
-        contract = (ROOT / "app" / "backend" / "release_manifest.py").read_text(encoding="utf-8")
-        self.assertIn("releases/latest/download/update-manifest.json", contract)
-        self.assertIn("ReleaseManifest.parse", backend)
-        self.assertIn("manifest.runtime.sha256", backend)
+    def test_signed_v3_manifest_is_the_only_primary_update_source(self) -> None:
+        backend = (ROOT / "app" / "backend" / "lifecycle_v3.py").read_text(encoding="utf-8")
+        contract = (ROOT / "app" / "backend" / "lifecycle_v3_contract.py").read_text(encoding="utf-8")
+        self.assertIn("releases/latest/download/update-manifest-v3.json", backend)
+        self.assertIn("verify_signed_manifest", backend)
+        self.assertIn("asset.sha256", backend)
         self.assertIn("download size mismatch", backend)
+        self.assertIn("Ed25519PublicKey", contract)
         self.assertNotIn("git merge-base", backend)
 
-    def test_release_workflow_builds_on_windows_when_version_changes(self) -> None:
+    def test_release_workflow_only_validates_and_publishes_local_assets(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
-        self.assertIn("windows-latest", workflow)
-        self.assertIn("- VERSION", workflow)
-        self.assertIn("publish_release.ps1", workflow)
+        self.assertIn("ubuntu-latest", workflow)
+        self.assertIn("workflow_dispatch", workflow)
+        self.assertIn("release_bundle.py verify", workflow)
+        self.assertIn("gh release edit", workflow)
         self.assertIn("contents: write", workflow)
+        self.assertNotIn("npm ci", workflow)
+        self.assertNotIn("choco install", workflow)
 
     def test_publish_script_uploads_runtime_setup_and_strict_manifest(self) -> None:
         publish = (ROOT / "scripts" / "publish_release.ps1").read_text(encoding="utf-8")
-        self.assertIn('schema = 2', publish)
-        self.assertIn('product = "Insta360_HW"', publish)
-        self.assertIn("Get-FileHash", publish)
+        release_tool = (ROOT / "scripts" / "release" / "release_bundle.py").read_text(encoding="utf-8")
+        self.assertIn("release_bundle.py", publish)
+        self.assertIn("update-manifest-v3.json", publish)
         self.assertIn("update-manifest.json", publish)
         self.assertIn("Insta360_HW_Setup.exe", publish)
-        self.assertIn('minimum_launcher_version = "0.3.3"', publish)
-        self.assertNotIn("source ZIP", publish)
+        self.assertIn('"schema_version": 3', release_tool)
+        self.assertIn('"minimum_launcher_version": min_updater_version', release_tool)
+        self.assertIn("canonical_manifest_payload", release_tool)
+        self.assertNotIn("build_installer.ps1", publish)
 
     def test_publish_timestamp_is_portable_rfc3339_utc(self) -> None:
+        release_tool = (ROOT / "scripts" / "release" / "release_bundle.py").read_text(encoding="utf-8")
+
+        self.assertIn('replace("+00:00", "Z")', release_tool)
+        self.assertIn("published_at must include a timezone", release_tool)
+
+    def test_publisher_checks_uploaded_size_and_waits_for_remote_validation(self) -> None:
         publish = (ROOT / "scripts" / "publish_release.ps1").read_text(encoding="utf-8")
 
-        self.assertIn('ToString("yyyy-MM-ddTHH:mm:ssZ")', publish)
-        self.assertNotIn('ToString("o")', publish)
+        self.assertIn("[long]$uploaded.size", publish)
+        self.assertIn("validation_id", publish)
+        self.assertIn("workflow_dispatch", publish)
+        self.assertIn("GitHub is validating the uploaded bytes", publish)
 
-    def test_publish_public_asset_check_accepts_multi_value_content_length_headers(self) -> None:
+    def test_publish_is_revision_safe_and_never_replaces_a_public_release(self) -> None:
         publish = (ROOT / "scripts" / "publish_release.ps1").read_text(encoding="utf-8")
 
-        self.assertIn('@($response.Headers["Content-Length"])', publish)
-        self.assertIn("[long]::TryParse", publish)
-        self.assertNotIn("[long]$lengthHeader -ne $ExpectedSize", publish)
-
-    def test_publish_repair_is_revision_safe_and_verifies_latest_with_retry(self) -> None:
-        publish = (ROOT / "scripts" / "publish_release.ps1").read_text(encoding="utf-8")
-
-        self.assertIn("Resolve-GitHubTagRevision", publish)
-        self.assertIn("does not point to current revision", publish)
-        self.assertIn("Assert-ReleaseManifest", publish)
-        self.assertIn("Invoke-PublicVerificationWithRetry", publish)
-        self.assertIn("expected manifest SHA256", publish)
+        self.assertIn("already public and immutable", publish)
+        self.assertIn("belongs to another revision", publish)
+        self.assertIn("Local release bundle verification failed", publish)
+        self.assertIn("Draft $Tag was left unpublished", publish)
         self.assertIn("status --porcelain --untracked-files=normal", publish)
-        self.assertIn("Publish-StagedAsset", publish)
-        self.assertIn("Promote-StagedAsset", publish)
-        self.assertLess(
-            publish.index('Promote-StagedAsset -Asset $stagedRuntime'),
-            publish.index('Promote-StagedAsset -Asset $stagedManifest'),
-        )
 
     def test_release_workflow_can_repair_an_existing_release(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")

@@ -25,6 +25,7 @@ Thumbs.db
 *.tmp
 *.log
 *.bak
+*_private_key.pem
 
 # Generated at launcher build time from AssemblyInfo.cs.template
 launcher/AssemblyInfo.cs

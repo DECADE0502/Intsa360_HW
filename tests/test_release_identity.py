@@ -140,7 +140,11 @@ class ReleaseIdentityTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
-                env={**base_env, "FAKE_GIT_STATUS": "", "FAKE_GIT_TAG": "v0.3.3"},
+                env={
+                    **base_env,
+                    "FAKE_GIT_STATUS": "",
+                    "FAKE_GIT_TAG": "v" + (ROOT / "VERSION").read_text(encoding="utf-8").strip(),
+                },
                 timeout=30,
             )
 
@@ -151,15 +155,17 @@ class ReleaseIdentityTests(unittest.TestCase):
         self.assertIn("already has a public build", duplicate.stdout + duplicate.stderr)
         self.assertNotIn("Building release tree", duplicate.stdout + duplicate.stderr)
 
-    def test_packaging_scripts_propagate_build_kind_and_pre_release_checks_identity(self) -> None:
+    def test_packaging_scripts_require_one_runtime_v3_identity(self) -> None:
         release = (ROOT / "scripts" / "build_release.ps1").read_text(encoding="utf-8")
         installer = (ROOT / "scripts" / "build_installer.ps1").read_text(encoding="utf-8")
         gate = (ROOT / "scripts" / "pre_release_check.ps1").read_text(encoding="utf-8")
 
         self.assertIn('[ValidateSet("dev", "published")]', release)
         self.assertIn('build_kind = $BuildKind', release)
-        self.assertIn('"-BuildKind", $BuildKind', installer)
-        self.assertIn('InstallManifest.build_kind', gate)
+        self.assertIn('[int]$identity.schema -ne 3', installer)
+        self.assertIn('[string]$identity.layout -ne "runtime-v3"', installer)
+        self.assertIn('[int]$Identity.schema -ne 3', gate)
+        self.assertIn('[string]$Identity.layout -ne "runtime-v3"', gate)
 
 
 if __name__ == "__main__":

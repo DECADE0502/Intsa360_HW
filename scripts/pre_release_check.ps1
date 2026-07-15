@@ -1,6 +1,8 @@
 param(
-  [switch]$SkipNetwork,
-  [ValidateSet("dev", "published")][string]$BuildKind = "published"
+  [string]$RuntimeDir = "",
+  [string]$BundleDir = "",
+  [string]$Revision = "",
+  [switch]$SkipTests
 )
 
 $ErrorActionPreference = "Continue"
@@ -13,42 +15,45 @@ $Version = (Get-Content -LiteralPath (Join-Path $Root "VERSION") -Raw -Encoding 
 if ($Version -notmatch '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-[0-9A-Za-z.-]+)?$') {
   Add-Failure "VERSION is not semantic: $Version"
 }
+if ([string]::IsNullOrWhiteSpace($Revision)) { $Revision = (& git -C $Root rev-parse HEAD 2>$null).Trim().ToLowerInvariant() }
+if ($Revision -notmatch '^[a-f0-9]{40}$') { Add-Failure "A full git revision is required." }
 $Notice = Get-Content -LiteralPath (Join-Path $Root "UPDATE_NOTICE.json") -Raw -Encoding UTF8 | ConvertFrom-Json
-if ([string]$Notice.version -ne $Version) { Add-Failure "UPDATE_NOTICE.version does not match VERSION." }
+if ([string]$Notice.version -cne $Version) { Add-Failure "UPDATE_NOTICE.version does not match VERSION." }
 if (@($Notice.highlights).Count -eq 0) { Add-Failure "UPDATE_NOTICE.highlights is empty." }
-$Revision = (& git -C $Root rev-parse HEAD 2>$null).Trim().ToLowerInvariant()
-if ($LASTEXITCODE -ne 0 -or $Revision -notmatch '^[a-f0-9]{40}$') {
-  Add-Failure "A full git revision is required for release validation."
-}
 
-$Release = Join-Path $Workspace "HWAgent_release"
+if ([string]::IsNullOrWhiteSpace($RuntimeDir)) {
+  $RuntimeDir = Join-Path $Workspace ("HWAgent_build\" + $Version + "+" + $Revision + "\runtime")
+}
+if ([string]::IsNullOrWhiteSpace($BundleDir)) { $BundleDir = Join-Path $Workspace ("Insta360_HW_release_" + $Version) }
+
 foreach ($relative in @(
   "Insta360_HW.exe", "VERSION", "REVISION", "install_manifest.json",
   "app\backend\suite_app.py", "app\frontend\index.html", "runtime\python\python.exe",
-  "scripts\lifecycle\Contract.ps1", "scripts\lifecycle\Runtime.ps1", "scripts\lifecycle\Worker.ps1"
+  "scripts\lifecycle_v3\Worker.ps1", "scripts\lifecycle_v3\Install.ps1",
+  "scripts\lifecycle_v3\Uninstall.ps1", "scripts\lifecycle_v3\SetupRecover.ps1",
+  "config\update_public_key.pem"
 )) {
-  if (-not (Test-Path -LiteralPath (Join-Path $Release $relative) -PathType Leaf)) {
+  if (-not (Test-Path -LiteralPath (Join-Path $RuntimeDir $relative) -PathType Leaf)) {
     Add-Failure "Release payload is missing $relative"
   }
 }
-foreach ($forbidden in @("data", "frontend", "tests", "docs", ".git")) {
-  if (Test-Path -LiteralPath (Join-Path $Release $forbidden)) { Add-Failure "Release payload contains forbidden mutable/development path: $forbidden" }
+foreach ($forbidden in @("data", "frontend", "tests", "docs", ".git", "scripts\release")) {
+  if (Test-Path -LiteralPath (Join-Path $RuntimeDir $forbidden)) {
+    Add-Failure "Release payload contains forbidden mutable/development path: $forbidden"
+  }
 }
-Get-ChildItem -LiteralPath $Release -Recurse -Directory -Filter "__pycache__" -ErrorAction SilentlyContinue | ForEach-Object {
+Get-ChildItem -LiteralPath $RuntimeDir -Recurse -Directory -Filter "__pycache__" -ErrorAction SilentlyContinue | ForEach-Object {
   Add-Failure ("Release payload contains Python cache artifact: " + $_.FullName)
 }
-Get-ChildItem -LiteralPath $Release -Recurse -File -Filter "*.pyc" -ErrorAction SilentlyContinue | ForEach-Object {
+Get-ChildItem -LiteralPath $RuntimeDir -Recurse -File -Filter "*.pyc" -ErrorAction SilentlyContinue | ForEach-Object {
   Add-Failure ("Release payload contains Python cache artifact: " + $_.FullName)
 }
-if (Test-Path -LiteralPath (Join-Path $Release "install_manifest.json")) {
-  $InstallManifest = Get-Content -LiteralPath (Join-Path $Release "install_manifest.json") -Raw -Encoding UTF8 | ConvertFrom-Json
-  if (
-    $InstallManifest.product -ne "Insta360_HW" -or
-    $InstallManifest.layout -ne "runtime-v2" -or
-    [string]$InstallManifest.version -ne $Version -or
-    [string]$InstallManifest.revision -ne $Revision -or
-    [string]$InstallManifest.build_kind -ne $BuildKind
-  ) {
+$identityPath = Join-Path $RuntimeDir "install_manifest.json"
+if (Test-Path -LiteralPath $identityPath -PathType Leaf) {
+  $Identity = Get-Content -LiteralPath $identityPath -Raw -Encoding UTF8 | ConvertFrom-Json
+  if ([int]$Identity.schema -ne 3 -or [string]$Identity.product -ne "Insta360_HW" -or
+      [string]$Identity.layout -ne "runtime-v3" -or [string]$Identity.version -cne $Version -or
+      ([string]$Identity.revision).ToLowerInvariant() -cne $Revision) {
     Add-Failure "Release install manifest identity is invalid."
   }
 }
@@ -65,25 +70,25 @@ Get-ChildItem -LiteralPath $Root -Recurse -Filter *.ps1 -File | Where-Object { $
 }
 if (-not $ParseFailed) { Write-Host "[OK] PowerShell scripts parse" -ForegroundColor Green }
 
-& python -m pytest -q
-if ($LASTEXITCODE -ne 0) { Add-Failure "pytest failed." } else { Write-Host "[OK] pytest" -ForegroundColor Green }
-Push-Location (Join-Path $Root "frontend")
-try { & npm run build; if ($LASTEXITCODE -ne 0) { Add-Failure "frontend build failed." } else { Write-Host "[OK] frontend build" -ForegroundColor Green } }
-finally { Pop-Location }
+if (-not $SkipTests) {
+  & python -m pytest -q
+  if ($LASTEXITCODE -ne 0) { Add-Failure "pytest failed." } else { Write-Host "[OK] pytest" -ForegroundColor Green }
+  Push-Location (Join-Path $Root "frontend")
+  try {
+    & npm run test:unit
+    if ($LASTEXITCODE -ne 0) { Add-Failure "frontend unit tests failed." }
+    & npm run build
+    if ($LASTEXITCODE -ne 0) { Add-Failure "frontend build failed." } else { Write-Host "[OK] frontend build" -ForegroundColor Green }
+  } finally { Pop-Location }
+}
 
-$ManifestPath = Join-Path $Workspace "update-manifest.json"
-if (Test-Path -LiteralPath $ManifestPath) {
-  & python -c "import json, pathlib; from app.backend.release_manifest import ReleaseManifest; ReleaseManifest.parse(json.loads(pathlib.Path(r'$ManifestPath').read_text(encoding='utf-8-sig'))); print('manifest OK')"
-  if ($LASTEXITCODE -ne 0) { Add-Failure "update-manifest.json is invalid." }
-  if (-not $SkipNetwork) {
-    $Remote = Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    foreach ($asset in @($Remote.assets.runtime, $Remote.assets.setup)) {
-      try {
-        $probe = Invoke-WebRequest -Uri ([string]$asset.url) -Method Head -MaximumRedirection 8 -TimeoutSec 20 -UseBasicParsing
-        if ($probe.StatusCode -lt 200 -or $probe.StatusCode -ge 400) { Add-Failure "Release asset is unreachable: $($asset.url)" }
-      } catch { Add-Failure "Release asset is unreachable: $($asset.url) - $($_.Exception.Message)" }
-    }
-  }
+$releaseTool = Join-Path $Root "scripts\release\release_bundle.py"
+$publicKey = Join-Path $Root "config\update_public_key.pem"
+if (Test-Path -LiteralPath $BundleDir -PathType Container) {
+  & python $releaseTool verify --bundle-dir $BundleDir --public-key $publicKey --version $Version --revision $Revision
+  if ($LASTEXITCODE -ne 0) { Add-Failure "Signed release bundle verification failed." }
+} else {
+  Add-Failure "Release bundle is missing: $BundleDir"
 }
 
 if ($Errors.Count -gt 0) {
@@ -91,4 +96,4 @@ if ($Errors.Count -gt 0) {
   foreach ($failure in $Errors) { Write-Host ("  - " + $failure) -ForegroundColor Red }
   exit 1
 }
-Write-Host "ALL PRE-RELEASE CHECKS PASSED" -ForegroundColor Green
+Write-Host "ALL LOCAL RELEASE CHECKS PASSED" -ForegroundColor Green

@@ -65,6 +65,8 @@ try {
   if (Test-Path -LiteralPath "frontend\package.json") {
     Push-Location frontend
     try {
+      npm run test:unit
+      if ($LASTEXITCODE -ne 0) { throw "frontend unit tests failed" }
       npm run build
       if ($LASTEXITCODE -ne 0) { throw "frontend build failed" }
     } finally {

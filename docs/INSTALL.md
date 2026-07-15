@@ -1,82 +1,48 @@
 # Insta360 硬件提效平台安装说明
 
-## 安装版（推荐）
+## 首次安装
 
-双击 `Insta360_HW_Setup.exe`，按向导完成安装即可。安装程序会：
+双击 `Insta360_HW_Setup.exe`，按向导完成安装。Setup 会：
 
-- 把平台部署到 `C:\Program Files\Insta360\HWAgent`（可在向导中修改）。
-- 创建开始菜单快捷方式和可选的桌面快捷方式，均指向 `Insta360_HW.exe`。
-- 部署平台自带的 Python 3.11 运行时，路径为 `runtime/python/`。
-- 部署运行所需依赖，包括 `openpyxl`。
-- 自动部署 Cadence（OrCAD Capture）菜单集成。
+- 默认注册到 `C:\Program Files\Insta360\HWAgent`。
+- 在该目录保留一个稳定入口 `Insta360_HW.exe` 和标准 Windows 卸载器。
+- 把实际程序放入带版本与提交号的 `runtime\<版本+提交>` 目录。
+- 把历史、输出、本机配置、用户插件和生命周期日志放到 `%LOCALAPPDATA%\Insta360_HW`。
+- 部署带所有依赖的 Python 运行时，不使用电脑上已有的 Python。
+- 只部署 Insta360_HW 自己拥有的 Cadence 加载器和已启用插件。
 
-安装完成后，从开始菜单或桌面双击 **Insta360_HW** 启动平台。如果已安装 Cadence，重启 OrCAD Capture 后会在 Accessories 菜单看到 `insta360_HW` 入口。
+安装完成后可以从开始菜单、桌面快捷方式或安装目录中的 `Insta360_HW.exe` 进入平台。首次部署 Cadence 集成后，请重启 OrCAD Capture。
 
-## SmartScreen 警告
+## 再次运行 Setup
 
-Windows 10/11 首次运行未签名的 `Insta360_HW_Setup.exe` 时，可能弹出「Windows 已保护你的电脑」提示：
+Setup 会识别已有安装并提供与当前状态匹配的操作：
 
-- 点击「更多信息」→「仍要运行」即可继续。
-- 长期规避：企业 IT 可以把 `Insta360_HW_Setup.exe` 加入 SmartScreen / EDR 白名单，或使用内部代码签名重新签发。
-- 已经保存到磁盘的安装包，可以在文件属性里勾选「解除锁定」再运行，避免每次都触发提醒。
+- **升级**：安装更高版本并迁移用户状态。
+- **修复**：重新验证并恢复当前版本、稳定入口、卸载器与 Cadence 集成。
+- **重新安装**：重新写入当前版本，适合运行时损坏。
+- **卸载**：调用同一个标准 Windows 卸载器。
 
-## UAC 提示
+不完整或中断的安装会先自动恢复，再继续用户选择的操作。Setup 不会在后台执行平台内 OTA。
 
-- 默认安装目录为 `C:\Program Files\Insta360\HWAgent`，安装过程需要管理员权限。
-- 弹出 UAC「是否允许此应用对你的设备进行更改」时点击「是」。
-- 非管理员账户无法通过 Windows 设置卸载平台；如需完全卸载，请让 IT 或本机管理员操作。
-- 若希望免 UAC，可把安装目录换成 `%LOCALAPPDATA%\Insta360\HWAgent`（见下方脚本安装），但会失去为所有用户共享安装的能力。
+## 标准卸载
 
-## 静默安装（企业分发）
+以下入口调用同一卸载链路：
 
-安装向导底层是 Inno Setup，支持标准静默参数，可用于批量部署：
+- Windows 设置 → 应用 → 已安装的应用。
+- 开始菜单中的卸载快捷方式。
+- 再次运行 `Insta360_HW_Setup.exe` 后选择卸载。
+- Geek Uninstaller 等读取标准卸载注册表的软件。
 
-```
-Insta360_HW_Setup.exe /VERYSILENT /SUPPRESSMSGBOXES /DIR="D:\Insta360_HW"
-```
+默认完整卸载会删除平台目录、用户状态及 Insta360_HW 自有 Cadence 集成，但不会删除 PLMTools 等第三方脚本。交互式卸载时可以明确选择保留用户数据。
 
-- `/VERYSILENT`：不显示任何 UI，包括进度条。
-- `/SUPPRESSMSGBOXES`：抑制普通消息框（配合 `/VERYSILENT` 使用）。
-- `/DIR=<目录>`：覆盖默认安装目录。
-- `/LOG=<file>`：把安装日志写到指定文件，便于事后排查。
-- Cadence 集成会在安装脚本内异步部署；如遇失败请参见下文「Cadence 集成失败恢复」。
+## SmartScreen 与 UAC
 
-## 首次启动 30–60 秒
+当前 Setup 若未使用企业代码签名，Windows 可能显示 SmartScreen 提示。确认文件来自正式 Release 并核对 `SHA256SUMS.txt` 后，可点击「更多信息」→「仍要运行」。安装到 Program Files、修复和卸载都需要管理员授权。
 
-首次启动时平台会做一次性初始化：
-
-- 内嵌 Python 运行时预热，加载 `openpyxl` 等依赖。
-- Cadence 集成脚本部署到 `%USERPROFILE%\cdssetup\OrCAD_Capture\tclscripts\capAutoLoad\`。
-- 默认浏览器会打开 `waiting.html`，看到「正在启动本地服务」文案属正常现象。
-
-初始化完成后浏览器会自动跳转到平台工作台；此后启动通常在 5 秒内完成。
-
-## Cadence 集成失败恢复
-
-- 平台启动后进入「系统状态」页，如果显示 `OrCAD Capture 未检测到` 或 `Cadence 菜单未挂载`，说明集成部署失败。
-- 检查 OrCAD 是否已经安装：确认 `%USERPROFILE%\cdssetup\OrCAD_Capture\tclscripts\capAutoLoad\` 目录存在。
-- 手动重新部署：平台 → 系统状态 → 「重新部署 Cadence 集成」按钮，或运行：
-
-  ```powershell
-  powershell -ExecutionPolicy Bypass -File cadence\install_cadence_integration.ps1
-  ```
-
-- 若仍失败，可以按 `docs/UNINSTALL.md` 中「移除 Cadence 集成」的说明清理，再重新运行部署。
-
-## 绿色版（免安装）
-
-把完整目录复制到任意位置，双击 `Insta360_HW.exe` 即可。绿色版也应包含 `runtime/python/`，不依赖用户电脑已有的 Python。
-
-## 自定义安装（脚本）
+## 企业静默安装
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1
+Insta360_HW_Setup.exe /VERYSILENT /SUPPRESSMSGBOXES /DIR="D:\Insta360_HW" /LOG="D:\Logs\insta360-hw-setup.log"
 ```
 
-可指定安装目录和 Cadence 自动加载目录：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -InstallDir "$env:LOCALAPPDATA\Insta360\HWAgent" -CaptureAutoLoadDir "D:\CADENCE\Cadence\SPB_Data\cdssetup\OrCAD_Capture\tclscripts\capAutoLoad"
-```
-
-安装完成后重启 OrCAD Capture，打开 Accessories -> insta360_HW。
+静默安装使用默认安装/升级决策，不弹出维护选项。批量部署前应先在与目标电脑一致的 Cadence 16.6 或 17.4 环境中验证。

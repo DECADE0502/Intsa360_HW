@@ -299,16 +299,25 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertNotIn("卸载完成", text)
         self.assertIn("请通过 Windows 设置或 Insta360_HW_Setup.exe 卸载平台", text)
 
-    def test_build_script_installs_builds_and_copies_dist_to_app_frontend(self) -> None:
+    def test_build_script_restores_locked_dependencies_only_when_needed(self) -> None:
         text = (ROOT / "scripts" / "build_frontend.ps1").read_text(encoding="utf-8")
 
-        self.assertIn("npm install", text)
-        self.assertIn("npm install failed", text)
+        self.assertIn("node_modules", text)
+        self.assertIn("ForceDependencyRestore", text)
+        self.assertIn("npm ci", text)
+        self.assertIn("npm ci failed", text)
+        self.assertNotIn("npm install", text)
         self.assertIn("npm run build", text)
         self.assertIn("frontend build failed", text)
         self.assertIn("app\\frontend", text)
         self.assertRegex(text, r"Copy-Item[\s\S]+dist")
         self.assertIn("waiting.html", text)
+        self.assertIn("[System.IO.File]::ReadAllBytes($Waiting)", text)
+        self.assertIn("[System.IO.File]::WriteAllBytes($WaitingTarget, $WaitingBytes)", text)
+        self.assertLess(
+            text.index("[System.IO.File]::ReadAllBytes($Waiting)"),
+            text.index("Remove-Item -LiteralPath $Target"),
+        )
 
     def test_frontend_ui_is_simplified_chinese(self) -> None:
         app = (ROOT / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
