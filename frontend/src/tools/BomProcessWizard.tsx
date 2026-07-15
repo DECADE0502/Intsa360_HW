@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
+  App,
   Button,
   Card,
   Checkbox,
@@ -16,7 +17,6 @@ import {
   Tag,
   Typography,
   Upload,
-  message,
 } from "antd";
 import {
   DownloadOutlined,
@@ -30,6 +30,7 @@ import {
 } from "@ant-design/icons";
 import { runTool, secureFetch, uploadFiles } from "../api/client";
 import { useToolWorkspace } from "../state/toolWorkspace";
+import { packageDownloadName } from "../utils/downloadName";
 
 const { Dragger } = Upload;
 const ASSETS_UPDATED_EVENT = "insta360_hw:assets-updated";
@@ -81,6 +82,7 @@ function renderFullRefs(refs: string[] = []) {
 }
 
 export function BomProcessWizard() {
+  const { message } = App.useApp();
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const presetSource = params.get("source") || "";
   const presetName = params.get("name") || "";
@@ -262,7 +264,7 @@ export function BomProcessWizard() {
       const u = URL.createObjectURL(b);
       const a = document.createElement("a");
       a.href = u;
-      a.download = `${name || "BOM"}.zip`;
+      a.download = packageDownloadName(r.headers.get("Content-Disposition"), name || "BOM");
       document.body.appendChild(a);
       a.click();
       setTimeout(() => {

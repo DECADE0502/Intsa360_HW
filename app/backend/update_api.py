@@ -126,7 +126,7 @@ def check_update(root: Path) -> dict[str, object]:
         raw = {
             "remote_status": "error",
             "update_reason": "manifest_unavailable",
-            "message": "Update manifest is unavailable.",
+            "message": "无法读取更新清单。",
             "error": str(exc),
         }
     return _update_check_payload(root, raw if isinstance(raw, dict) else {})
@@ -152,7 +152,7 @@ def _update_status_payload(raw: dict[str, object]) -> dict[str, object]:
         "phase": phase,
         "progress": max(0, min(100, _number(raw.get("progress"), 0))),
         "step": _string(raw.get("step"), phase),
-        "message": _string(raw.get("message"), "No lifecycle job is active."),
+        "message": _string(raw.get("message"), "当前没有正在执行的更新任务。"),
         "log_tail": list(log_tail) if isinstance(log_tail, list) and all(isinstance(item, str) for item in log_tail) else [],
         "cancellable": bool(raw.get("cancellable")) if running else False,
         "bytes_total": _number(raw.get("bytes_total"), 0),
@@ -218,20 +218,20 @@ def check_uninstall(root: Path) -> dict[str, object]:
         "can_uninstall": False,
         "modes": ["cadence_only"],
         "install_dir": str(root),
-        "message": "Use Windows Settings or Insta360_HW_Setup.exe for a full uninstall.",
+        "message": "请通过 Windows 设置或 Insta360_HW_Setup.exe 完整卸载平台。",
     }
 
 
 def uninstall_status(root: Path) -> dict[str, object]:
-    return {"status": "ok", "running": False, "done": False, "failed": False, "progress": 0, "message": "The web app does not uninstall the platform."}
+    return {"status": "ok", "running": False, "done": False, "failed": False, "progress": 0, "message": "网页端不执行平台完整卸载。"}
 
 
 def run_uninstall(root: Path, mode: str = "cadence_only") -> dict[str, object]:
     if mode not in {"cadence_only", "detach"}:
-        return {"status": "error", "error": "Only Cadence integration removal is available from the platform."}
+        return {"status": "error", "error": "平台内仅支持移除 Cadence 集成。"}
     script = root / "scripts" / "remove_cadence_loader.ps1"
     if not script.exists():
-        return {"status": "error", "error": f"Cadence removal script is missing: {script}"}
+        return {"status": "error", "error": f"缺少 Cadence 集成移除脚本：{script}"}
     completed = subprocess.run(
         ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script), "-InstallDir", str(root)],
         cwd=str(root),
@@ -240,8 +240,8 @@ def run_uninstall(root: Path, mode: str = "cadence_only") -> dict[str, object]:
         timeout=90,
     )
     if completed.returncode != 0:
-        return {"status": "error", "error": completed.stderr.strip() or completed.stdout.strip() or "Cadence integration removal failed."}
-    return {"status": "ok", "message": "Cadence integration removed.", "output": completed.stdout}
+        return {"status": "error", "error": completed.stderr.strip() or completed.stdout.strip() or "Cadence 集成移除失败。"}
+    return {"status": "ok", "message": "Cadence 集成已移除。", "output": completed.stdout}
 
 
 def _notice_integrity_lines(root: Path) -> list[str]:

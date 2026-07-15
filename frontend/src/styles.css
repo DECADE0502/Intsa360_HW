@@ -151,6 +151,7 @@ html, body, #root { margin: 0; height: 100%; }
 
 .app-content { padding: 36px 48px; width: 100%; box-sizing: border-box; }
 .service-offline-alert { margin-bottom: 16px; }
+.platform-load-alert { margin-bottom: 16px; }
 
 .process-grid {
   display: grid;

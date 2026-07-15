@@ -2,9 +2,21 @@ import { ApiError } from "./errors";
 
 export type ApiOpts = { signal?: AbortSignal; timeoutMs?: number };
 const DEFAULT_TIMEOUT = 60_000;
+const HEALTH_PROBE_TIMEOUT_MS = 3_000;
+const UPDATE_STATUS_POLL_TIMEOUT_MS = 3_000;
+const SESSION_TOKEN_TIMEOUT_MS = 3_000;
 const SESSION_HEADER = "X-Insta360-Session";
 const MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 let sessionTokenRequest: Promise<string> | null = null;
+
+function isAbortError(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "name" in error &&
+      (error as { name?: unknown }).name === "AbortError",
+  );
+}
 
 function isMutation(init: RequestInit): boolean {
   return MUTATION_METHODS.has((init.method || "GET").toUpperCase());
@@ -13,7 +25,14 @@ function isMutation(init: RequestInit): boolean {
 async function fetchSessionToken(forceRefresh = false): Promise<string> {
   if (forceRefresh) sessionTokenRequest = null;
   if (!sessionTokenRequest) {
-    sessionTokenRequest = fetch("/api/session", { cache: "no-store" })
+    const controller = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, SESSION_TOKEN_TIMEOUT_MS);
+    let request: Promise<string>;
+    request = fetch("/api/session", { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
         const payload = await response.json().catch(() => ({}));
         if (!response.ok || typeof payload.token !== "string" || !payload.token) {
@@ -22,9 +41,21 @@ async function fetchSessionToken(forceRefresh = false): Promise<string> {
         return payload.token as string;
       })
       .catch((error) => {
-        sessionTokenRequest = null;
+        if (sessionTokenRequest === request) sessionTokenRequest = null;
+        if (timedOut && isAbortError(error)) {
+          throw new ApiError(
+            "SessionTimeout",
+            "平台安全会话建立超时，请确认后端服务可用。",
+            408,
+            error,
+          );
+        }
         throw error;
+      })
+      .finally(() => {
+        clearTimeout(timer);
       });
+    sessionTokenRequest = request;
   }
   return sessionTokenRequest;
 }
@@ -52,21 +83,31 @@ export async function secureFetch(input: RequestInfo | URL, init: RequestInit = 
 }
 
 export async function apiCall<T = unknown>(
-  path: string,
+  path: RequestInfo | URL,
   init: RequestInit = {},
   opts: ApiOpts = {},
 ): Promise<T> {
   const internalCtrl = new AbortController();
+  let timedOut = false;
+  const abortOnTimeout = () => {
+    timedOut = true;
+    internalCtrl.abort();
+  };
   const timer =
     opts.timeoutMs !== undefined
-      ? setTimeout(() => internalCtrl.abort(), opts.timeoutMs)
+      ? setTimeout(abortOnTimeout, opts.timeoutMs)
       : opts.signal
       ? null
-      : setTimeout(() => internalCtrl.abort(), DEFAULT_TIMEOUT);
-  // Combine external signal with internal timeout signal
-  const combined = opts.signal
-    ? mergeSignals(opts.signal, internalCtrl.signal)
-    : internalCtrl.signal;
+      : setTimeout(abortOnTimeout, DEFAULT_TIMEOUT);
+  let combined = internalCtrl.signal;
+  let releaseSignals = () => {};
+  if (opts.signal && timer) {
+    const merged = mergeSignals(opts.signal, internalCtrl.signal);
+    combined = merged.signal;
+    releaseSignals = merged.dispose;
+  } else if (opts.signal) {
+    combined = opts.signal;
+  }
   try {
     const res = await secureFetch(path, { ...init, signal: combined });
     const payload: any = await res.json().catch(() => ({}));
@@ -79,18 +120,31 @@ export async function apiCall<T = unknown>(
       );
     }
     return payload as T;
+  } catch (error) {
+    if (timedOut && isAbortError(error)) {
+      throw new ApiError("TimeoutError", "请求超时，请稍后重试。", 408, error);
+    }
+    throw error;
   } finally {
     if (timer) clearTimeout(timer);
+    releaseSignals();
   }
 }
 
-function mergeSignals(a: AbortSignal, b: AbortSignal): AbortSignal {
-  if (a.aborted) return a;
-  if (b.aborted) return b;
+function mergeSignals(a: AbortSignal, b: AbortSignal): { signal: AbortSignal; dispose: () => void } {
+  if (a.aborted) return { signal: a, dispose: () => {} };
+  if (b.aborted) return { signal: b, dispose: () => {} };
   const ctrl = new AbortController();
-  a.addEventListener("abort", () => ctrl.abort(), { once: true });
-  b.addEventListener("abort", () => ctrl.abort(), { once: true });
-  return ctrl.signal;
+  const abort = () => ctrl.abort();
+  a.addEventListener("abort", abort, { once: true });
+  b.addEventListener("abort", abort, { once: true });
+  return {
+    signal: ctrl.signal,
+    dispose: () => {
+      a.removeEventListener("abort", abort);
+      b.removeEventListener("abort", abort);
+    },
+  };
 }
 
 export type ToolInfo = {
@@ -194,27 +248,26 @@ export type LifecyclePayload = {
 
 export const HISTORY_UPDATED_EVENT = "insta360_hw:history-updated";
 
-async function requestJson<T = any>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
-  let res: Response;
+async function requestJson<T = any>(input: RequestInfo | URL, init: RequestInit = {}, opts: ApiOpts = {}): Promise<T> {
+  const { signal: initSignal, ...requestInit } = init;
+  const signal = opts.signal ?? initSignal ?? undefined;
   try {
-    res = await secureFetch(input, init);
+    return await apiCall<T>(
+      input,
+      requestInit,
+      { ...opts, signal, timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT },
+    );
   } catch (error) {
     const err = error as Error;
+    if (err.name === "AbortError") {
+      if (signal?.aborted) throw err;
+      throw new Error("请求超时，请检查本地服务后重试。");
+    }
     if (err.name === "TypeError" || /fetch/i.test(err.message || "")) {
       throw new Error("后端服务已断开，请重新启动平台或点击重新连接。");
     }
     throw err;
   }
-  let payload: any = {};
-  try {
-    payload = await res.json();
-  } catch {
-    payload = {};
-  }
-  if (!res.ok) {
-    throw new Error(payload.error || payload.message || `请求失败 (${res.status})`);
-  }
-  return payload as T;
 }
 
 export async function fetchTools(): Promise<ToolInfo[]> {
@@ -265,9 +318,12 @@ export async function clearHistory() {
   return payload;
 }
 
-export async function fetchPlatformStatus() {
-  const payload = await requestJson<any>("/api/platform/status");
-  return payload;
+export async function fetchPlatformStatus(opts?: ApiOpts) {
+  return apiCall<any>(
+    "/api/platform/status",
+    {},
+    { ...opts, timeoutMs: opts?.timeoutMs ?? HEALTH_PROBE_TIMEOUT_MS },
+  );
 }
 
 export async function fetchLifecycleCheck(): Promise<LifecyclePayload> {
@@ -299,7 +355,7 @@ export async function setPluginCadenceMenuVisibility(id: string, showInCadence: 
 export async function uploadFiles(files: File[]): Promise<{ files: Array<{ path: string; name: string }> }> {
   const form = new FormData();
   files.forEach((file) => form.append("files", file));
-  const payload = await requestJson<any>("/api/upload", { method: "POST", body: form });
+  const payload = await requestJson<any>("/api/upload", { method: "POST", body: form }, { timeoutMs: 300_000 });
   if (payload.status !== "ok") throw new Error(payload.error || "上传失败");
   return payload;
 }
@@ -319,8 +375,12 @@ export async function runTool(tool: string, params: Record<string, unknown>, opt
   return result;
 }
 
-export async function fetchVersion(): Promise<string> {
-  const payload = await requestJson<any>("/api/version");
+export async function fetchVersion(opts?: ApiOpts): Promise<string> {
+  const payload = await apiCall<any>(
+    "/api/version",
+    {},
+    { ...opts, timeoutMs: opts?.timeoutMs ?? HEALTH_PROBE_TIMEOUT_MS },
+  );
   if (payload.status !== "ok") throw new Error(payload.error || "版本获取失败");
   return payload.version;
 }
@@ -440,7 +500,11 @@ export type UpdateStatusInfo = {
 };
 
 export async function fetchUpdateStatus(opts?: ApiOpts): Promise<UpdateStatusInfo> {
-  return apiCall<UpdateStatusInfo>("/api/update/status", undefined, opts);
+  return apiCall<UpdateStatusInfo>(
+    "/api/update/status",
+    undefined,
+    { ...opts, timeoutMs: opts?.timeoutMs ?? UPDATE_STATUS_POLL_TIMEOUT_MS },
+  );
 }
 
 export type UpdateReconnectResponse = UpdateStatusInfo & { reconnected: true };

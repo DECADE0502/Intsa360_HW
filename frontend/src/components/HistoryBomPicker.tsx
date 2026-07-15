@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, Empty, Modal, Select, Space, Tag, Typography } from "antd";
+import { App, Button, Empty, Modal, Select, Space, Tag, Typography } from "antd";
 import { DatabaseOutlined, ReloadOutlined } from "@ant-design/icons";
 import { fetchAssets, type AssetItem } from "../api/client";
 
@@ -21,18 +21,35 @@ function labelOf(asset: AssetItem) {
 }
 
 export function HistoryBomPicker({ value, onChange, placeholder = "从历史记录选择已处理 BOM", disabled }: Props) {
+  const { message } = App.useApp();
   const [assets, setAssets] = useState<AssetItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
+  const [draftValue, setDraftValue] = useState("");
 
   async function load() {
     setLoading(true);
     try {
       const payload = await fetchAssets();
       setAssets(payload.groups?.processed_bom || []);
+    } catch (error) {
+      message.error({
+        key: "insta360_hw:history-bom-picker-load",
+        content: (error as Error).message || "历史资产加载失败",
+      });
     } finally {
       setLoading(false);
     }
+  }
+
+  function openPicker() {
+    setDraftValue(value || "");
+    setOpen(true);
+  }
+
+  function confirmSelection() {
+    if (draftValue !== (value || "")) onChange(draftValue);
+    setOpen(false);
   }
 
   useEffect(() => {
@@ -63,7 +80,7 @@ export function HistoryBomPicker({ value, onChange, placeholder = "从历史记�
           icon={<DatabaseOutlined />}
           disabled={disabled}
           loading={loading}
-          onClick={() => setOpen(true)}
+          onClick={openPicker}
           style={{ width: "100%" }}
         >
           {selected ? `历史 BOM：${selected.name}` : "选择历史 BOM"}
@@ -77,7 +94,7 @@ export function HistoryBomPicker({ value, onChange, placeholder = "从历史记�
         okText="使用所选 BOM"
         cancelText="取消"
         onCancel={() => setOpen(false)}
-        onOk={() => setOpen(false)}
+        onOk={confirmSelection}
       >
         <Typography.Paragraph type="secondary">
           这里列出 BOM 处理工具生成过的 PLM/OA 成品 BOM，可直接用于对比、风险检查和封装检查。
@@ -87,12 +104,12 @@ export function HistoryBomPicker({ value, onChange, placeholder = "从历史记�
           showSearch
           disabled={disabled}
           loading={loading}
-          value={value || undefined}
+          value={draftValue || undefined}
           placeholder={placeholder}
           options={options}
           optionFilterProp="search"
           notFoundContent={<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无可复用的历史 BOM" />}
-          onChange={(next) => onChange(next || "")}
+          onChange={(next) => setDraftValue(next || "")}
           style={{ width: "100%" }}
         />
       </Modal>

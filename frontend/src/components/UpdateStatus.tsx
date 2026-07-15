@@ -111,28 +111,34 @@ export function UpdateStatus({ version }: { version: string }) {
   useEffect(() => {
     if (!progressOpen) return;
     const ctrl = new AbortController();
+    let stopped = false;
     const tick = async () => {
+      let shouldContinue = true;
       try {
         const s = await fetchUpdateStatus({ signal: ctrl.signal });
         if (!ctrl.signal.aborted) {
           setUpdateStatus(s);
           setPollErrorStreak(0);
-          if (!s.running && updatePollRef.current) {
-            window.clearInterval(updatePollRef.current);
-            updatePollRef.current = null;
-          }
+          shouldContinue = s.running;
         }
       } catch (e: any) {
-        if (e?.name !== "AbortError" && !ctrl.signal.aborted) {
+        if (!ctrl.signal.aborted) {
           setPollErrorStreak((n) => n + 1);
+        }
+      } finally {
+        if (shouldContinue && !stopped && !ctrl.signal.aborted) {
+          updatePollRef.current = window.setTimeout(() => void tick(), 1000);
+        } else {
+          updatePollRef.current = null;
         }
       }
     };
-    tick();
-    updatePollRef.current = window.setInterval(tick, 1000);
+    void tick();
     return () => {
+      stopped = true;
       ctrl.abort();
-      if (updatePollRef.current) window.clearInterval(updatePollRef.current);
+      if (updatePollRef.current) window.clearTimeout(updatePollRef.current);
+      updatePollRef.current = null;
       setPollErrorStreak(0);
     };
   }, [progressOpen]);

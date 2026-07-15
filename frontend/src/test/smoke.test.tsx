@@ -1,5 +1,5 @@
 import { App as AntdApp, Button } from "antd";
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -110,6 +110,39 @@ describe("App startup", () => {
     }
 
     expect(await screen.findByRole("menuitem", { name: "BOM 对比" })).toBeInTheDocument();
+  });
+
+  it("reports an incomplete catalog and retries it without restarting the platform", async () => {
+    const user = userEvent.setup();
+    let toolRequests = 0;
+    server.use(
+      http.get("/api/tools", () => {
+        toolRequests += 1;
+        if (toolRequests === 1) {
+          return HttpResponse.json({ status: "error", error: "temporary catalog failure" }, { status: 503 });
+        }
+        return HttpResponse.json({
+          tools: [
+            {
+              category: "bom",
+              description: "比较两个 BOM 文件",
+              id: "bom_compare",
+              name: "BOM 对比",
+              status: "ready",
+            },
+          ],
+        });
+      }),
+    );
+
+    renderWithProviders(<App />);
+
+    expect(await screen.findByText("平台数据加载不完整")).toBeInTheDocument();
+    expect(screen.getByText(/工具清单/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /重试加载/ }));
+
+    expect(await screen.findByRole("menuitem", { name: "BOM 对比" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("平台数据加载不完整")).not.toBeInTheDocument());
   });
 });
 

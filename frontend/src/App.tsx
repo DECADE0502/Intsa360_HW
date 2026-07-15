@@ -1,5 +1,6 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Alert, App as AntdApp, Button, ConfigProvider, Layout, Menu, Spin, Typography } from "antd";
+import { ReloadOutlined } from "@ant-design/icons";
 import zhCN from "antd/locale/zh_CN";
 import {
   fetchCapabilities,
@@ -40,8 +41,11 @@ export default function App() {
   const [serviceOnline, setServiceOnline] = useState(true);
   const [serviceError, setServiceError] = useState("");
   const [serviceReconnecting, setServiceReconnecting] = useState(false);
+  const [catalogError, setCatalogError] = useState("");
+  const [catalogReloading, setCatalogReloading] = useState(false);
   const [active, setActive] = useState("__home");
   const [loading, setLoading] = useState(true);
+  const healthProbeInFlight = useRef(false);
 
   async function refreshPlugins() {
     const payload = await fetchPlugins();
@@ -54,7 +58,66 @@ export default function App() {
     setHistoryRuns(await fetchHistory());
   }
 
+  async function refreshPlatformCatalog() {
+    setCatalogReloading(true);
+    try {
+      const [toolsResult, capsResult, pluginsResult, historyResult] = await Promise.allSettled([
+        fetchTools(),
+        fetchCapabilities(),
+        fetchPlugins(),
+        fetchHistory(),
+      ]);
+      const failures: string[] = [];
+      if (toolsResult.status === "fulfilled") {
+        setTools(toolsResult.value);
+        const requested = new URLSearchParams(window.location.search).get("tool") || "";
+        if (requested && toolsResult.value.some((tool) => tool.id === requested)) {
+          setActive(requested);
+        }
+      } else {
+        failures.push("工具清单");
+      }
+      if (capsResult.status === "fulfilled") {
+        setCaps(capsResult.value.capabilities || []);
+      } else {
+        failures.push("能力清单");
+      }
+      if (pluginsResult.status === "fulfilled") {
+        const groups = pluginsResult.value.groups || {};
+        setPlugins({ system: groups.system || [], platform: groups.platform || [], user: groups.user || [] });
+      } else {
+        failures.push("插件清单");
+        if (capsResult.status === "fulfilled") {
+          const fallback = (capsResult.value.capabilities || [])
+            .filter((item) => item.type === "cadence_tcl")
+            .map((item) => ({
+              ...item,
+              source: "platform" as const,
+              readonly: false,
+              manageable: true,
+              menu: "insta360_HW",
+            }));
+          setPlugins((current) => ({ ...current, platform: fallback }));
+        }
+      }
+      if (historyResult.status === "fulfilled") {
+        setHistoryRuns(historyResult.value);
+      } else {
+        failures.push("历史记录");
+      }
+      setCatalogError(
+        failures.length
+          ? `以下平台数据未加载：${failures.join("、")}。已有内容会保留，可直接重试。`
+          : "",
+      );
+    } finally {
+      setCatalogReloading(false);
+    }
+  }
+
   async function refreshRuntimeStatus(options: { preserveReconnectMessage?: boolean } = {}) {
+    if (healthProbeInFlight.current) return false;
+    healthProbeInFlight.current = true;
     try {
       const [st, version] = await Promise.all([fetchPlatformStatus(), fetchVersion()]);
       setStatus((prev: any) => ({ ...(prev || {}), ...st, version: version || st?.version || prev?.version }));
@@ -64,9 +127,15 @@ export default function App() {
     } catch (err: any) {
       setServiceOnline(false);
       if (!options.preserveReconnectMessage) {
-        setServiceError(err?.message || "后端服务已断开，请重新启动平台或点击重新连接。");
+        setServiceError(
+          err?.kind === "TimeoutError"
+            ? "后端服务健康检查超时，请重新启动平台或点击重新连接。"
+            : err?.message || "后端服务已断开，请重新启动平台或点击重新连接。",
+        );
       }
       return false;
+    } finally {
+      healthProbeInFlight.current = false;
     }
   }
 
@@ -123,6 +192,8 @@ export default function App() {
           "本地服务未在 30 秒内恢复。可能原因：浏览器阻止了 insta360-hw:// 协议，或平台未安装。" +
             "\n请从桌面图标手动启动 Insta360_HW，或重新运行 Insta360_HW_Setup.exe。"
         );
+      } else {
+        await refreshPlatformCatalog();
       }
     } finally {
       setServiceReconnecting(false);
@@ -130,39 +201,10 @@ export default function App() {
   }
 
   useEffect(() => {
-    Promise.allSettled([fetchTools(), fetchCapabilities(), fetchPlugins(), fetchHistory(), fetchPlatformStatus(), fetchVersion()])
-      .then(([toolsResult, capsResult, pluginsResult, historyResult, statusResult, versionResult]) => {
-        const tls = toolsResult.status === "fulfilled" ? toolsResult.value : [];
-        const cp = capsResult.status === "fulfilled" ? capsResult.value : { capabilities: [] };
-        const pl =
-          pluginsResult.status === "fulfilled"
-            ? pluginsResult.value
-            : {
-                groups: {
-                  system: [],
-                  platform: (cp.capabilities || [])
-                    .filter((item) => item.type === "cadence_tcl")
-                    .map((item) => ({
-                      ...item,
-                      source: "platform" as const,
-                      readonly: false,
-                      manageable: true,
-                      menu: "insta360_HW",
-                    })),
-                  user: [],
-                },
-              };
+    Promise.allSettled([refreshPlatformCatalog(), fetchPlatformStatus(), fetchVersion()])
+      .then(([, statusResult, versionResult]) => {
         const st = statusResult.status === "fulfilled" ? statusResult.value : {};
         const version = versionResult.status === "fulfilled" ? versionResult.value : "";
-        setTools(tls);
-        setCaps(cp.capabilities || []);
-        const pluginGroups = pl.groups || {};
-        setPlugins({
-          system: pluginGroups.system || [],
-          platform: pluginGroups.platform || [],
-          user: pluginGroups.user || [],
-        });
-        setHistoryRuns(historyResult.status === "fulfilled" ? historyResult.value : []);
         setStatus({ ...st, version: version || st?.version });
         setServiceOnline(statusResult.status === "fulfilled" && versionResult.status === "fulfilled");
         setServiceError(
@@ -170,9 +212,6 @@ export default function App() {
             ? "后端服务已断开，请重新启动平台或点击重新连接。"
             : "",
         );
-        let requested = new URLSearchParams(window.location.search).get("tool") || "";
-        if (requested && !tls.some((tool) => tool.id === requested)) requested = "";
-        setActive(requested || "__home");
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -270,6 +309,25 @@ export default function App() {
               action={
                 <Button size="small" danger loading={serviceReconnecting} onClick={restartBackendAndReconnect}>
                   {serviceReconnecting ? "正在重启服务" : "重新连接"}
+                </Button>
+              }
+            />
+          ) : null}
+          {catalogError ? (
+            <Alert
+              type="warning"
+              showIcon
+              className="platform-load-alert"
+              message="平台数据加载不完整"
+              description={catalogError}
+              action={
+                <Button
+                  size="small"
+                  icon={<ReloadOutlined />}
+                  loading={catalogReloading}
+                  onClick={() => void refreshPlatformCatalog()}
+                >
+                  重试加载
                 </Button>
               }
             />

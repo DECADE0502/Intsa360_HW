@@ -34,6 +34,28 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn("@ant-design/icons", dependencies)
         self.assertIn("lucide-react", dependencies)
 
+    def test_user_notifications_use_the_antd_app_context(self) -> None:
+        paths = [
+            ROOT / "frontend" / "src" / "tools" / "BomProcessWizard.tsx",
+            ROOT / "frontend" / "src" / "platform" / "SystemStatus.tsx",
+        ]
+
+        for path in paths:
+            source = path.read_text(encoding="utf-8")
+            antd_import = source.split('from "antd";', 1)[0]
+            self.assertNotRegex(antd_import, r"\bmessage\b", path.name)
+            self.assertIn("App.useApp()", source, path.name)
+
+    def test_service_health_poll_is_bounded_and_nonoverlapping(self) -> None:
+        client = (ROOT / "frontend" / "src" / "api" / "client.ts").read_text(encoding="utf-8")
+        app = (ROOT / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("HEALTH_PROBE_TIMEOUT_MS", client)
+        self.assertIn("fetchPlatformStatus(opts?: ApiOpts)", client)
+        self.assertIn("fetchVersion(opts?: ApiOpts)", client)
+        self.assertIn("healthProbeInFlight", app)
+        self.assertIn("if (healthProbeInFlight.current) return false", app)
+
     def test_vite_build_separates_stable_vendor_chunks(self) -> None:
         config = (ROOT / "frontend" / "vite.config.ts").read_text(encoding="utf-8")
 
@@ -273,6 +295,7 @@ class FrontendBuildTests(unittest.TestCase):
 
     def test_reconnect_button_restarts_backend_via_local_protocol(self) -> None:
         app = (ROOT / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
+        handler = app.split("async function restartBackendAndReconnect()", 1)[1].split("useEffect(() =>", 1)[0]
 
         self.assertIn("restartBackendAndReconnect", app)
         self.assertIn("insta360-hw://reconnect", app)
@@ -285,6 +308,7 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn("window.location.href = RECONNECT_PROTOCOL_URL", app)
         self.assertNotIn('document.createElement("iframe")', app)
         self.assertIn("正在唤起本地服务", app)
+        self.assertIn("await refreshPlatformCatalog()", handler)
 
     def test_platform_page_removes_full_uninstall_flow(self) -> None:
         text = (ROOT / "frontend" / "src" / "components" / "UpdateStatus.tsx").read_text(encoding="utf-8")
@@ -437,7 +461,8 @@ class FrontendBuildTests(unittest.TestCase):
         wizard = (ROOT / "frontend" / "src" / "tools" / "BomProcessWizard.tsx").read_text(encoding="utf-8")
 
         self.assertIn('new URLSearchParams(window.location.search).get("tool")', app)
-        self.assertIn('setActive(requested || "__home")', app)
+        self.assertIn("toolsResult.value.some((tool) => tool.id === requested)", app)
+        self.assertIn("setActive(requested)", app)
         self.assertIn("URLSearchParams", wizard)
         self.assertIn('params.get("source")', wizard)
         self.assertIn('params.get("name")', wizard)

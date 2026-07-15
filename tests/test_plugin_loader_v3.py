@@ -6,8 +6,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from app.backend import plugins as plugins_module
 
@@ -24,7 +26,35 @@ TCLSH_CANDIDATES = (
 TCLSH = next((path for path in TCLSH_CANDIDATES if path.is_file()), None)
 
 
+def _run_tcl_harness(executable: Path, harness: Path) -> subprocess.CompletedProcess[str]:
+    for attempt in range(2):
+        try:
+            return subprocess.run(
+                [str(executable), str(harness)],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=15,
+            )
+        except subprocess.TimeoutExpired:
+            if attempt == 1:
+                raise
+            time.sleep(0.25)
+    raise AssertionError("unreachable")
+
+
 class PluginLoaderV3Tests(unittest.TestCase):
+    def test_tcl_harness_retries_one_transient_startup_timeout(self) -> None:
+        completed = subprocess.CompletedProcess(["tclsh", "harness.tcl"], 0, "ok", "")
+        timeout = subprocess.TimeoutExpired(["tclsh", "harness.tcl"], 15)
+
+        with patch.object(subprocess, "run", side_effect=[timeout, completed]) as runner:
+            result = _run_tcl_harness(Path("tclsh"), Path("harness.tcl"))
+
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(runner.call_count, 2)
+
     def test_every_platform_plugin_has_one_unique_entry_and_lifecycle_contract(self) -> None:
         data = json.loads(CAPABILITIES.read_text(encoding="utf-8"))
         plugins = [item for item in data["capabilities"] if item["type"] == "cadence_tcl"]
@@ -199,14 +229,7 @@ class PluginLoaderV3Tests(unittest.TestCase):
                 + "\n",
                 encoding="utf-8",
             )
-            result = subprocess.run(
-                [str(TCLSH), str(harness)],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=30,
-            )
+            result = _run_tcl_harness(TCLSH, harness)
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("before=1", result.stdout)

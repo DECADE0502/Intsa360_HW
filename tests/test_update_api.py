@@ -118,6 +118,20 @@ class _Response:
 
 
 class UpdateApiV2Tests(unittest.TestCase):
+    def test_public_lifecycle_fallback_messages_remain_chinese(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.object(lifecycle_update, "check_update", side_effect=RuntimeError("network down")):
+                checked = update_api.check_update(root)
+
+            idle = update_api._update_status_payload({"phase": "idle"})
+            removal = update_api.run_uninstall(root, "cadence_only")
+
+        self.assertEqual(checked["message"], "无法读取更新清单。")
+        self.assertEqual(idle["message"], "当前没有正在执行的更新任务。")
+        self.assertIn("Cadence", removal["error"])
+        self.assertIn("缺少", removal["error"])
+
     def test_atomic_json_retries_transient_replace_access_denial(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "state" / "job.json"

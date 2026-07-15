@@ -35,6 +35,19 @@ function idleStatus() {
   };
 }
 
+function runningStatus() {
+  return {
+    ...idleStatus(),
+    cancellable: true,
+    job_id: "update-job-1",
+    message: "正在下载更新。",
+    phase: "downloading",
+    progress: 5,
+    running: true,
+    step: "downloading",
+  };
+}
+
 describe("UpdateStatus", () => {
   it("reuses one update-check notification instead of stacking duplicates", async () => {
     const user = userEvent.setup();
@@ -82,5 +95,55 @@ describe("UpdateStatus", () => {
       // One inline result plus one global notification.
       expect(screen.getAllByText(NOT_PUBLISHED_MESSAGE)).toHaveLength(2);
     });
+  });
+
+  it("waits for the active status poll before scheduling another one", async () => {
+    let statusCalls = 0;
+    let releasePoll: (() => void) | undefined;
+    const blockedPoll = new Promise<void>((resolve) => {
+      releasePoll = resolve;
+    });
+    server.use(
+      http.get("/api/update/check", () =>
+        HttpResponse.json({
+          can_update: false,
+          display_remote: "0.4.0",
+          download_strategy: "none",
+          error: "",
+          expected_sha256: "",
+          has_update: false,
+          installed_runtime: true,
+          integrity_status: "verified",
+          integrity_verified: true,
+          message: "已是最新版本。",
+          minimum_launcher_version: "",
+          notice_status: "ok",
+          remote_revision: "a".repeat(40),
+          remote_revision_status: "same",
+          remote_status: "ok",
+          remote_version: "0.4.0",
+          revision: "a".repeat(40),
+          status: "ok",
+          update_notice: {},
+          update_reason: "up_to_date",
+          version: "0.4.0",
+        }),
+      ),
+      http.get("/api/update/status", async () => {
+        statusCalls += 1;
+        if (statusCalls > 1) await blockedPoll;
+        return HttpResponse.json(runningStatus());
+      }),
+    );
+
+    renderWithProviders(<UpdateStatus version="0.4.0" />);
+    await waitFor(() => expect(statusCalls).toBe(2));
+    await new Promise((resolve) => window.setTimeout(resolve, 2_200));
+
+    try {
+      expect(statusCalls).toBe(2);
+    } finally {
+      releasePoll?.();
+    }
   });
 });

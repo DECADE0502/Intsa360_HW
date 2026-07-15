@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Alert, Badge, Button, Card, Descriptions, List, Space, Typography, message } from "antd";
+import { Alert, App, Badge, Button, Card, Descriptions, List, Space, Typography } from "antd";
 import { DownloadOutlined } from "@ant-design/icons";
 import { fetchDiagnosticReport, fetchLifecycleCheck, type LifecyclePayload } from "../api/client";
 
@@ -10,6 +10,7 @@ const statusMap = {
 };
 
 export function SystemStatus({ status }: { status: any }) {
+  const { message } = App.useApp();
   const [lifecycle, setLifecycle] = useState<LifecyclePayload | null>(null);
   const [error, setError] = useState("");
   const [diagnosticLoading, setDiagnosticLoading] = useState(false);
