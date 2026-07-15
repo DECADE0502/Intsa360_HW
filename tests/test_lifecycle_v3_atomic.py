@@ -29,6 +29,30 @@ def _runtime_relative(version: str, revision: str) -> str:
     return f"runtime/{version}+{revision}"
 
 
+def _open_exclusive_read_handle(path: Path):
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateFileW.argtypes = [
+        ctypes.c_wchar_p,
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.c_void_p,
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.c_void_p,
+    ]
+    kernel32.CreateFileW.restype = ctypes.c_void_p
+    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+    kernel32.CloseHandle.restype = ctypes.c_int
+    handle = kernel32.CreateFileW(str(path), 0x80000000, 0, None, 3, 0x80, None)
+    invalid_handle = ctypes.c_void_p(-1).value
+    assert handle not in (None, invalid_handle), ctypes.get_last_error()
+    return kernel32, handle
+
+
+def _powershell_quote(value: object) -> str:
+    return str(value).replace("'", "''")
+
+
 def _write_runtime(path: Path, version: str, revision: str) -> None:
     path.mkdir(parents=True)
     (path / "VERSION").write_text(version + "\n", encoding="utf-8")
@@ -200,30 +224,11 @@ def test_tree_hash_retries_a_transient_file_sharing_violation(tmp_path: Path) ->
     locked_file.write_text("# fixture\n", encoding="utf-8")
     ready = tmp_path / "hash-ready.txt"
 
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    kernel32.CreateFileW.argtypes = [
-        ctypes.c_wchar_p,
-        ctypes.c_uint32,
-        ctypes.c_uint32,
-        ctypes.c_void_p,
-        ctypes.c_uint32,
-        ctypes.c_uint32,
-        ctypes.c_void_p,
-    ]
-    kernel32.CreateFileW.restype = ctypes.c_void_p
-    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
-    kernel32.CloseHandle.restype = ctypes.c_int
-    handle = kernel32.CreateFileW(str(locked_file), 0x80000000, 0, None, 3, 0x80, None)
-    invalid_handle = ctypes.c_void_p(-1).value
-    assert handle not in (None, invalid_handle), ctypes.get_last_error()
-
-    def quote(value: object) -> str:
-        return str(value).replace("'", "''")
-
+    kernel32, handle = _open_exclusive_read_handle(locked_file)
     command = (
-        f". '{quote(ROOT / 'scripts/lifecycle_v3/Contract.ps1')}'; "
-        f"Set-Content -LiteralPath '{quote(ready)}' -Value ready; "
-        f"Get-HwV3TreeSha256 -Path '{quote(runtime)}'"
+        f". '{_powershell_quote(ROOT / 'scripts/lifecycle_v3/Contract.ps1')}'; "
+        f"Set-Content -LiteralPath '{_powershell_quote(ready)}' -Value ready; "
+        f"Get-HwV3TreeSha256 -Path '{_powershell_quote(runtime)}'"
     )
     process = subprocess.Popen(
         [POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
@@ -244,6 +249,40 @@ def test_tree_hash_retries_a_transient_file_sharing_violation(tmp_path: Path) ->
 
     stdout, stderr = process.communicate(timeout=15)
     assert process.returncode == 0, stdout + stderr
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows file sharing semantics")
+def test_legacy_atomic_json_retries_a_transient_target_lock(tmp_path: Path) -> None:
+    target = tmp_path / "journal.json"
+    target.write_text('{"state":"old"}\n', encoding="utf-8")
+    ready = tmp_path / "replace-ready.txt"
+    kernel32, handle = _open_exclusive_read_handle(target)
+    command = (
+        f". '{_powershell_quote(ROOT / 'scripts/lifecycle/Contract.ps1')}'; "
+        f"Set-Content -LiteralPath '{_powershell_quote(ready)}' -Value ready; "
+        f"Write-HwLifecycleJsonAtomic -Path '{_powershell_quote(target)}' "
+        "-Value @{ state = 'new' }"
+    )
+    process = subprocess.Popen(
+        [POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    try:
+        deadline = time.monotonic() + 15
+        while not ready.exists() and process.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert ready.exists(), "PowerShell did not reach the atomic replacement"
+        time.sleep(0.4)
+    finally:
+        kernel32.CloseHandle(handle)
+
+    stdout, stderr = process.communicate(timeout=15)
+    assert process.returncode == 0, stdout + stderr
+    assert json.loads(target.read_text(encoding="utf-8-sig")) == {"state": "new"}
 
 
 def test_layout_resolves_only_the_declared_active_runtime(tmp_path: Path) -> None:

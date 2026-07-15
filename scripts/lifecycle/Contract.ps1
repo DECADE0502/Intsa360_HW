@@ -131,11 +131,46 @@ function Assert-HwLifecycleRuntimeRoot {
 
 function Write-HwLifecycleJsonAtomic {
   param([Parameter(Mandatory=$true)][string]$Path, [Parameter(Mandatory=$true)]$Value)
-  $parent = Split-Path -Parent $Path
+  $target = [System.IO.Path]::GetFullPath($Path)
+  $parent = Split-Path -Parent $target
   New-Item -ItemType Directory -Force -Path $parent | Out-Null
-  $temp = Join-Path $parent (([System.IO.Path]::GetFileName($Path)) + "." + [guid]::NewGuid().ToString("N") + ".tmp")
-  $Value | ConvertTo-Json -Depth 16 | Set-Content -LiteralPath $temp -Encoding UTF8
-  Move-Item -LiteralPath $temp -Destination $Path -Force
+  $temp = Join-Path $parent (([System.IO.Path]::GetFileName($target)) + "." + [guid]::NewGuid().ToString("N") + ".tmp")
+  $backup = Join-Path $parent (([System.IO.Path]::GetFileName($target)) + "." + [guid]::NewGuid().ToString("N") + ".bak")
+  try {
+    $json = ($Value | ConvertTo-Json -Depth 16) + "`n"
+    $bytes = (New-Object System.Text.UTF8Encoding($false)).GetBytes($json)
+    $stream = [System.IO.File]::Open(
+      $temp,
+      [System.IO.FileMode]::CreateNew,
+      [System.IO.FileAccess]::Write,
+      [System.IO.FileShare]::None
+    )
+    try {
+      $stream.Write($bytes, 0, $bytes.Length)
+      $stream.Flush($true)
+    } finally {
+      $stream.Dispose()
+    }
+    foreach ($attempt in 0..9) {
+      try {
+        if (Test-Path -LiteralPath $target -PathType Leaf) {
+          [System.IO.File]::Replace($temp, $target, $backup, $true)
+        } else {
+          [System.IO.File]::Move($temp, $target)
+        }
+        break
+      } catch [System.IO.IOException] {
+        if ($attempt -eq 9) { throw }
+        Start-Sleep -Milliseconds (50 * ($attempt + 1))
+      } catch [System.UnauthorizedAccessException] {
+        if ($attempt -eq 9) { throw }
+        Start-Sleep -Milliseconds (50 * ($attempt + 1))
+      }
+    }
+  } finally {
+    Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue
+  }
 }
 
 function Read-HwLifecycleJson {
