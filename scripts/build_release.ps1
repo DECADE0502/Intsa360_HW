@@ -162,8 +162,16 @@ manifest = ReleaseManifestV3.model_validate({
 })
 validate_payload(root, manifest)
 '@
-  & (Join-Path $runtimePyDir "python.exe") -c $validator $Staging
-  if ($LASTEXITCODE -ne 0) { throw "Runtime-v3 payload validation failed." }
+  $ValidatorPath = Join-Path ([System.IO.Path]::GetTempPath()) `
+    ("insta360_runtime_validator_" + [guid]::NewGuid().ToString("N") + ".py")
+  $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+  [System.IO.File]::WriteAllText($ValidatorPath, $validator, $utf8NoBom)
+  try {
+    & (Join-Path $runtimePyDir "python.exe") $ValidatorPath $Staging
+    if ($LASTEXITCODE -ne 0) { throw "Runtime-v3 payload validation failed." }
+  } finally {
+    Remove-Item -LiteralPath $ValidatorPath -Force -ErrorAction SilentlyContinue
+  }
 
   if (Test-Path -LiteralPath $Release) { Remove-Item -LiteralPath $Release -Recurse -Force }
   Move-Item -LiteralPath $Staging -Destination $Release

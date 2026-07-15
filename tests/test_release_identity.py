@@ -167,6 +167,14 @@ class ReleaseIdentityTests(unittest.TestCase):
         self.assertIn('[int]$Identity.schema -ne 3', gate)
         self.assertIn('[string]$Identity.layout -ne "runtime-v3"', gate)
 
+    def test_runtime_validator_avoids_powershell_native_inline_code_quoting(self) -> None:
+        release = (ROOT / "scripts" / "build_release.ps1").read_text(encoding="utf-8")
+
+        self.assertNotIn('python.exe") -c $validator', release)
+        self.assertIn("[System.IO.File]::WriteAllText($ValidatorPath, $validator", release)
+        self.assertIn('& (Join-Path $runtimePyDir "python.exe") $ValidatorPath $Staging', release)
+        self.assertIn("Remove-Item -LiteralPath $ValidatorPath", release)
+
 
 if __name__ == "__main__":
     unittest.main()
