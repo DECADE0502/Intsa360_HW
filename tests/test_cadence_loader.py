@@ -7,32 +7,12 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import time
 import unittest
-from contextlib import contextmanager
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 POWERSHELL = "powershell"
-
-
-@contextmanager
-def _retrying_temporary_directory():
-    path = Path(tempfile.mkdtemp())
-    try:
-        yield str(path)
-    finally:
-        for attempt in range(8):
-            try:
-                shutil.rmtree(path)
-                break
-            except FileNotFoundError:
-                break
-            except OSError:
-                if attempt == 7:
-                    raise
-                time.sleep(0.05 * (attempt + 1))
 
 
 class CadenceLoaderGenerationTests(unittest.TestCase):
@@ -87,7 +67,7 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_generated_cadence_loader_menu_items_are_ascii_safe(self) -> None:
-        with _retrying_temporary_directory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             root = tmp_path / "tool"
             (root / "cadence" / "modules").mkdir(parents=True)
@@ -229,7 +209,7 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_write_cadence_loader_rejects_leftover_placeholders(self) -> None:
-        with _retrying_temporary_directory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             root = tmp_path / "tool"
             (root / "cadence").mkdir(parents=True)
@@ -263,7 +243,7 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_generated_loader_is_gbk_encodable_and_uses_hidden_launcher(self) -> None:
-        with _retrying_temporary_directory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "iac_bom_tool.tcl"
             command = (
                 "$ErrorActionPreference='Stop'; "
@@ -303,7 +283,7 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_generated_loader_keeps_capture_property_unicode_escapes_unmodified(self) -> None:
-        with _retrying_temporary_directory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "iac_bom_tool.tcl"
             command = (
                 "$ErrorActionPreference='Stop'; "
@@ -354,7 +334,7 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_generated_loader_injects_only_opt_in_cadence_script_menu_items(self) -> None:
-        with _retrying_temporary_directory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             root = tmp_path / "tool"
             (root / "cadence" / "modules").mkdir(parents=True)
@@ -408,7 +388,7 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_generated_loader_injects_enabled_user_plugin_scripts(self) -> None:
-        with _retrying_temporary_directory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             root = tmp_path / "tool"
             shutil.copytree(ROOT / "config", root / "config")
@@ -449,7 +429,7 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_local_appdata_plugin_state_override_changes_rendered_loader_output(self) -> None:
-        with _retrying_temporary_directory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             root = tmp_path / "runtime"
             local_app_data = tmp_path / "local-app-data"
@@ -506,7 +486,7 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_malformed_user_manifest_does_not_block_loader_rendering(self) -> None:
-        with _retrying_temporary_directory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             root = tmp_path / "tool"
             shutil.copytree(ROOT / "config", root / "config")
@@ -647,7 +627,7 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
         self.assertNotIn("RegisterAction", module)
         self.assertNotIn("AddAccessoryMenu", module)
 
-        with _retrying_temporary_directory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             root = tmp_path / "tool"
             shutil.copytree(ROOT / "config", root / "config")
@@ -696,7 +676,7 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_nc_shortcut_disabled_state_keeps_dispatcher_hot_reloadable(self) -> None:
-        with _retrying_temporary_directory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             root = tmp_path / "tool"
             shutil.copytree(ROOT / "config", root / "config")
@@ -730,7 +710,7 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_installed_loader_reads_user_plugins_from_external_state_root(self) -> None:
-        with _retrying_temporary_directory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             root = tmp_path / "runtime"
             local_app_data = tmp_path / "local"
@@ -829,7 +809,7 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform == "win32", "windows only")
     def test_generated_loader_sources_gnd_module_when_gnd_scripts_are_enabled(self) -> None:
-        with _retrying_temporary_directory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             root = tmp_path / "tool"
             shutil.copytree(ROOT / "cadence", root / "cadence")
