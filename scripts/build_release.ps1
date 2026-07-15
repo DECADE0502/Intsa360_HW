@@ -58,6 +58,26 @@ function Copy-ReleaseTree {
   if ($LASTEXITCODE -ge 8) { throw "robocopy failed for $Source (exit $LASTEXITCODE)" }
 }
 
+function Remove-PythonCacheArtifacts {
+  param([Parameter(Mandatory=$true)][string]$Root)
+  $cacheDirs = @(Get-ChildItem -LiteralPath $Root -Directory -Filter "__pycache__" -Recurse -Force -ErrorAction SilentlyContinue)
+  $cacheDirs |
+    Sort-Object { $_.FullName.Length } -Descending |
+    ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force }
+  Get-ChildItem -LiteralPath $Root -File -Filter "*.pyc" -Recurse -Force -ErrorAction SilentlyContinue |
+    ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force }
+}
+
+function Assert-NoPythonCacheArtifacts {
+  param([Parameter(Mandatory=$true)][string]$Root)
+  $artifact = Get-ChildItem -LiteralPath $Root -Recurse -Force -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -eq "__pycache__" -or $_.Extension -ieq ".pyc" } |
+    Select-Object -First 1
+  if ($null -ne $artifact) {
+    throw "Runtime payload contains Python cache artifact after finalization: $($artifact.FullName)"
+  }
+}
+
 try {
   Write-Host "[1/6] Building immutable runtime tree: $Release" -ForegroundColor Cyan
   Copy-ReleaseTree -Source (Join-Path $Root "app\backend") -Destination (Join-Path $Staging "app\backend")
@@ -136,12 +156,6 @@ try {
   }
   $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $Staging "install_manifest.json") -Encoding UTF8
 
-  Get-ChildItem -LiteralPath $Staging -Directory -Filter "__pycache__" -Recurse -ErrorAction SilentlyContinue |
-    Sort-Object { $_.FullName.Length } -Descending |
-    ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force }
-  Get-ChildItem -LiteralPath $Staging -File -Filter "*.pyc" -Recurse -ErrorAction SilentlyContinue |
-    ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force }
-
   Write-Host "[6/6] Validating runtime-v3 payload..." -ForegroundColor Cyan
   $validator = @'
 import json, pathlib, sys
@@ -172,6 +186,9 @@ validate_payload(root, manifest)
   } finally {
     Remove-Item -LiteralPath $ValidatorPath -Force -ErrorAction SilentlyContinue
   }
+
+  Remove-PythonCacheArtifacts -Root $Staging
+  Assert-NoPythonCacheArtifacts -Root $Staging
 
   if (Test-Path -LiteralPath $Release) { Remove-Item -LiteralPath $Release -Recurse -Force }
   Move-Item -LiteralPath $Staging -Destination $Release

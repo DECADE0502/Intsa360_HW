@@ -175,6 +175,23 @@ class ReleaseIdentityTests(unittest.TestCase):
         self.assertIn('& (Join-Path $runtimePyDir "python.exe") $ValidatorPath $Staging', release)
         self.assertIn("Remove-Item -LiteralPath $ValidatorPath", release)
 
+    def test_runtime_builder_finalizes_without_python_cache_after_validation(self) -> None:
+        release = (ROOT / "scripts" / "build_release.ps1").read_text(encoding="utf-8")
+        validator_call = '& (Join-Path $runtimePyDir "python.exe") $ValidatorPath $Staging'
+        final_cleanup = "Remove-PythonCacheArtifacts -Root $Staging"
+        final_assertion = "Assert-NoPythonCacheArtifacts -Root $Staging"
+        publish_runtime = "Move-Item -LiteralPath $Staging -Destination $Release"
+
+        self.assertIn("function Remove-PythonCacheArtifacts", release)
+        self.assertIn("function Assert-NoPythonCacheArtifacts", release)
+        self.assertIn(final_cleanup, release)
+        self.assertIn(final_assertion, release)
+        self.assertLess(release.index(validator_call), release.rindex(final_cleanup))
+        self.assertLess(release.rindex(final_cleanup), release.rindex(final_assertion))
+        self.assertLess(release.rindex(final_assertion), release.index(publish_runtime))
+        finalized = release[release.rindex(final_assertion):release.index(publish_runtime)]
+        self.assertNotIn('python.exe")', finalized)
+
 
 if __name__ == "__main__":
     unittest.main()
