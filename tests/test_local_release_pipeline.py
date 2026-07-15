@@ -251,6 +251,32 @@ def test_release_orchestration_builds_locally_and_github_only_validates_uploaded
     assert "gh release edit" in workflow
 
 
+def test_release_orchestration_keeps_embedded_python_from_mutating_the_runtime() -> None:
+    script = (ROOT / "scripts" / "build_release_bundle.ps1").read_text(encoding="utf-8")
+    build_call = "& $EmbeddedPython -B $ReleaseTool build"
+    verify_call = "& $EmbeddedPython -B $ReleaseTool verify"
+    final_assertion = "Assert-NoRuntimeCacheArtifacts -RuntimeRoot $RuntimeRoot"
+
+    assert build_call in script
+    assert verify_call in script
+    assert "function Assert-NoRuntimeCacheArtifacts" in script
+    assert script.rindex(final_assertion) > script.index(verify_call)
+
+
+def test_runtime_zip_rejects_python_cache_artifacts(tmp_path: Path) -> None:
+    release_tool = _load_release_tool()
+    runtime = tmp_path / "runtime"
+    cache = runtime / "runtime" / "python" / "Lib" / "site-packages" / "pkg" / "__pycache__"
+    cache.mkdir(parents=True)
+    (cache / "module.cpython-311.pyc").write_bytes(b"cached")
+    target = tmp_path / "runtime.zip"
+
+    with pytest.raises(ValueError, match="Python cache artifact"):
+        release_tool.write_runtime_zip(runtime, target, 1_783_756_800)
+
+    assert not target.exists()
+
+
 def test_release_workflow_never_interpolates_dispatch_inputs_into_privileged_shell() -> None:
     workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
 

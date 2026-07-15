@@ -155,6 +155,15 @@ def _is_reparse_point(path: Path) -> bool:
     return bool(value & marker)
 
 
+def _assert_no_python_cache_artifacts(root: Path) -> None:
+    for path in root.rglob("*"):
+        relative = path.relative_to(root)
+        if path.suffix.casefold() == ".pyc" or any(
+            part.casefold() == "__pycache__" for part in relative.parts
+        ):
+            raise ValueError(f"runtime payload contains Python cache artifact: {relative.as_posix()}")
+
+
 def _zip_timestamp(source_date_epoch: int) -> tuple[int, int, int, int, int, int]:
     moment = datetime.fromtimestamp(source_date_epoch, tz=timezone.utc)
     if moment.year < 1980:
@@ -164,6 +173,7 @@ def _zip_timestamp(source_date_epoch: int) -> tuple[int, int, int, int, int, int
 
 def write_runtime_zip(runtime_root: Path, target: Path, source_date_epoch: int) -> None:
     root = runtime_root.resolve()
+    _assert_no_python_cache_artifacts(root)
     files: list[Path] = []
     for path in root.rglob("*"):
         if path.is_symlink() or _is_reparse_point(path):
@@ -454,6 +464,7 @@ def verify_bundle(
         extracted = temporary / "runtime"
         safe_extract(bundle / runtime_name, extracted)
         validate_payload(extracted, manifest)
+        _assert_no_python_cache_artifacts(extracted)
         extracted_anchor = (extracted / "config" / "update_public_key.pem").read_bytes()
         trusted_anchor = public_key_path.read_bytes()
         if extracted_anchor != trusted_anchor:

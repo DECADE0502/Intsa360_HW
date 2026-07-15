@@ -24,6 +24,16 @@ $PrivateKeyPath = [System.IO.Path]::GetFullPath($PrivateKeyPath)
 $PublicKeyPath = Join-Path $Root "config\update_public_key.pem"
 $ReleaseTool = Join-Path $Root "scripts\release\release_bundle.py"
 
+function Assert-NoRuntimeCacheArtifacts {
+  param([Parameter(Mandatory=$true)][string]$RuntimeRoot)
+  $artifact = Get-ChildItem -LiteralPath $RuntimeRoot -Recurse -Force -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -eq "__pycache__" -or $_.Extension -ieq ".pyc" } |
+    Select-Object -First 1
+  if ($null -ne $artifact) {
+    throw "Runtime tree was mutated by the release pipeline: $($artifact.FullName)"
+  }
+}
+
 if ($InitializeSigningKey) {
   if (Test-Path -LiteralPath $PublicKeyPath -PathType Leaf) {
     throw "-InitializeSigningKey is bootstrap-only and the committed trust anchor already exists. Restore the matching private key from secure backup to $PrivateKeyPath, then run this script without -InitializeSigningKey."
@@ -73,6 +83,7 @@ $runtimeArgs = @{
 }
 & (Join-Path $Root "scripts\build_release.ps1") @runtimeArgs
 if ($LASTEXITCODE -ne 0) { throw "Runtime build failed." }
+Assert-NoRuntimeCacheArtifacts -RuntimeRoot $RuntimeRoot
 
 Write-Host "[3/5] Compiling Setup from the exact runtime tree..." -ForegroundColor Cyan
 & (Join-Path $Root "scripts\build_installer.ps1") -ReleaseDir $RuntimeRoot -OutputDir $SetupRoot `
@@ -82,7 +93,7 @@ if ($LASTEXITCODE -ne 0) { throw "Setup build failed." }
 $PublishedAt = [DateTimeOffset]::FromUnixTimeSeconds($SourceDateEpoch).UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ")
 $EmbeddedPython = Join-Path $RuntimeRoot "runtime\python\python.exe"
 Write-Host "[4/5] Creating root-layout ZIP, signed manifest, legacy bridge and checksums..." -ForegroundColor Cyan
-& $EmbeddedPython $ReleaseTool build `
+& $EmbeddedPython -B $ReleaseTool build `
   --runtime-root $RuntimeRoot `
   --setup (Join-Path $SetupRoot "Insta360_HW_Setup.exe") `
   --output-dir $BundleDir `
@@ -111,9 +122,10 @@ foreach ($name in $ExpectedArtifacts) {
 }
 
 Write-Host "[5/5] Re-verifying the exact publishable bytes..." -ForegroundColor Cyan
-& $EmbeddedPython $ReleaseTool verify --bundle-dir $BundleDir --public-key $PublicKeyPath `
+& $EmbeddedPython -B $ReleaseTool verify --bundle-dir $BundleDir --public-key $PublicKeyPath `
   --version $Version --revision $Revision
 if ($LASTEXITCODE -ne 0) { throw "Final release bundle verification failed." }
+Assert-NoRuntimeCacheArtifacts -RuntimeRoot $RuntimeRoot
 
 $CanonicalSetup = Join-Path $Workspace "Insta360_HW_Setup.exe"
 $IncomingSetup = $CanonicalSetup + ".incoming"
