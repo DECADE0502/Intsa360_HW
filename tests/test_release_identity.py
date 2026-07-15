@@ -175,6 +175,16 @@ class ReleaseIdentityTests(unittest.TestCase):
         self.assertIn('& (Join-Path $runtimePyDir "python.exe") $ValidatorPath $Staging', release)
         self.assertIn("Remove-Item -LiteralPath $ValidatorPath", release)
 
+    def test_runtime_builder_smokes_the_real_embedded_entrypoint(self) -> None:
+        release = (ROOT / "scripts" / "build_release.ps1").read_text(encoding="utf-8")
+        entrypoint = (
+            '& (Join-Path $runtimePyDir "python.exe") -B -I '
+            '(Join-Path $Staging "app\\backend\\suite_app.py") --help'
+        )
+
+        self.assertIn(entrypoint, release)
+        self.assertIn("Embedded Python entrypoint verification failed.", release)
+
     def test_runtime_builder_finalizes_without_python_cache_after_validation(self) -> None:
         release = (ROOT / "scripts" / "build_release.ps1").read_text(encoding="utf-8")
         validator_call = '& (Join-Path $runtimePyDir "python.exe") $ValidatorPath $Staging'

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -11,6 +12,20 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class EmbeddedPythonTests(unittest.TestCase):
+    def test_runtime_entrypoint_bootstraps_root_under_isolated_python(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            result = subprocess.run(
+                [sys.executable, "-I", str(ROOT / "app" / "backend" / "suite_app.py"), "--help"],
+                cwd=tmp,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=30,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("--port", result.stdout)
+
     @unittest.skipUnless(__import__("sys").platform == "win32", "Windows PowerShell only")
     def test_sha256_assertion_rejects_mismatched_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

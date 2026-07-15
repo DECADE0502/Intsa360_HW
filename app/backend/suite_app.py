@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from app.backend.api.cadence import cadence_hot_reload_command, parse_cadence_loader_paths
 from app.backend.api.server import FastApiCompatServer
 from app.backend.main import create_app
-
-
-ROOT = Path(__file__).resolve().parents[2]
 
 # Compatibility exports for launchers and 0.3.x integration tests.
 _parse_cadence_loader_paths = parse_cadence_loader_paths

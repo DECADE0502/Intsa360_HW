@@ -27,6 +27,12 @@ if ($InstallRoot -ieq $StateRoot -or (Test-HwV3PathWithin -Path $StateRoot -Pare
 
 $logPath = Join-Path $StateRoot "logs\install_latest.log"
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $logPath) | Out-Null
+if (Test-Path -LiteralPath $logPath -PathType Leaf) {
+  $previousLog = Join-Path (Split-Path -Parent $logPath) `
+    ("install_previous_" + (Get-Date -Format "yyyyMMdd_HHmmss_fff") + ".log")
+  try { Copy-Item -LiteralPath $logPath -Destination $previousLog -Force }
+  catch {}
+}
 Set-Content -LiteralPath $logPath -Value "" -Encoding UTF8
 $script:stage = "initializing"
 

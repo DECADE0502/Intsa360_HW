@@ -250,6 +250,38 @@ class DistributionLifecycleV2Tests(unittest.TestCase):
         self.assertIn("function ShouldSkipPage", setup)
         self.assertIn("PageID = wpSelectDir", setup)
 
+    def test_setup_prefers_runtime_identity_over_stale_registry_version(self) -> None:
+        setup = (ROOT / "HWAgent_Setup.iss").read_text(encoding="utf-8-sig")
+        start = setup.index("function DetectExistingInstall")
+        end = setup.index("function NumericVersionCore", start)
+        detection = setup[start:end]
+
+        self.assertIn("function ReadRuntimeVersion", setup)
+        self.assertIn("RegisteredVersion", detection)
+        self.assertIn("ReadRuntimeVersion(ActiveRuntime, ExistingVersion)", detection)
+        self.assertIn("ReadRuntimeVersion(ExistingInstallDir, ExistingVersion)", detection)
+        self.assertIn("ExistingVersion := RegisteredVersion", detection)
+
+    def test_setup_restores_existing_display_version_after_lifecycle_rollback(self) -> None:
+        setup = (ROOT / "HWAgent_Setup.iss").read_text(encoding="utf-8-sig")
+        postinstall = setup[setup.index("procedure CurStepChanged"):setup.index("procedure DeinitializeSetup")]
+
+        self.assertIn("procedure RestoreExistingDisplayVersion", setup)
+        self.assertIn("RegWriteStringValue(HKLM64, UninstallKey, 'DisplayVersion', ExistingVersion)", setup)
+        self.assertIn("RegWriteStringValue(HKLM32, UninstallKey, 'DisplayVersion', ExistingVersion)", setup)
+        self.assertIn("RestoreExistingDisplayVersion", postinstall)
+        self.assertLess(postinstall.index("RestoreExistingDisplayVersion"), postinstall.index("RaiseException"))
+
+    def test_setup_preserves_the_previous_install_log_before_a_retry(self) -> None:
+        installer = (ROOT / "scripts" / "lifecycle_v3" / "Install.ps1").read_text(encoding="utf-8-sig")
+
+        self.assertIn("install_previous_", installer)
+        self.assertIn("Copy-Item -LiteralPath $logPath -Destination $previousLog", installer)
+        self.assertLess(
+            installer.index("Copy-Item -LiteralPath $logPath -Destination $previousLog"),
+            installer.index("Set-Content -LiteralPath $logPath"),
+        )
+
     def test_setup_maintenance_uninstall_uses_standard_uninstaller_or_repairs_it(self) -> None:
         setup = (ROOT / "HWAgent_Setup.iss").read_text(encoding="utf-8-sig")
         next_start = setup.index("function NextButtonClick")

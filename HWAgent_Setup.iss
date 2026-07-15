@@ -189,23 +189,6 @@ begin
   end;
 end;
 
-function VersionFromRuntimePointer(const Pointer: String): String;
-var
-  RuntimeName: String;
-  Index: Integer;
-begin
-  RuntimeName := Pointer;
-  StringChangeEx(RuntimeName, '/', '\', True);
-  RuntimeName := ExtractFileName(RuntimeName);
-  Result := '';
-  for Index := Length(RuntimeName) downto 1 do begin
-    if RuntimeName[Index] = '+' then begin
-      Result := Copy(RuntimeName, 1, Index - 1);
-      Exit;
-    end;
-  end;
-end;
-
 function ResolveActiveRuntime(const InstallDir: String; var RuntimeDir: String): Boolean;
 var
   Pointer: String;
@@ -221,18 +204,35 @@ begin
   Result := DirExists(RuntimeDir);
 end;
 
+function ReadRuntimeVersion(const RuntimeDir: String; var Version: String): Boolean;
+var
+  Text: AnsiString;
+begin
+  Version := '';
+  Result := ReadJsonString(AddBackslash(RuntimeDir) + 'install_manifest.json', 'version', Version);
+  if Result and (Version <> '') then
+    Exit;
+  Result := False;
+  if LoadStringFromFile(AddBackslash(RuntimeDir) + 'VERSION', Text) then begin
+    Version := Trim(Text);
+    Result := Version <> '';
+  end;
+end;
+
 function DetectExistingInstall(): Boolean;
 var
   FoundRegistry: Boolean;
   RegisteredCommand: String;
+  RegisteredVersion: String;
   ActiveRuntime: String;
-  Pointer: String;
+  ActiveRuntimeResolved: Boolean;
   DefaultInstallDir: String;
 begin
   ExistingVersion := '';
   ExistingInstallDir := '';
   ExistingUninstaller := '';
   ExistingRuntimeHealthy := False;
+  RegisteredVersion := '';
   DefaultInstallDir := ExpandConstant('{autopf}\Insta360\HWAgent');
   FoundRegistry := RegKeyExists(HKLM64, UninstallKey);
   if not FoundRegistry then
@@ -241,8 +241,8 @@ begin
   if FoundRegistry then begin
     if not RegQueryStringValue(HKLM64, UninstallKey, 'InstallLocation', ExistingInstallDir) then
       RegQueryStringValue(HKLM32, UninstallKey, 'InstallLocation', ExistingInstallDir);
-    if not RegQueryStringValue(HKLM64, UninstallKey, 'DisplayVersion', ExistingVersion) then
-      RegQueryStringValue(HKLM32, UninstallKey, 'DisplayVersion', ExistingVersion);
+    if not RegQueryStringValue(HKLM64, UninstallKey, 'DisplayVersion', RegisteredVersion) then
+      RegQueryStringValue(HKLM32, UninstallKey, 'DisplayVersion', RegisteredVersion);
     RegisteredCommand := '';
     if not RegQueryStringValue(HKLM64, UninstallKey, 'UninstallString', RegisteredCommand) then
       RegQueryStringValue(HKLM32, UninstallKey, 'UninstallString', RegisteredCommand);
@@ -257,18 +257,32 @@ begin
 
   if ExistingUninstaller = '' then
     ExistingUninstaller := AddBackslash(ExistingInstallDir) + 'unins000.exe';
-  if (ExistingVersion = '') and
-    ReadJsonString(AddBackslash(ExistingInstallDir) + 'installation.json', 'active_runtime', Pointer) then
-    ExistingVersion := VersionFromRuntimePointer(Pointer);
+  ActiveRuntimeResolved := ResolveActiveRuntime(ExistingInstallDir, ActiveRuntime);
+  if ActiveRuntimeResolved then
+    ReadRuntimeVersion(ActiveRuntime, ExistingVersion)
+  else
+    ReadRuntimeVersion(ExistingInstallDir, ExistingVersion);
+  if ExistingVersion = '' then
+    ExistingVersion := RegisteredVersion;
   if ExistingVersion = '' then
     ExistingVersion := '未知';
 
-  ExistingRuntimeHealthy := ResolveActiveRuntime(ExistingInstallDir, ActiveRuntime) and
+  ExistingRuntimeHealthy := ActiveRuntimeResolved and
     FileExists(AddBackslash(ExistingInstallDir) + 'Insta360_HW.exe') and
     FileExists(AddBackslash(ActiveRuntime) + 'VERSION') and
     FileExists(AddBackslash(ActiveRuntime) + 'scripts\lifecycle_v3\Install.ps1') and
     FileExists(AddBackslash(ActiveRuntime) + 'scripts\lifecycle_v3\Uninstall.ps1') and
     FileExists(ExistingUninstaller);
+end;
+
+procedure RestoreExistingDisplayVersion();
+begin
+  if (not ExistingInstallDetected) or (ExistingVersion = '') or (ExistingVersion = '未知') then
+    Exit;
+  if RegKeyExists(HKLM64, UninstallKey) then
+    RegWriteStringValue(HKLM64, UninstallKey, 'DisplayVersion', ExistingVersion);
+  if RegKeyExists(HKLM32, UninstallKey) then
+    RegWriteStringValue(HKLM32, UninstallKey, 'DisplayVersion', ExistingVersion);
 end;
 
 function NumericVersionCore(const Version: String): String;
@@ -562,10 +576,12 @@ begin
   if CurStep = ssPostInstall then begin
     InstallEntry := ExpandConstant('{tmp}\Insta360_HW_payload\scripts\lifecycle_v3\Install.ps1');
     ResultCode := RunLifecycleAsync('Install', InstallEntry, SelectedInstallAction, False);
-    if ResultCode <> 0 then
+    if ResultCode <> 0 then begin
+      RestoreExistingDisplayVersion();
       RaiseException(
         '安装验证失败，错误码：' + IntToStr(ResultCode) + '。原版本已自动回退。' + #13#10 +
         '详细日志：%LOCALAPPDATA%\Insta360_HW\logs\install_latest.log');
+    end;
     SetupLifecycleSucceeded := True;
   end;
 end;
