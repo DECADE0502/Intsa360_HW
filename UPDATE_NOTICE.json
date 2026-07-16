@@ -1,7 +1,7 @@
 {
     "version":  "0.4.2",
-    "revision":  "f043df7c206de400d925e0f247093e4a2eacdae7",
-    "date":  "2026-07-15",
+    "revision":  "727ed57946c6b11a27ccfda4110bbd59c11bb86e",
+    "date":  "2026-07-16",
     "title":  "0.4.2 平台恢复与交互可靠性修复",
     "summary":  "修复后端假在线、更新状态卡住、平台目录静默丢失、历史 BOM 误选与交付 ZIP 命名等问题，统一本地请求的超时、取消和中文反馈语义。",
     "highlights":  [
@@ -12,9 +12,10 @@
                        "历史 BOM 弹窗先暂存选择，只有确认后才应用；取消不再意外替换当前 BOM，加载失败也不会产生未处理异常。",
                        "交付 ZIP 优先使用后端返回的单板名与时间戳文件名，浏览器不再覆盖为无时间戳名称。",
                        "Ant Design 消息统一使用应用上下文，避免主题、语言环境失效及运行时空消息对象。",
-                       "继续支持 Windows 10/11 与 OrCAD Capture 16.6、17.4；本次更新不改变用户历史、输出、本机配置和用户插件。"
+                       "继续支持 Windows 10/11 与 OrCAD Capture 16.6、17.4；本次更新不改变用户历史、输出、本机配置和用户插件。",
+                       "更新发布切换为签名 Git-only OTA 通道，只需 send-pack 推送，不再依赖 GitHub Release API、Token 或 Actions。"
                    ],
-    "compatibility":  "0.3.3 及更早版本必须运行 Insta360_HW_Setup.exe 升级；已安装 0.4.0 或 0.4.1 的用户可使用应用内签名 OTA 更新到 0.4.2。",
+    "compatibility":  "0.4.1 及更早版本必须手动运行一次 Insta360_HW_Setup.exe 升级到 0.4.2；从 0.4.2 起可继续使用应用内签名 OTA。",
     "trace":  {
                   "repo":  "DECADE0502/Intsa360_HW",
                   "branch":  "main"
