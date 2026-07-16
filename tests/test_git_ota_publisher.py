@@ -132,11 +132,18 @@ def repositories(tmp_path: Path) -> tuple[Path, Path]:
     remote = tmp_path / "remote.git"
     source.mkdir()
     _git(source, "init")
-    _git(source, "config", "user.name", "OTA Test")
-    _git(source, "config", "user.email", "ota@example.invalid")
     (source / "README.md").write_text("source\n", encoding="utf-8")
     _git(source, "add", "README.md")
-    _git(source, "commit", "-m", "initial")
+    _git(
+        source,
+        "-c",
+        "user.name=OTA Test",
+        "-c",
+        "user.email=ota@example.invalid",
+        "commit",
+        "-m",
+        "initial",
+    )
     _git(source, "branch", "-M", "main")
     remote.mkdir()
     _git(remote, "init", "--bare")
@@ -148,6 +155,23 @@ def _channel_tree(tmp_path: Path, remote: Path) -> Path:
     checkout = tmp_path / "checkout"
     _git(tmp_path, "clone", "--branch", "ota", "--single-branch", str(remote), str(checkout))
     return checkout
+
+
+def _snapshot(path: Path, value: str) -> None:
+    path.mkdir()
+    _git(path, "init")
+    (path / "value.txt").write_text(value, encoding="utf-8")
+    _git(path, "add", ".")
+    _git(
+        path,
+        "-c",
+        "user.name=OTA Test",
+        "-c",
+        "user.email=ota@example.invalid",
+        "commit",
+        "-m",
+        value,
+    )
 
 
 def test_first_publish_creates_verified_parentless_channel(
@@ -210,34 +234,16 @@ def test_push_snapshot_rejects_a_stale_remote_lease(
     publisher = _load_module(PUBLISHER_PATH, "git_ota_lease")
     _source, remote = repositories
     first = tmp_path / "first"
-    first.mkdir()
-    _git(first, "init")
-    _git(first, "config", "user.name", "OTA Test")
-    _git(first, "config", "user.email", "ota@example.invalid")
-    (first / "value.txt").write_text("first", encoding="utf-8")
-    _git(first, "add", ".")
-    _git(first, "commit", "-m", "first")
+    _snapshot(first, "first")
     publisher.push_snapshot(first, str(remote), "ota", expected_remote_sha=None)
     stale_sha = _git(first, "rev-parse", "HEAD")
 
     second = tmp_path / "second"
-    second.mkdir()
-    _git(second, "init")
-    _git(second, "config", "user.name", "OTA Test")
-    _git(second, "config", "user.email", "ota@example.invalid")
-    (second / "value.txt").write_text("second", encoding="utf-8")
-    _git(second, "add", ".")
-    _git(second, "commit", "-m", "second")
+    _snapshot(second, "second")
     publisher.push_snapshot(second, str(remote), "ota", expected_remote_sha=stale_sha)
 
     third = tmp_path / "third"
-    third.mkdir()
-    _git(third, "init")
-    _git(third, "config", "user.name", "OTA Test")
-    _git(third, "config", "user.email", "ota@example.invalid")
-    (third / "value.txt").write_text("third", encoding="utf-8")
-    _git(third, "add", ".")
-    _git(third, "commit", "-m", "third")
+    _snapshot(third, "third")
 
     with pytest.raises(RuntimeError, match="lease"):
         publisher.push_snapshot(third, str(remote), "ota", expected_remote_sha=stale_sha)

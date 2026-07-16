@@ -170,15 +170,14 @@ def _copy_previous_version(current: Path, snapshot: Path, version: str) -> None:
     shutil.copytree(source, target)
 
 
-def _configure_snapshot(repository: Path, source_repo: Path) -> None:
+def _source_identity(source_repo: Path) -> tuple[str, str]:
+    name = _run_git(source_repo, "config", "user.name", check=False).stdout.strip()
+    email = _run_git(source_repo, "config", "user.email", check=False).stdout.strip()
+    return name or "Insta360 OTA Publisher", email or "ota-publisher@localhost.invalid"
+
+
+def _configure_snapshot(repository: Path) -> None:
     _run_git(repository, "init")
-    name = _run_git(source_repo, "config", "user.name", check=False).stdout.strip() or "Insta360 OTA Publisher"
-    email = (
-        _run_git(source_repo, "config", "user.email", check=False).stdout.strip()
-        or "ota-publisher@localhost.invalid"
-    )
-    _run_git(repository, "config", "user.name", name)
-    _run_git(repository, "config", "user.email", email)
 
 
 def push_snapshot(
@@ -301,7 +300,7 @@ def publish_bundle(
 
         snapshot = temporary / "snapshot"
         snapshot.mkdir()
-        _configure_snapshot(snapshot, source)
+        _configure_snapshot(snapshot)
         if current is not None and previous_version is not None:
             _copy_previous_version(current, snapshot, previous_version)
         _copy_bundle(bundle, snapshot / "versions" / version, version)
@@ -310,7 +309,17 @@ def publish_bundle(
         shutil.copy2(bundle / V3_MANIFEST_NAME, stable / V3_MANIFEST_NAME)
         shutil.copy2(bundle / LEGACY_MANIFEST_NAME, stable / LEGACY_MANIFEST_NAME)
         _run_git(snapshot, "add", ".")
-        _run_git(snapshot, "commit", "-m", f"Publish Insta360_HW {version}")
+        author_name, author_email = _source_identity(source)
+        _run_git(
+            snapshot,
+            "-c",
+            f"user.name={author_name}",
+            "-c",
+            f"user.email={author_email}",
+            "commit",
+            "-m",
+            f"Publish Insta360_HW {version}",
+        )
         commit = push_snapshot(
             snapshot,
             remote_url,
