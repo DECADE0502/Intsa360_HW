@@ -10,6 +10,7 @@ from openpyxl.utils.exceptions import InvalidFileException
 
 from app.backend.parsers._workbook import open_bom_workbook
 from app.backend.parsers.refs import natural_key
+from app.backend.paths import AppPaths
 REF_SPLIT_RE = re.compile(r"[,;\s]+")
 FIELD_ALIASES = {
     "reference": ["位号", "位置号", "Reference", "Ref", "RefDes", "Designator", "BOM1位号", "BOM2位号"],
@@ -30,7 +31,7 @@ def _timestamp() -> str:
 
 def _output_dir(params: dict[str, object], root: Path, subdir: str) -> Path:
     raw = params.get("output_dir")
-    base = (root / "data" / "outputs").resolve()
+    base = AppPaths(root).outputs_dir.resolve()
     if raw:
         requested = Path(str(raw))
         out = requested if requested.is_absolute() else base / requested

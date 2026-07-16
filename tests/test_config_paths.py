@@ -7,8 +7,10 @@ import unittest
 from unittest.mock import patch
 from pathlib import Path
 
+from app.backend import history
 from app.backend.config import load_config
 from app.backend.paths import AppPaths
+from app.backend.tools.common import _output_dir
 
 
 class ConfigPathTests(unittest.TestCase):
@@ -57,6 +59,33 @@ class ConfigPathTests(unittest.TestCase):
             with patch.dict(os.environ, {"LOCALAPPDATA": local}, clear=False):
                 paths = AppPaths(root)
                 self.assertEqual(paths.state_root, (Path(local) / "Insta360_HW").resolve())
+
+    def test_installed_tool_outputs_and_history_mirror_use_state_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as state:
+            root = Path(tmp)
+            state_root = Path(state).resolve()
+            (root / "install_manifest.json").write_text(
+                json.dumps({"schema": 3, "product": "Insta360_HW", "layout": "runtime-v3"}),
+                encoding="utf-8",
+            )
+
+            with patch.dict(os.environ, {"INSTA360_HW_STATE_ROOT": str(state_root)}, clear=False):
+                output = _output_dir({}, root, "bom")
+                history_dir = history._history_dir(root)
+
+            self.assertEqual(output, state_root / "data" / "outputs" / "bom")
+            self.assertEqual(history_dir, state_root / "data" / "history")
+            self.assertFalse((root / "data").exists())
+
+    def test_cadence_export_jobs_and_probe_logs_use_state_root(self) -> None:
+        source = (
+            Path(__file__).resolve().parents[1] / "cadence" / "iac_bom_tool.tcl"
+        ).read_text(encoding="utf-8-sig")
+
+        self.assertIn("set ::IAC_STATE_ROOT", source)
+        self.assertIn('$::IAC_STATE_ROOT/data/jobs', source)
+        self.assertIn('$::IAC_STATE_ROOT/data/reports/runtime', source)
+        self.assertNotIn('$::IAC_ROOT/data/jobs', source)
 
     def test_incomplete_install_manifest_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

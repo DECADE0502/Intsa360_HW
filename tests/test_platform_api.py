@@ -585,6 +585,45 @@ class PlatformApiTests(unittest.TestCase):
         finally:
             shutil.rmtree(root, ignore_errors=True)
 
+    def test_installed_tool_output_can_be_packaged_from_external_state_root(self) -> None:
+        root = _make_temp_root()
+        state = Path(tempfile.mkdtemp()).resolve()
+        try:
+            (root / "install_manifest.json").write_text(
+                json.dumps({"schema": 3, "product": "Insta360_HW", "layout": "runtime-v3"}),
+                encoding="utf-8",
+            )
+            with patch.dict("os.environ", {"INSTA360_HW_STATE_ROOT": str(state)}, clear=False):
+                from app.backend.tools.common import _output_dir
+
+                output_file = _output_dir({}, root, "bom") / "installed-output.txt"
+                output_file.write_text("state-root-output", encoding="utf-8")
+                server = create_server(root, port=0)
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                try:
+                    host, port = server.server_address
+                    body = json.dumps({"name": "demo", "files": [str(output_file)]}).encode("utf-8")
+                    request = Request(
+                        f"http://{host}:{port}/api/package",
+                        data=body,
+                        method="POST",
+                        headers=_mutation_headers(server, "application/json"),
+                    )
+                    with urlopen(request, timeout=5) as response:
+                        archive = response.read()
+                finally:
+                    server.shutdown()
+                    server.server_close()
+
+            self.assertTrue(output_file.is_relative_to(state / "data" / "outputs"))
+            self.assertFalse((root / "data").exists())
+            with zipfile.ZipFile(io.BytesIO(archive)) as packaged:
+                self.assertEqual(packaged.namelist(), ["bom/installed-output.txt"])
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+            shutil.rmtree(state, ignore_errors=True)
+
     def test_output_download_and_package_preserve_subdirectories(self) -> None:
         root = _make_temp_root()
         try:

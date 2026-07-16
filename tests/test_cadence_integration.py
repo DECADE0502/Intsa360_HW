@@ -187,7 +187,7 @@ class CadenceIntegrationTests(unittest.TestCase):
         end = text.index("proc ReportExportFailure", start)
         job_proc = text[start:end]
 
-        self.assertIn('set jobRoot [file normalize "$::IAC_ROOT/data/jobs"]', job_proc)
+        self.assertIn('set jobRoot [file normalize "$::IAC_STATE_ROOT/data/jobs"]', job_proc)
         self.assertIn("set processId [pid]", job_proc)
         self.assertIn("set sequence [incr EXPORT_SEQUENCE]", job_proc)
         self.assertIn('set jsonPath [file join $jobDir "parts.json"]', job_proc)

@@ -186,7 +186,9 @@ class UpdateApiV2Tests(unittest.TestCase):
         archive = _runtime_zip("0.3.0")
         body = json.dumps(_manifest(archive, "0.3.0")).encode("utf-8")
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            base = Path(tmp)
+            root = base / "runtime"
+            state = base / "state"
             _installed_runtime(root, "0.2.27")
             (root / "config").mkdir()
             (root / "config" / "default.json").write_text("{}", encoding="utf-8")
@@ -196,7 +198,10 @@ class UpdateApiV2Tests(unittest.TestCase):
                 calls.append(request.full_url)
                 return _Response(body)
 
-            with patch.object(lifecycle_update, "urlopen", fake_open):
+            with (
+                patch.dict(os.environ, {"INSTA360_HW_STATE_ROOT": str(state)}, clear=False),
+                patch.object(lifecycle_update, "urlopen", fake_open),
+            ):
                 result = update_api.check_update(root)
 
             self.assertTrue(result["has_update"])

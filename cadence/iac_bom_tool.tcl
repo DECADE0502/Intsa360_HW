@@ -8,6 +8,12 @@ set ::IAC_JUMP "$::IAC_ROOT/iac_jump.bat"
 set ::IAC_PY   "{{PYTHON_PATH}}"
 if {[string match "*\{\{*\}\}*" $::IAC_PY]} { set ::IAC_PY "python" }
 set ::IAC_CNV  "$::IAC_ROOT/tools/bom/convert_cadence_bom.py"
+set ::IAC_STATE_ROOT $::IAC_ROOT
+if {[info exists ::env(INSTA360_HW_STATE_ROOT)] && $::env(INSTA360_HW_STATE_ROOT) ne ""} {
+    set ::IAC_STATE_ROOT [file normalize $::env(INSTA360_HW_STATE_ROOT)]
+} elseif {[file exists "$::IAC_ROOT/install_manifest.json"] && [info exists ::env(LOCALAPPDATA)] && $::env(LOCALAPPDATA) ne ""} {
+    set ::IAC_STATE_ROOT [file normalize [file join $::env(LOCALAPPDATA) "Insta360_HW"]]
+}
 
 namespace eval ::IAC {
     variable SHORTCUTS
@@ -123,7 +129,7 @@ namespace eval ::IAC {
     }
     proc Probe { phase } {
         catch {
-            set logDir [file normalize "$::IAC_ROOT/data/reports/runtime"]
+            set logDir [file normalize "$::IAC_STATE_ROOT/data/reports/runtime"]
             file mkdir $logDir
             set fh [open [file join $logDir "cadence_loader_probe.log"] a]
             fconfigure $fh -encoding utf-8
@@ -389,7 +395,7 @@ namespace eval ::IAC {
         variable EXPORT_SEQUENCE
         set safeDsn [::IAC::CleanDesignName $dsn]
         if {$safeDsn eq ""} { set safeDsn "BOM" }
-        set jobRoot [file normalize "$::IAC_ROOT/data/jobs"]
+        set jobRoot [file normalize "$::IAC_STATE_ROOT/data/jobs"]
         if {[catch {file mkdir $jobRoot} err]} {
             return -code error "Cannot create BOM export job root $jobRoot: $err"
         }

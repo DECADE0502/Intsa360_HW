@@ -6,6 +6,7 @@ import threading
 import uuid
 from pathlib import Path
 
+from app.backend.paths import AppPaths
 from app.backend.repositories.runs_repository import RunsRepository, output_relative_path
 
 
@@ -13,7 +14,7 @@ _MIRROR_LOCK = threading.Lock()
 
 
 def _history_dir(root: Path) -> Path:
-    path = Path(root) / "data" / "history"
+    path = AppPaths(root).history_dir
     path.mkdir(parents=True, exist_ok=True)
     return path
 

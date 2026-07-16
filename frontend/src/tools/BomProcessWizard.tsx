@@ -259,7 +259,10 @@ export function BomProcessWizard() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: name || "BOM", files: all }),
       });
-      if (!r.ok) throw new Error("打包失败");
+      if (!r.ok) {
+        const payload = await r.json().catch(() => ({}));
+        throw new Error(payload?.user_message || payload?.error || `打包失败（HTTP ${r.status}）`);
+      }
       const b = await r.blob();
       const u = URL.createObjectURL(b);
       const a = document.createElement("a");
