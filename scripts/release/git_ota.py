@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import sys
 import time
-from typing import Any
+from typing import Any, Mapping
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
@@ -37,9 +37,12 @@ def _run_git(
     cwd: Path,
     *arguments: str,
     check: bool = True,
+    extra_environment: Mapping[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     environment = os.environ.copy()
     environment["GIT_TERMINAL_PROMPT"] = "0"
+    if extra_environment:
+        environment.update(extra_environment)
     completed = subprocess.run(
         ["git", *arguments],
         cwd=cwd,
@@ -64,9 +67,36 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _remote_sha(cwd: Path, remote_url: str, branch: str) -> str | None:
+def _transport_environment(source_repo: Path) -> dict[str, str]:
+    environment: dict[str, str] = {}
+    ssh_command = _run_git(
+        source_repo, "config", "--local", "--get", "core.sshCommand", check=False
+    ).stdout.strip()
+    ssh_variant = _run_git(
+        source_repo, "config", "--local", "--get", "ssh.variant", check=False
+    ).stdout.strip()
+    if ssh_command:
+        environment["GIT_SSH_COMMAND"] = ssh_command
+    if ssh_variant:
+        environment["GIT_SSH_VARIANT"] = ssh_variant
+    return environment
+
+
+def _remote_sha(
+    cwd: Path,
+    remote_url: str,
+    branch: str,
+    transport_environment: Mapping[str, str] | None = None,
+) -> str | None:
     reference = f"refs/heads/{branch}"
-    completed = _run_git(cwd, "ls-remote", "--heads", remote_url, reference)
+    completed = _run_git(
+        cwd,
+        "ls-remote",
+        "--heads",
+        remote_url,
+        reference,
+        extra_environment=transport_environment,
+    )
     lines = [line for line in completed.stdout.splitlines() if line.strip()]
     if not lines:
         return None
@@ -85,7 +115,12 @@ def _assert_same_snapshot(expected: Path, actual: Path) -> None:
         raise RuntimeError("remote OTA snapshot tree does not match the staged snapshot")
 
 
-def _clone_branch(remote_url: str, branch: str, target: Path) -> None:
+def _clone_branch(
+    remote_url: str,
+    branch: str,
+    target: Path,
+    transport_environment: Mapping[str, str] | None = None,
+) -> None:
     _run_git(
         target.parent,
         "clone",
@@ -96,6 +131,7 @@ def _clone_branch(remote_url: str, branch: str, target: Path) -> None:
         "--single-branch",
         remote_url,
         str(target),
+        extra_environment=transport_environment,
     )
 
 
@@ -186,6 +222,7 @@ def push_snapshot(
     branch: str,
     *,
     expected_remote_sha: str | None,
+    transport_environment: Mapping[str, str] | None = None,
 ) -> str:
     reference = f"refs/heads/{branch}"
     lease = f"--force-with-lease={reference}:{expected_remote_sha or ''}"
@@ -196,11 +233,12 @@ def push_snapshot(
         remote_url,
         f"HEAD:{reference}",
         check=False,
+        extra_environment=transport_environment,
     )
     if completed.returncode:
         detail = (completed.stderr or completed.stdout).strip()
         raise RuntimeError(f"OTA publish lease rejected or push failed: {detail}")
-    published = _remote_sha(snapshot_repo, remote_url, branch)
+    published = _remote_sha(snapshot_repo, remote_url, branch, transport_environment)
     local = _run_git(snapshot_repo, "rev-parse", "HEAD").stdout.strip().lower()
     if published != local:
         raise RuntimeError("remote OTA branch does not point at the staged snapshot")
@@ -249,8 +287,9 @@ def publish_bundle(
     source = source_repo.resolve()
     if _run_git(source, "status", "--porcelain", "--untracked-files=normal").stdout.strip():
         raise ValueError("publishing requires a clean source worktree")
+    transport = _transport_environment(source)
     source_revision = _run_git(source, "rev-parse", "HEAD").stdout.strip().lower()
-    remote_main = _remote_sha(source, remote_url, "main")
+    remote_main = _remote_sha(source, remote_url, "main", transport)
     if remote_main != source_revision:
         raise ValueError("release revision must already be the remote main head")
     verified = verify_bundle(bundle, public_key)
@@ -260,13 +299,13 @@ def publish_bundle(
         raise ValueError("release bundle revision does not match the source head")
     _assert_channel_urls(bundle, repository, branch, version)
 
-    observed_sha = _remote_sha(source, remote_url, branch)
+    observed_sha = _remote_sha(source, remote_url, branch, transport)
     with temporary_workspace() as temporary:
         current: Path | None = None
         previous_version: str | None = None
         if observed_sha:
             current = temporary / "current"
-            _clone_branch(remote_url, branch, current)
+            _clone_branch(remote_url, branch, current, transport)
             if _run_git(current, "rev-parse", "HEAD").stdout.strip().lower() != observed_sha:
                 raise RuntimeError("OTA branch changed while preparing the release")
             current_manifest = _read_manifest(current / "channel" / "stable" / V3_MANIFEST_NAME)
@@ -325,9 +364,10 @@ def publish_bundle(
             remote_url,
             branch,
             expected_remote_sha=observed_sha,
+            transport_environment=transport,
         )
         verified_clone = temporary / "verified"
-        _clone_branch(remote_url, branch, verified_clone)
+        _clone_branch(remote_url, branch, verified_clone, transport)
         _assert_same_snapshot(snapshot, verified_clone)
         if verify_public:
             _verify_public_manifest(

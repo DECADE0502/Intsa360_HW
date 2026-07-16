@@ -247,3 +247,16 @@ def test_push_snapshot_rejects_a_stale_remote_lease(
 
     with pytest.raises(RuntimeError, match="lease"):
         publisher.push_snapshot(third, str(remote), "ota", expected_remote_sha=stale_sha)
+
+
+def test_source_local_ssh_transport_is_forwarded_to_snapshot_git(
+    tmp_path: Path, repositories: tuple[Path, Path]
+) -> None:
+    publisher = _load_module(PUBLISHER_PATH, "git_ota_transport")
+    source, _remote = repositories
+    command = f'ssh -i "{tmp_path / "test identity"}" -o IdentitiesOnly=yes'
+    _git(source, "config", "--local", "core.sshCommand", command)
+
+    environment = publisher._transport_environment(source)
+
+    assert environment == {"GIT_SSH_COMMAND": command}
