@@ -205,6 +205,13 @@ def test_v3_installs_dispatch_to_v3_update_service(tmp_path: Path) -> None:
     assert payload["remote_status"] == "ok"
 
 
+def test_v3_default_manifest_uses_the_git_only_ota_channel() -> None:
+    assert lifecycle_v3.DEFAULT_SIGNED_MANIFEST_URL == (
+        "https://raw.githubusercontent.com/DECADE0502/Intsa360_HW/"
+        "ota/channel/stable/update-manifest-v3.json"
+    )
+
+
 def test_v3_missing_latest_manifest_is_reported_as_not_published(tmp_path: Path) -> None:
     _, runtime, _ = _installed_layout(tmp_path)
     missing_manifest = HTTPError(

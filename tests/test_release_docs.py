@@ -43,8 +43,16 @@ class ReleaseDocsTests(unittest.TestCase):
 
         self.assertIn("SHA256", text)
         self.assertIn("Ed25519", text)
-        self.assertIn("0.3.3 升级到 0.4.0", text)
+        self.assertIn("升级到 `0.4.2`", text)
         self.assertIn("自动降级都会被拒绝", text)
+
+    def test_release_documentation_uses_send_pack_only_channel(self) -> None:
+        text = (ROOT / "docs" / "RELEASE.md").read_text(encoding="utf-8")
+
+        self.assertIn("publish_ota.ps1", text)
+        self.assertIn("ota", text)
+        self.assertIn("send-pack", text)
+        self.assertNotIn("$env:GH_TOKEN", text)
 
     def test_uninstall_doc_covers_three_modes_and_keep_data(self) -> None:
         text = (ROOT / "docs" / "UNINSTALL.md").read_text(encoding="utf-8")

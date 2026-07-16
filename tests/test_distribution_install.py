@@ -129,12 +129,28 @@ class DistributionLifecycleV2Tests(unittest.TestCase):
     def test_signed_v3_manifest_is_the_only_primary_update_source(self) -> None:
         backend = (ROOT / "app" / "backend" / "lifecycle_v3.py").read_text(encoding="utf-8")
         contract = (ROOT / "app" / "backend" / "lifecycle_v3_contract.py").read_text(encoding="utf-8")
-        self.assertIn("releases/latest/download/update-manifest-v3.json", backend)
+        config = json.loads((ROOT / "config" / "default.json").read_text(encoding="utf-8-sig"))
+        stable_url = (
+            "https://raw.githubusercontent.com/DECADE0502/Intsa360_HW/"
+            "ota/channel/stable/update-manifest-v3.json"
+        )
+        self.assertIn("raw.githubusercontent.com/DECADE0502/Intsa360_HW/", backend)
+        self.assertIn("ota/channel/stable/update-manifest-v3.json", backend)
+        self.assertEqual(config["update"]["signed_manifest_url"], stable_url)
         self.assertIn("verify_signed_manifest", backend)
         self.assertIn("asset.sha256", backend)
         self.assertIn("download size mismatch", backend)
         self.assertIn("Ed25519PublicKey", contract)
         self.assertNotIn("git merge-base", backend)
+
+    def test_git_only_publisher_needs_no_api_token_or_github_build(self) -> None:
+        publish = (ROOT / "scripts" / "publish_ota.ps1").read_text(encoding="utf-8")
+        publisher = (ROOT / "scripts" / "release" / "git_ota.py").read_text(encoding="utf-8")
+        self.assertIn("--force-with-lease", publisher)
+        self.assertIn("--verify-public", publish)
+        self.assertNotIn("GH_TOKEN", publish)
+        self.assertNotIn("api.github.com", publisher)
+        self.assertNotIn("npm", publish)
 
     def test_release_workflow_only_validates_and_publishes_local_assets(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")

@@ -10,8 +10,8 @@
   "update": {
     "schema": 3,
     "channel": "stable",
-    "manifest_url": "https://github.com/DECADE0502/Intsa360_HW/releases/latest/download/update-manifest.json",
-    "signed_manifest_url": "https://github.com/DECADE0502/Intsa360_HW/releases/latest/download/update-manifest-v3.json",
+    "manifest_url": "https://raw.githubusercontent.com/DECADE0502/Intsa360_HW/ota/channel/stable/update-manifest.json",
+    "signed_manifest_url": "https://raw.githubusercontent.com/DECADE0502/Intsa360_HW/ota/channel/stable/update-manifest-v3.json",
     "download_strategy": "release_runtime_zip"
   }
 }

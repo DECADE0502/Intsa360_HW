@@ -92,6 +92,7 @@ if ($LASTEXITCODE -ne 0) { throw "Setup build failed." }
 
 $PublishedAt = [DateTimeOffset]::FromUnixTimeSeconds($SourceDateEpoch).UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ")
 $EmbeddedPython = Join-Path $RuntimeRoot "runtime\python\python.exe"
+$AssetBaseUrl = "https://raw.githubusercontent.com/$Repository/ota/versions/$Version"
 Write-Host "[4/5] Creating root-layout ZIP, signed manifest, legacy bridge and checksums..." -ForegroundColor Cyan
 & $EmbeddedPython -B $ReleaseTool build `
   --runtime-root $RuntimeRoot `
@@ -102,6 +103,7 @@ Write-Host "[4/5] Creating root-layout ZIP, signed manifest, legacy bridge and c
   --version $Version `
   --revision $Revision `
   --repository $Repository `
+  --asset-base-url $AssetBaseUrl `
   --notice (Join-Path $Root "UPDATE_NOTICE.json") `
   --published-at $PublishedAt `
   --source-date-epoch $SourceDateEpoch `

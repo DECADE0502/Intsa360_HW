@@ -14,8 +14,8 @@ MANIFEST_SCHEMA = 2
 PRODUCT = "Insta360_HW"
 BUILD_KINDS = frozenset({"dev", "published"})
 DEFAULT_MANIFEST_URL = (
-    "https://github.com/DECADE0502/Intsa360_HW/"
-    "releases/latest/download/update-manifest.json"
+    "https://raw.githubusercontent.com/DECADE0502/Intsa360_HW/"
+    "ota/channel/stable/update-manifest.json"
 )
 _VERSION_RE = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z.-]+))?$")
 _SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")

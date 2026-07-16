@@ -94,6 +94,10 @@ def test_local_bundle_is_deterministic_signed_and_has_a_legacy_setup_bridge(tmp_
         "compatibility": "0.3.3 必须通过 Setup 升级。",
     }
     published_at = datetime(2026, 7, 15, 8, 0, tzinfo=timezone.utc)
+    asset_base_url = (
+        "https://raw.githubusercontent.com/DECADE0502/Intsa360_HW/"
+        f"ota/versions/{version}"
+    )
 
     first = release_tool.build_bundle(
         runtime_root=runtime,
@@ -104,6 +108,7 @@ def test_local_bundle_is_deterministic_signed_and_has_a_legacy_setup_bridge(tmp_
         version=version,
         revision=revision,
         repository="DECADE0502/Intsa360_HW",
+        asset_base_url=asset_base_url,
         notice=notice,
         published_at=published_at,
         source_date_epoch=1_783_756_800,
@@ -117,6 +122,7 @@ def test_local_bundle_is_deterministic_signed_and_has_a_legacy_setup_bridge(tmp_
         version=version,
         revision=revision,
         repository="DECADE0502/Intsa360_HW",
+        asset_base_url=asset_base_url,
         notice=notice,
         published_at=published_at,
         source_date_epoch=1_783_756_800,
@@ -134,6 +140,10 @@ def test_local_bundle_is_deterministic_signed_and_has_a_legacy_setup_bridge(tmp_
     assert signed.revision == revision
     assert signed.min_updater_version == version
     assets = {asset.name: asset for asset in signed.assets}
+    assert {str(asset.url) for asset in signed.assets} == {
+        f"{asset_base_url}/{runtime_name}",
+        f"{asset_base_url}/Insta360_HW_Setup.exe",
+    }
     assert assets[runtime_name].sha256 == hashlib.sha256((first / runtime_name).read_bytes()).hexdigest()
     assert assets["Insta360_HW_Setup.exe"].sha256 == hashlib.sha256(setup.read_bytes()).hexdigest()
 
@@ -142,6 +152,10 @@ def test_local_bundle_is_deterministic_signed_and_has_a_legacy_setup_bridge(tmp_
     assert bridge["schema"] == 2
     assert bridge["minimum_launcher_version"] == version
     assert bridge["assets"]["setup"]["name"] == "Insta360_HW_Setup.exe"
+    assert bridge["assets"]["runtime"]["url"] == (
+        f"{asset_base_url}/Insta360_HW_runtime_v{version}.zip"
+    )
+    assert bridge["assets"]["setup"]["url"] == f"{asset_base_url}/Insta360_HW_Setup.exe"
     assert legacy.runtime.name == f"Insta360_HW_runtime_v{version}.zip"
     assert (first / legacy.runtime.name).read_bytes() == (first / runtime_name).read_bytes()
     assert "Setup" in bridge["notice"]["compatibility"]

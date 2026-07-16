@@ -14,6 +14,7 @@ import sys
 import tempfile
 import time
 from typing import Any, Mapping
+from urllib.parse import urlsplit
 import uuid
 import warnings
 import zipfile
@@ -248,9 +249,14 @@ def temporary_workspace(*, parent: Path | None = None):
         raise
     finally:
         cleanup_error: OSError | None = None
+
+        def remove_readonly(function, value, _error_info) -> None:
+            os.chmod(value, stat.S_IREAD | stat.S_IWRITE | stat.S_IEXEC)
+            function(value)
+
         for attempt in range(8):
             try:
-                shutil.rmtree(path)
+                shutil.rmtree(path, onerror=remove_readonly)
                 cleanup_error = None
                 break
             except FileNotFoundError:
@@ -276,6 +282,7 @@ def build_bundle(
     version: str,
     revision: str,
     repository: str,
+    asset_base_url: str | None = None,
     notice: Mapping[str, Any],
     published_at: datetime,
     source_date_epoch: int,
@@ -290,6 +297,10 @@ def build_bundle(
         raise ValueError(f"setup package must be named {SETUP_NAME}")
     if len(revision) != 40 or any(character not in "0123456789abcdefABCDEF" for character in revision):
         raise ValueError("release revision must be a full 40-character git SHA")
+    release_base = (asset_base_url or f"https://github.com/{repository}/releases/download/v{version}").rstrip("/")
+    parsed_base = urlsplit(release_base)
+    if parsed_base.scheme != "https" or not parsed_base.netloc or parsed_base.query or parsed_base.fragment:
+        raise ValueError("release asset base URL must be an HTTPS URL without query or fragment")
     _assert_identity(runtime_root, version, revision)
     private_key = _load_private_key(private_key_path)
     public_key = _load_public_key(public_key_path)
@@ -312,7 +323,6 @@ def build_bundle(
         shutil.copyfile(runtime_zip, legacy_runtime_zip)
         setup_copy = staging / SETUP_NAME
         shutil.copyfile(setup_path, setup_copy)
-        release_base = f"https://github.com/{repository}/releases/download/v{version}"
         runtime_asset = _asset(runtime_zip, f"{release_base}/{runtime_name}")
         legacy_runtime_asset = _asset(legacy_runtime_zip, f"{release_base}/{legacy_runtime_name}")
         setup_asset = _asset(setup_copy, f"{release_base}/{SETUP_NAME}")
@@ -506,6 +516,7 @@ def _parser() -> argparse.ArgumentParser:
     build.add_argument("--version", required=True)
     build.add_argument("--revision", required=True)
     build.add_argument("--repository", required=True)
+    build.add_argument("--asset-base-url")
     build.add_argument("--notice", type=Path, required=True)
     build.add_argument("--published-at", required=True)
     build.add_argument("--source-date-epoch", type=int, required=True)
@@ -540,6 +551,7 @@ def main(argv: list[str] | None = None) -> int:
             version=arguments.version,
             revision=arguments.revision,
             repository=arguments.repository,
+            asset_base_url=arguments.asset_base_url,
             notice=notice,
             published_at=_parse_datetime(arguments.published_at),
             source_date_epoch=arguments.source_date_epoch,

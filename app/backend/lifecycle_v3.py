@@ -44,8 +44,8 @@ from app.backend.release_manifest import compare_versions
 
 
 DEFAULT_SIGNED_MANIFEST_URL = (
-    "https://github.com/DECADE0502/Intsa360_HW/"
-    "releases/latest/download/update-manifest-v3.json"
+    "https://raw.githubusercontent.com/DECADE0502/Intsa360_HW/"
+    "ota/channel/stable/update-manifest-v3.json"
 )
 MAX_MANIFEST_BYTES = 1024 * 1024
 MAX_RUNTIME_ASSET_BYTES = 2 * 1024 * 1024 * 1024

@@ -1,6 +1,6 @@
 # Insta360 硬件提效平台本地发布流程
 
-正式发布只在开发机编译一次。GitHub 不再重建前端、启动器、Python 运行时或 Setup。
+正式发布只在开发机编译一次。GitHub 不重建前端、启动器、Python 运行时或 Setup，也不需要 GitHub API、Actions 或 Release 上传权限。
 
 ## 签名密钥
 
@@ -37,8 +37,9 @@
 ## 发布
 
 ```powershell
-$env:GH_TOKEN = '<具有 contents/actions 权限的令牌>'
-.\scripts\publish_release.ps1
+.\scripts\publish_ota.ps1
 ```
 
-先把同一提交推送或合并为 GitHub 默认分支的最新提交。发布脚本会再次本地验收，创建草稿 Release 并上传六个既有文件，然后触发 GitHub 验收。GitHub 只下载这些文件并复核提交、签名、哈希、兼容清单和运行包内容；通过后才把草稿公开。任何失败都会保留未公开草稿，不会退回远端编译。
+先把同一提交推送为远程 `main` 的最新提交。发布脚本再次验证本地签名包，然后通过 Git `send-pack` 把一个独立快照推到 `ota` 分支。快照只保留本版和上一稳定版，稳定清单位于 `channel/stable`，版本文件位于 `versions/<版本>`。
+
+发布使用精确 `--force-with-lease`，远程分支若在准备期间发生变化就会拒绝覆盖。推送后脚本会重新克隆 `ota` 分支逐字节验证 Git tree，并从公开 raw 地址读取稳定清单；两项都通过才报告成功。发布过程不会安装、升级或启动本机平台，也不读取任何 API Token。
