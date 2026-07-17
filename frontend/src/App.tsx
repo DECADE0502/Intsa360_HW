@@ -7,8 +7,8 @@ import {
   fetchHistory,
   fetchPlatformStatus,
   fetchPlugins,
+  fetchServiceHealth,
   fetchTools,
-  fetchVersion,
   HISTORY_UPDATED_EVENT,
   type Capability,
   type HistoryRun,
@@ -46,6 +46,7 @@ export default function App() {
   const [active, setActive] = useState("__home");
   const [loading, setLoading] = useState(true);
   const healthProbeInFlight = useRef(false);
+  const healthProbeFailures = useRef(0);
 
   async function refreshPlugins() {
     const payload = await fetchPlugins();
@@ -119,19 +120,29 @@ export default function App() {
     if (healthProbeInFlight.current) return false;
     healthProbeInFlight.current = true;
     try {
-      const [st, version] = await Promise.all([fetchPlatformStatus(), fetchVersion()]);
-      setStatus((prev: any) => ({ ...(prev || {}), ...st, version: version || st?.version || prev?.version }));
+      const health = await fetchServiceHealth();
+      healthProbeFailures.current = 0;
+      setStatus((prev: any) => ({
+        ...(prev || {}),
+        version: health.version || prev?.version,
+        revision: health.revision || prev?.revision,
+        pid: health.pid || prev?.pid,
+        uptime_seconds: health.uptime_seconds,
+      }));
       setServiceOnline(true);
       setServiceError("");
       return true;
     } catch (err: any) {
-      setServiceOnline(false);
-      if (!options.preserveReconnectMessage) {
-        setServiceError(
-          err?.kind === "TimeoutError"
-            ? "后端服务健康检查超时，请重新启动平台或点击重新连接。"
-            : err?.message || "后端服务已断开，请重新启动平台或点击重新连接。",
-        );
+      healthProbeFailures.current += 1;
+      if (healthProbeFailures.current >= 2) {
+        setServiceOnline(false);
+        if (!options.preserveReconnectMessage) {
+          setServiceError(
+            err?.kind === "TimeoutError"
+              ? "后端服务连续两次健康检查超时，请重新启动平台或点击重新连接。"
+              : err?.message || "后端服务已断开，请重新启动平台或点击重新连接。",
+          );
+        }
       }
       return false;
     } finally {
@@ -201,17 +212,14 @@ export default function App() {
   }
 
   useEffect(() => {
-    Promise.allSettled([refreshPlatformCatalog(), fetchPlatformStatus(), fetchVersion()])
-      .then(([, statusResult, versionResult]) => {
+    Promise.allSettled([refreshPlatformCatalog(), fetchPlatformStatus(), fetchServiceHealth()])
+      .then(([, statusResult, healthResult]) => {
         const st = statusResult.status === "fulfilled" ? statusResult.value : {};
-        const version = versionResult.status === "fulfilled" ? versionResult.value : "";
-        setStatus({ ...st, version: version || st?.version });
-        setServiceOnline(statusResult.status === "fulfilled" && versionResult.status === "fulfilled");
-        setServiceError(
-          statusResult.status === "rejected" || versionResult.status === "rejected"
-            ? "后端服务已断开，请重新启动平台或点击重新连接。"
-            : "",
-        );
+        const health = healthResult.status === "fulfilled" ? healthResult.value : null;
+        setStatus({ ...st, version: health?.version || st?.version, revision: health?.revision });
+        healthProbeFailures.current = health ? 0 : 2;
+        setServiceOnline(Boolean(health));
+        setServiceError(health ? "" : "后端服务已断开，请重新启动平台或点击重新连接。");
       })
       .catch(() => {})
       .finally(() => setLoading(false));

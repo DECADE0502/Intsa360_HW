@@ -123,8 +123,11 @@ def _platform_plugin_from_capability(platform: dict[str, Any], item: dict[str, A
     return plugin
 
 
-def _platform_plugins_from_capabilities(root: Path) -> list[dict[str, Any]]:
-    data = load_capabilities(root)
+def _platform_plugins_from_capabilities(
+    root: Path,
+    enabled_states: dict[str, bool] | None = None,
+) -> list[dict[str, Any]]:
+    data = load_capabilities(root, enabled_states=enabled_states)
     platform = data.get("platform", {})
     return [
         _platform_plugin_from_capability(platform, item)
@@ -133,9 +136,9 @@ def _platform_plugins_from_capabilities(root: Path) -> list[dict[str, Any]]:
     ]
 
 
-def _apply_plugin_state(plugin: dict[str, Any], repository: PluginStateRepository) -> dict[str, Any]:
+def _apply_plugin_state(plugin: dict[str, Any], enabled_states: dict[str, bool]) -> dict[str, Any]:
     if plugin.get("type") == "cadence_tcl" and plugin.get("source") != "system":
-        enabled = repository.enabled(str(plugin["id"]), bool(plugin.get("show_in_cadence")))
+        enabled = enabled_states.get(str(plugin["id"]), bool(plugin.get("show_in_cadence")))
         plugin["show_in_cadence"] = enabled
         plugin["status"] = "available" if enabled else "disabled"
     return plugin
@@ -184,7 +187,7 @@ def _load_manifest(path: Path, source: str) -> dict[str, Any]:
 def _manifest_plugins(
     root: Path,
     source: str,
-    repository: PluginStateRepository,
+    enabled_states: dict[str, bool],
     warnings: list[dict[str, str]] | None = None,
     quarantined: list[dict[str, str]] | None = None,
 ) -> list[dict[str, Any]]:
@@ -194,7 +197,7 @@ def _manifest_plugins(
     plugins: list[dict[str, Any]] = []
     for path in sorted(directory.glob("*.json")):
         try:
-            plugins.append(_apply_plugin_state(_load_manifest(path, source), repository))
+            plugins.append(_apply_plugin_state(_load_manifest(path, source), enabled_states))
         except (json.JSONDecodeError, ValueError, OSError) as exc:
             entry = {"source": source, "path": str(path), "message": str(exc)}
             if warnings is not None:
@@ -208,9 +211,12 @@ def load_plugins(root: Path, system_script_dirs: Iterable[Path] | None = None) -
     warnings: list[dict[str, str]] = []
     quarantined: list[dict[str, str]] = []
     repository = PluginStateRepository(root)
+    enabled_states = repository.enabled_states()
     system = _official_cadence_plugins(system_script_dirs)
-    platform = _platform_plugins_from_capabilities(root) + _manifest_plugins(root, "platform", repository, warnings, quarantined)
-    user = _manifest_plugins(root, "user", repository, warnings, quarantined)
+    platform = _platform_plugins_from_capabilities(root, enabled_states) + _manifest_plugins(
+        root, "platform", enabled_states, warnings, quarantined
+    )
+    user = _manifest_plugins(root, "user", enabled_states, warnings, quarantined)
     plugins = system + platform + user
     return {
         "platform": {"name": "Insta360硬件提效平台", "cadence_menu": PLUGIN_MENU},
@@ -277,4 +283,5 @@ def set_plugin_cadence_menu_visibility(
         _require_existing_manifest_script(path, data)
 
     PluginStateRepository(root).set_enabled(plugin_id, bool(show_in_cadence))
-    return _apply_plugin_state(_load_manifest(path, "user"), PluginStateRepository(root))
+    enabled_states = PluginStateRepository(root).enabled_states()
+    return _apply_plugin_state(_load_manifest(path, "user"), enabled_states)

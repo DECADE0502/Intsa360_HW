@@ -57,6 +57,12 @@ class PluginStateRepository:
         entry = self._load()["plugins"].get(plugin_id)
         return entry["enabled"] if entry is not None else default
 
+    def enabled_states(self) -> dict[str, bool]:
+        return {
+            plugin_id: entry["enabled"]
+            for plugin_id, entry in self._load()["plugins"].items()
+        }
+
     def set_enabled(self, plugin_id: str, enabled: bool) -> None:
         data = self._load()
         data["plugins"][plugin_id] = {"enabled": bool(enabled)}
@@ -69,20 +75,21 @@ class PluginStateRepository:
             temporary.unlink(missing_ok=True)
 
 
-def _apply_plugin_state(data: dict[str, Any], repository: PluginStateRepository) -> None:
+def _apply_plugin_state(data: dict[str, Any], enabled_states: dict[str, bool]) -> None:
     for item in data["capabilities"]:
         if item.get("type") != "cadence_tcl":
             continue
-        enabled = repository.enabled(str(item["id"]), bool(item.get("show_in_cadence")))
+        enabled = enabled_states.get(str(item["id"]), bool(item.get("show_in_cadence")))
         item["show_in_cadence"] = enabled
         item["status"] = "available" if enabled else "disabled"
 
 
-def load_capabilities(root: Path) -> dict[str, Any]:
+def load_capabilities(root: Path, *, enabled_states: dict[str, bool] | None = None) -> dict[str, Any]:
     path = root / "config" / "capabilities.json"
     data = json.loads(path.read_text(encoding="utf-8"))
     validate_capabilities(data)
-    _apply_plugin_state(data, PluginStateRepository(root))
+    states = PluginStateRepository(root).enabled_states() if enabled_states is None else enabled_states
+    _apply_plugin_state(data, states)
     return data
 
 

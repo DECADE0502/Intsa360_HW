@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from app.backend.capabilities import load_capabilities
+from app.backend.capabilities import PluginStateRepository, load_capabilities
 from app.backend.tool_registry import build_registry
 
 
@@ -44,6 +45,20 @@ class CapabilitiesRegistryTests(unittest.TestCase):
         self.assertEqual(tools[0]["id"], "bom_process")
         self.assertEqual(tools[0]["name"], "BOM 处理")
         self.assertTrue(all(tool["status"] == "available" for tool in tools))
+
+    def test_loading_capabilities_reads_plugin_state_once(self) -> None:
+        original = PluginStateRepository._load
+        calls = 0
+
+        def counting_load(repository: PluginStateRepository):
+            nonlocal calls
+            calls += 1
+            return original(repository)
+
+        with patch.object(PluginStateRepository, "_load", autospec=True, side_effect=counting_load):
+            load_capabilities(ROOT)
+
+        self.assertEqual(calls, 1)
 
 
 if __name__ == "__main__":

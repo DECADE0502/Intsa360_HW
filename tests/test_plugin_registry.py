@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from app.backend.capabilities import PluginStateRepository
 from app.backend.plugins import load_plugins, set_plugin_cadence_menu_visibility
 
 
@@ -52,6 +53,25 @@ def _write_demo_user_plugin(root: Path) -> Path:
 
 
 class PluginRegistryTests(unittest.TestCase):
+    def test_load_plugins_reads_shared_enablement_state_once(self) -> None:
+        root = _copy_minimal_root()
+        try:
+            _write_demo_user_plugin(root)
+            original = PluginStateRepository._load
+            calls = 0
+
+            def counting_load(repository: PluginStateRepository):
+                nonlocal calls
+                calls += 1
+                return original(repository)
+
+            with patch.object(PluginStateRepository, "_load", autospec=True, side_effect=counting_load):
+                load_plugins(root, system_script_dirs=[])
+
+            self.assertEqual(calls, 1)
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
     def test_load_plugins_separates_cadence_official_platform_and_user_scripts(self) -> None:
         root = _copy_minimal_root()
         official_dir = root / "fake-cadence" / "capAutoLoad"

@@ -326,6 +326,23 @@ export async function fetchPlatformStatus(opts?: ApiOpts) {
   );
 }
 
+export type ServiceHealth = {
+  status: "ok" | "degraded";
+  service: string;
+  version: string;
+  revision?: string;
+  pid?: number;
+  uptime_seconds?: number;
+};
+
+export async function fetchServiceHealth(opts?: ApiOpts): Promise<ServiceHealth> {
+  return apiCall<ServiceHealth>(
+    "/api/health",
+    {},
+    { ...opts, timeoutMs: opts?.timeoutMs ?? HEALTH_PROBE_TIMEOUT_MS },
+  );
+}
+
 export async function fetchLifecycleCheck(): Promise<LifecyclePayload> {
   const payload = await requestJson<LifecyclePayload>("/api/lifecycle/check");
   if (payload.status !== "ok") throw new Error(payload.error || "安装自检加载失败");

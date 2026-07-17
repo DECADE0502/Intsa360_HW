@@ -47,6 +47,9 @@ describe("App startup", () => {
       ),
       http.get("/api/history", () => HttpResponse.json({ runs: [] })),
       http.get("/api/platform/status", () => HttpResponse.json({ status: "ok" })),
+      http.get("/api/health", () =>
+        HttpResponse.json({ status: "ok", service: "Insta360_HW", version: "0.4.0", revision: "test" }),
+      ),
       http.get("/api/version", () => HttpResponse.json({ status: "ok", version: "0.4.0" })),
       http.get("/api/update/check", () =>
         HttpResponse.json({
@@ -110,6 +113,20 @@ describe("App startup", () => {
     }
 
     expect(await screen.findByRole("menuitem", { name: "BOM 对比" })).toBeInTheDocument();
+    expect(await screen.findByText(/v0\.4\.0 · 运行中/)).toBeInTheDocument();
+  });
+
+  it("keeps the service online when only the platform summary is slow or unavailable", async () => {
+    server.use(
+      http.get("/api/platform/status", () =>
+        HttpResponse.json({ status: "error", error: "summary timeout" }, { status: 503 }),
+      ),
+    );
+
+    renderWithProviders(<App />);
+
+    expect(await screen.findByText(/v0\.4\.0 · 运行中/)).toBeInTheDocument();
+    expect(screen.queryByText("后端服务已断开")).not.toBeInTheDocument();
   });
 
   it("reports an incomplete catalog and retries it without restarting the platform", async () => {

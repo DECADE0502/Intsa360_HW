@@ -49,11 +49,19 @@ class FrontendBuildTests(unittest.TestCase):
     def test_service_health_poll_is_bounded_and_nonoverlapping(self) -> None:
         client = (ROOT / "frontend" / "src" / "api" / "client.ts").read_text(encoding="utf-8")
         app = (ROOT / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
+        runtime_refresh = app.split("async function refreshRuntimeStatus", 1)[1].split(
+            "function triggerReconnectProtocol", 1
+        )[0]
 
         self.assertIn("HEALTH_PROBE_TIMEOUT_MS", client)
-        self.assertIn("fetchPlatformStatus(opts?: ApiOpts)", client)
-        self.assertIn("fetchVersion(opts?: ApiOpts)", client)
+        self.assertIn("fetchServiceHealth(opts?: ApiOpts)", client)
+        self.assertIn('"/api/health"', client)
+        self.assertIn("fetchServiceHealth", runtime_refresh)
+        self.assertNotIn("fetchPlatformStatus", runtime_refresh)
+        self.assertNotIn("fetchVersion", runtime_refresh)
         self.assertIn("healthProbeInFlight", app)
+        self.assertIn("healthProbeFailures", app)
+        self.assertIn("healthProbeFailures.current >= 2", app)
         self.assertIn("if (healthProbeInFlight.current) return false", app)
 
     def test_vite_build_separates_stable_vendor_chunks(self) -> None:

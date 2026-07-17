@@ -96,6 +96,20 @@ describe("secure API client", () => {
     expect(requestSignal?.aborted).toBe(true);
   });
 
+  it("uses the dedicated health endpoint for service liveness", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ status: "ok", service: "Insta360_HW", version: "0.4.5" }), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const client = await import("../api/client");
+
+    const health = await client.fetchServiceHealth();
+
+    expect(health.status).toBe("ok");
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/health");
+  });
+
   it("times out a stalled update-status poll even when the dialog supplies a cancel signal", async () => {
     vi.useFakeTimers();
     let requestSignal: AbortSignal | undefined;
