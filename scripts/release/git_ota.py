@@ -228,7 +228,7 @@ def push_snapshot(
     lease = f"--force-with-lease={reference}:{expected_remote_sha or ''}"
     completed = _run_git(
         snapshot_repo,
-        "push",
+        "send-pack",
         lease,
         remote_url,
         f"HEAD:{reference}",
@@ -237,7 +237,7 @@ def push_snapshot(
     )
     if completed.returncode:
         detail = (completed.stderr or completed.stdout).strip()
-        raise RuntimeError(f"OTA publish lease rejected or push failed: {detail}")
+        raise RuntimeError(f"OTA publish lease rejected or send-pack failed: {detail}")
     published = _remote_sha(snapshot_repo, remote_url, branch, transport_environment)
     local = _run_git(snapshot_repo, "rev-parse", "HEAD").stdout.strip().lower()
     if published != local:
@@ -386,7 +386,7 @@ def publish_bundle(
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Publish a signed OTA snapshot using only Git push.")
+    parser = argparse.ArgumentParser(description="Publish a signed OTA snapshot using only Git send-pack.")
     parser.add_argument("--bundle-dir", type=Path, required=True)
     parser.add_argument("--public-key", type=Path, required=True)
     parser.add_argument("--source-repo", type=Path, default=ROOT)

@@ -147,6 +147,8 @@ class DistributionLifecycleV2Tests(unittest.TestCase):
         publish = (ROOT / "scripts" / "publish_ota.ps1").read_text(encoding="utf-8")
         publisher = (ROOT / "scripts" / "release" / "git_ota.py").read_text(encoding="utf-8")
         self.assertIn("--force-with-lease", publisher)
+        self.assertIn('"send-pack"', publisher)
+        self.assertNotIn('"push",', publisher)
         self.assertIn("--verify-public", publish)
         self.assertNotIn("GH_TOKEN", publish)
         self.assertNotIn("api.github.com", publisher)
