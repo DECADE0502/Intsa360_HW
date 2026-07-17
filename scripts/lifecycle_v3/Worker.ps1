@@ -67,6 +67,7 @@ $runtimeCreatedByThisWorker = $false
 $cadenceSnapshot = ""
 $cadenceEnabled = $false
 $cadenceDirs = @()
+$armedBootId = Get-HwV3BootIdentity
 
 function Write-WorkerJournal {
   param([Parameter(Mandatory=$true)][string]$Phase, [hashtable]$Additional = @{})
@@ -154,6 +155,7 @@ function Write-ProtectedTransactionSnapshot {
     new_relative = $newRelative
     runtime_created = [bool]$runtimeCreatedByThisWorker
     skip_cadence = [bool]$SkipCadence
+    armed_boot_id = $armedBootId
     outcome = $Outcome
   })
 }
@@ -226,27 +228,13 @@ function Complete-ProtectedRecovery {
 
 function Set-RecoveryRegistration {
   if ($SkipRecoveryRegistration) { return }
-  $powershell = Get-HwV3PowerShellPath
-  $command = '"{0}" -NoProfile -ExecutionPolicy Bypass -File "{1}"' -f `
-    $powershell, $protectedRecoveryBootstrap
-  if ($command.Length -gt 240) {
-    throw "The protected lifecycle recovery command exceeds the Task Scheduler limit."
-  }
-  $scheduler = Get-HwV3TaskSchedulerPath
-  & $scheduler /Create /TN $recoveryTaskName /SC ONSTART /DELAY 0000:30 /RU SYSTEM /RL HIGHEST /TR $command /F | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw "Failed to register the protected lifecycle recovery task." }
+  Register-HwV3RecoveryTask -TaskName $recoveryTaskName `
+    -PowerShellPath (Get-HwV3PowerShellPath) -ScriptPath $protectedRecoveryBootstrap | Out-Null
 }
 
 function Clear-RecoveryRegistration {
   if ($SkipRecoveryRegistration) { return $true }
-  $scheduler = Get-HwV3TaskSchedulerPath
-  & $scheduler /Delete /TN $recoveryTaskName /F 2>$null | Out-Null
-  $deleteExit = $LASTEXITCODE
-  if ($deleteExit -eq 0) { return $true }
-  & $scheduler /Query /TN $recoveryTaskName 2>$null | Out-Null
-  $queryExit = $LASTEXITCODE
-  if ($queryExit -ne 0) { return $true }
-  throw "Failed to remove the protected lifecycle recovery task."
+  return Remove-HwV3RecoveryTask -TaskName $recoveryTaskName
 }
 
 function Commit-RuntimePointer {

@@ -3,6 +3,8 @@ param(
   [string]$BundleDir = "",
   [string]$PrivateKeyPath = "",
   [string]$InnoCompiler = "",
+  # Raise this compatibility floor only when the updater protocol changes.
+  [string]$MinUpdaterVersion = "0.4.4",
   [switch]$InitializeSigningKey
 )
 
@@ -11,6 +13,7 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Root = Split-Path -Parent $ScriptDir
 $Workspace = Split-Path -Parent $Root
 $Version = (Get-Content -LiteralPath (Join-Path $Root "VERSION") -Raw -Encoding UTF8).Trim()
+if ($MinUpdaterVersion -notmatch '^\d+\.\d+\.\d+$') { throw "MinUpdaterVersion must be a semantic version." }
 $Revision = (& git -C $Root rev-parse HEAD).Trim().ToLowerInvariant()
 if ($LASTEXITCODE -ne 0 -or $Revision -notmatch '^[a-f0-9]{40}$') { throw "A full git revision is required." }
 $SourceDateEpoch = [long]((& git -C $Root show -s --format=%ct $Revision).Trim())
@@ -107,7 +110,7 @@ Write-Host "[4/5] Creating root-layout ZIP, signed manifest, legacy bridge and c
   --notice (Join-Path $Root "UPDATE_NOTICE.json") `
   --published-at $PublishedAt `
   --source-date-epoch $SourceDateEpoch `
-  --min-updater-version "0.4.0"
+  --min-updater-version $MinUpdaterVersion
 if ($LASTEXITCODE -ne 0) { throw "Signed release bundle creation failed." }
 $ExpectedArtifacts = @(
   "Insta360_HW_Runtime_$Version.zip",

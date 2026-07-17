@@ -24,6 +24,103 @@ function Get-HwV3TaskSchedulerPath {
   return Get-HwV3SystemTool -RelativePath "System32\schtasks.exe"
 }
 
+function Get-HwV3BootIdentity {
+  try {
+    $bootTime = (Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop).LastBootUpTime
+    if ($null -eq $bootTime) { throw "Windows did not return a boot timestamp." }
+    return ([DateTime]$bootTime).ToUniversalTime().ToString("o")
+  } catch {
+    throw "Unable to identify the current Windows boot session: $($_.Exception.Message)"
+  }
+}
+
+function Release-HwV3ComObjects {
+  param([object[]]$Objects)
+  foreach ($item in $Objects) {
+    if ($null -ne $item -and [Runtime.InteropServices.Marshal]::IsComObject($item)) {
+      try { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($item) } catch {}
+    }
+  }
+}
+
+function Register-HwV3RecoveryTask {
+  param(
+    [Parameter(Mandatory=$true)][string]$TaskName,
+    [Parameter(Mandatory=$true)][string]$PowerShellPath,
+    [Parameter(Mandatory=$true)][string]$ScriptPath
+  )
+  if ([string]::IsNullOrWhiteSpace($TaskName) -or $TaskName.Length -gt 200 -or
+      $TaskName.Contains("\") -or $TaskName.Contains("/")) {
+    throw "Lifecycle recovery task name is invalid."
+  }
+  $powershell = [System.IO.Path]::GetFullPath($PowerShellPath)
+  $script = [System.IO.Path]::GetFullPath($ScriptPath)
+  if (-not (Test-Path -LiteralPath $powershell -PathType Leaf)) {
+    throw "Lifecycle recovery PowerShell executable is missing: $powershell"
+  }
+  if (-not (Test-Path -LiteralPath $script -PathType Leaf)) {
+    throw "Lifecycle recovery script is missing: $script"
+  }
+  $arguments = '-NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $script
+  $service = $null
+  $folder = $null
+  $definition = $null
+  $trigger = $null
+  $action = $null
+  $registered = $null
+  try {
+    $service = New-Object -ComObject "Schedule.Service"
+    $service.Connect()
+    $folder = $service.GetFolder("\")
+    $definition = $service.NewTask(0)
+    $definition.RegistrationInfo.Description = "Insta360_HW protected lifecycle recovery"
+    $definition.Principal.UserId = "SYSTEM"
+    $definition.Principal.LogonType = 5
+    $definition.Principal.RunLevel = 1
+    $definition.Settings.Enabled = $true
+    # A recovery task must run only after the next boot. Catching up a missed
+    # boot trigger would start recovery concurrently with the active update.
+    $definition.Settings.StartWhenAvailable = $false
+    $definition.Settings.DisallowStartIfOnBatteries = $false
+    $definition.Settings.StopIfGoingOnBatteries = $false
+    $trigger = $definition.Triggers.Create(8)
+    $trigger.Delay = "PT30S"
+    $action = $definition.Actions.Create(0)
+    $action.Path = $powershell
+    $action.Arguments = $arguments
+    $registered = $folder.RegisterTaskDefinition($TaskName, $definition, 6, "SYSTEM", $null, 5)
+    return [string]$registered.Name
+  } catch {
+    throw "Failed to register the protected lifecycle recovery task: $($_.Exception.Message)"
+  } finally {
+    Release-HwV3ComObjects -Objects @($registered, $action, $trigger, $definition, $folder, $service)
+  }
+}
+
+function Remove-HwV3RecoveryTask {
+  param([Parameter(Mandatory=$true)][string]$TaskName)
+  $service = $null
+  $folder = $null
+  $task = $null
+  try {
+    $service = New-Object -ComObject "Schedule.Service"
+    $service.Connect()
+    $folder = $service.GetFolder("\")
+    try {
+      $task = $folder.GetTask($TaskName)
+    } catch {
+      if ([int]$_.Exception.HResult -eq -2147024894) { return $true }
+      throw
+    }
+    $folder.DeleteTask($TaskName, 0)
+    return $true
+  } catch {
+    throw "Failed to remove the protected lifecycle recovery task: $($_.Exception.Message)"
+  } finally {
+    Release-HwV3ComObjects -Objects @($task, $folder, $service)
+  }
+}
+
 function Enter-HwV3LifecycleMutex {
   param([ValidateRange(0, 600000)][int]$TimeoutMilliseconds = 0)
   $mutex = New-Object System.Threading.Mutex($false, $script:HwV3MutexName)

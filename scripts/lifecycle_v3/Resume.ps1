@@ -23,6 +23,16 @@ function Resolve-RecoveryRuntime {
   return $runtimeRoot
 }
 
+function Get-RecoveryBootIdentity {
+  try {
+    $bootTime = (Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop).LastBootUpTime
+    if ($null -eq $bootTime) { throw "Windows did not return a boot timestamp." }
+    return ([DateTime]$bootTime).ToUniversalTime().ToString("o")
+  } catch {
+    throw "Unable to identify the current Windows boot session: $($_.Exception.Message)"
+  }
+}
+
 try {
   $jobId = Split-Path -Leaf $PSScriptRoot
   if ($jobId -cnotmatch '^[0-9a-f]{32}$') { throw "Protected recovery job identity is invalid." }
@@ -32,12 +42,18 @@ try {
   }
   $descriptor = Get-Content -LiteralPath $descriptorPath -Raw -Encoding UTF8 | ConvertFrom-Json
   $outcome = [string]$descriptor.outcome
+  $armedBootId = [string]$descriptor.armed_boot_id
   if ([int]$descriptor.schema -ne 3 -or [string]$descriptor.product -ne "Insta360_HW" -or
       [string]$descriptor.job_id -cne $jobId -or
       ($outcome -cne "pending" -and $outcome -cne "completed") -or
-      -not ($descriptor.skip_cadence -is [bool])) {
+      -not ($descriptor.skip_cadence -is [bool]) -or
+      [string]::IsNullOrWhiteSpace($armedBootId)) {
     throw "Protected recovery transaction is invalid."
   }
+
+  # Windows may run a newly registered boot trigger during the current boot.
+  # Recovery is armed for a later boot only, never concurrently with its worker.
+  if ((Get-RecoveryBootIdentity) -ceq $armedBootId) { exit 0 }
 
   $installRoot = [System.IO.Path]::GetFullPath([string]$descriptor.install_root).TrimEnd("\")
   $stateRoot = [System.IO.Path]::GetFullPath([string]$descriptor.state_root).TrimEnd("\")

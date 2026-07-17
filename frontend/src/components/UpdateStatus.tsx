@@ -478,7 +478,7 @@ function UpdateNoticeModal({
           type="warning"
           showIcon
           style={{ marginBottom: 12 }}
-          message={updateReason === "launcher_too_old" ? "需要使用 Setup 安装包升级" : "当前环境不能应用内更新"}
+          message={updateReason === "updater_too_old" ? "需要使用 Setup 安装包升级" : "当前环境不能应用内更新"}
           description={updateMessage || "请使用最新 Insta360_HW_Setup.exe 完成升级。"}
         />
       ) : null}

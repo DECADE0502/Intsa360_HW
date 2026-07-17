@@ -220,6 +220,8 @@ def test_release_entrypoint_treats_key_generation_as_bootstrap_only() -> None:
     assert "verify-key" in script
     assert "bootstrap-only" in script
     assert "secure backup" in script
+    assert '[string]$MinUpdaterVersion = "0.4.4"' in script
+    assert "--min-updater-version $MinUpdaterVersion" in script
 
 
 def test_release_verifier_retries_transient_windows_temp_cleanup(

@@ -180,6 +180,8 @@ class FrontendBuildTests(unittest.TestCase):
 
         self.assertIn("setCanUpdate", text)
         self.assertIn("disabled={!canUpdate}", text)
+        self.assertIn('updateReason === "updater_too_old"', text)
+        self.assertNotIn('updateReason === "launcher_too_old"', text)
         self.assertIn("info.can_update", text)
         self.assertIn("info.remote_status", text)
         self.assertIn("fetchUpdateStatus", text)

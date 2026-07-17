@@ -4,6 +4,8 @@ import base64
 import ctypes
 import hashlib
 import json
+import os
+import shutil
 import subprocess
 import sys
 import time
@@ -158,7 +160,14 @@ def _prepare_layout(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
     return install_root, old_runtime, stage, metadata
 
 
-def _run_worker(install_root: Path, state_root: Path, stage: Path, *, fault_at: str = "") -> subprocess.CompletedProcess[str]:
+def _run_worker(
+    install_root: Path,
+    state_root: Path,
+    stage: Path,
+    *,
+    fault_at: str = "",
+    skip_recovery_registration: bool = True,
+) -> subprocess.CompletedProcess[str]:
     job_id = "1" * 32
     command = [
         POWERSHELL,
@@ -183,8 +192,9 @@ def _run_worker(install_root: Path, state_root: Path, stage: Path, *, fault_at: 
         _tree_sha256(stage),
         "-NoRestart",
         "-SkipCadence",
-        "-SkipRecoveryRegistration",
     ]
+    if skip_recovery_registration:
+        command.append("-SkipRecoveryRegistration")
     if fault_at:
         command.extend(["-FaultAt", fault_at])
     return subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
@@ -328,23 +338,125 @@ def test_recovery_registration_is_machine_scoped_and_non_restarting() -> None:
     contract = (ROOT / "scripts" / "lifecycle_v3" / "Contract.ps1").read_text(encoding="utf-8")
 
     assert "HKCU:" not in worker
-    assert "/SC ONSTART" in worker
-    assert "/RU SYSTEM" in worker
     assert "NoRestart = $true" in resume
     registration = worker.split("function Set-RecoveryRegistration", 1)[1].split(
         "function Clear-RecoveryRegistration", 1
     )[0]
     assert "$protectedRecoveryBootstrap" in registration
+    assert "Register-HwV3RecoveryTask" in registration
+    assert "/TR $command" not in registration
     assert "-InstallRoot" not in registration
+    assert 'New-Object -ComObject "Schedule.Service"' in contract
+    assert "$action.Path = $powershell" in contract
+    assert "$action.Arguments = $arguments" in contract
+    assert "$definition.Principal.UserId = \"SYSTEM\"" in contract
+    assert "$trigger.Delay = \"PT30S\"" in contract
+    assert "$definition.Settings.StartWhenAvailable = $false" in contract
+    assert "armed_boot_id = $armedBootId" in worker
+    assert "Get-RecoveryBootIdentity" in resume
     assert "transaction.json" in resume
     assert "RecoveryTaskName" in resume
     assert "RecoveryTaskName" in recover
+    assert "Remove-HwV3RecoveryTask" in recover
     assert "$env:INSTA360_HW_STATE_ROOT = $StateRoot" in worker
     assert "$env:INSTA360_HW_STATE_ROOT = $StateRoot" in recover
     assert "$stream.Flush($true)" in contract
     assert '"scripts\\lifecycle_v3\\Resume.ps1"' in contract
     assert '"scripts\\lifecycle\\Contract.ps1"' in contract
     assert '"scripts\\lifecycle\\Runtime.ps1"' in contract
+
+
+@pytest.mark.skipif(
+    sys.platform != "win32" or not bool(ctypes.windll.shell32.IsUserAnAdmin()),
+    reason="Task Scheduler integration requires an elevated Windows process",
+)
+def test_recovery_task_registration_preserves_spaced_script_path(tmp_path: Path) -> None:
+    script = tmp_path / "Program Files simulation" / "Resume.ps1"
+    script.parent.mkdir(parents=True)
+    script.write_text("exit 0\n", encoding="utf-8")
+    task_name = f"Insta360_HW_Test_{time.time_ns()}"
+    contract = ROOT / "scripts" / "lifecycle_v3" / "Contract.ps1"
+    command = (
+        "$ErrorActionPreference='Stop'; "
+        f". '{_powershell_quote(contract)}'; "
+        "$registered=$false; "
+        "try { "
+        f"Register-HwV3RecoveryTask -TaskName '{task_name}' "
+        f"-PowerShellPath 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe' "
+        f"-ScriptPath '{_powershell_quote(script)}' | Out-Null; "
+        "$registered=$true; "
+        f"& 'C:\\Windows\\System32\\schtasks.exe' /Query /TN '{task_name}' /XML; "
+        "if ($LASTEXITCODE -ne 0) { throw 'task query failed' } "
+        f"}} finally {{ if ($registered) {{ "
+        f"Remove-HwV3RecoveryTask -TaskName '{task_name}' | Out-Null; "
+        f"Remove-HwV3RecoveryTask -TaskName '{task_name}' | Out-Null "
+        "} }"
+    )
+
+    result = subprocess.run(
+        [POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=30,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert str(script) in result.stdout
+    assert "<UserId>S-1-5-18</UserId>" in result.stdout
+    assert "<RunLevel>HighestAvailable</RunLevel>" in result.stdout
+    assert "<Delay>PT30S</Delay>" in result.stdout
+    assert "<StartWhenAvailable>true</StartWhenAvailable>" not in result.stdout
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="PowerShell lifecycle recovery")
+def test_recovery_bootstrap_is_a_noop_during_the_boot_session_that_armed_it(tmp_path: Path) -> None:
+    job_id = "9" * 32
+    recovery_root = tmp_path / ".recovery" / job_id
+    recovery_root.mkdir(parents=True)
+    shutil.copy2(ROOT / "scripts" / "lifecycle_v3" / "Resume.ps1", recovery_root / "Resume.ps1")
+    boot_identity = subprocess.run(
+        [
+            POWERSHELL,
+            "-NoProfile",
+            "-Command",
+            "(Get-CimInstance -ClassName Win32_OperatingSystem).LastBootUpTime.ToUniversalTime().ToString('o')",
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=15,
+        check=True,
+    ).stdout.strip()
+    descriptor = {
+        "schema": 3,
+        "product": "Insta360_HW",
+        "job_id": job_id,
+        "install_root": str(tmp_path / "install"),
+        "state_root": str(tmp_path / "state"),
+        "old_relative": _runtime_relative(OLD_VERSION, OLD_REVISION),
+        "new_relative": _runtime_relative(NEW_VERSION, NEW_REVISION),
+        "runtime_created": True,
+        "skip_cadence": True,
+        "armed_boot_id": boot_identity,
+        "outcome": "pending",
+    }
+    descriptor_path = recovery_root / "transaction.json"
+    descriptor_path.write_text(json.dumps(descriptor), encoding="utf-8")
+
+    result = subprocess.run(
+        [POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(recovery_root / "Resume.ps1")],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=15,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert descriptor_path.is_file()
 
 
 def test_v3_serializes_with_legacy_setup_and_uninstall_mutex() -> None:
@@ -555,6 +667,42 @@ def test_worker_switches_pointer_without_replacing_previous_runtime(tmp_path: Pa
     assert old_runtime.is_dir()
     assert (install_root / Path(new_relative)).is_dir()
     assert (install_root / "Insta360_HW.exe").read_bytes() == b"launcher"
+
+
+@pytest.mark.skipif(
+    sys.platform != "win32" or not bool(ctypes.windll.shell32.IsUserAnAdmin()),
+    reason="Full recovery registration requires an elevated Windows process",
+)
+def test_worker_switches_runtime_with_recovery_task_under_spaced_install_path(tmp_path: Path) -> None:
+    layout_root = Path(os.environ.get("TEMP", r"C:\Windows\Temp")) / f"Insta360 HW {time.time_ns()}"
+    try:
+        install_root, old_runtime, stage, metadata = _prepare_layout(layout_root)
+        state_root = layout_root / "state"
+
+        result = _run_worker(
+            install_root,
+            state_root,
+            stage,
+            skip_recovery_registration=False,
+        )
+
+        assert result.returncode == 0, result.stdout + result.stderr
+        current = json.loads(metadata.read_text(encoding="utf-8-sig"))
+        assert current["active_runtime"] == _runtime_relative(NEW_VERSION, NEW_REVISION)
+        assert current["previous_runtime"] == _runtime_relative(OLD_VERSION, OLD_REVISION)
+        assert old_runtime.is_dir()
+        assert not (install_root / ".recovery" / ("1" * 32)).exists()
+        query = subprocess.run(
+            [r"C:\Windows\System32\schtasks.exe", "/Query", "/TN", f"Insta360_HW_Recovery_{'1' * 32}"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=15,
+        )
+        assert query.returncode != 0, query.stdout + query.stderr
+    finally:
+        shutil.rmtree(layout_root, ignore_errors=True)
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="PowerShell lifecycle worker")

@@ -28,14 +28,7 @@ function Test-SameHwV3Path {
 
 function Clear-HwV3RecoveryTask {
   if ([string]::IsNullOrWhiteSpace($RecoveryTaskName)) { return $true }
-  $scheduler = Get-HwV3TaskSchedulerPath
-  & $scheduler /Delete /TN $RecoveryTaskName /F 2>$null | Out-Null
-  $deleteExit = $LASTEXITCODE
-  if ($deleteExit -eq 0) { return $true }
-  & $scheduler /Query /TN $RecoveryTaskName 2>$null | Out-Null
-  $queryExit = $LASTEXITCODE
-  if ($queryExit -ne 0) { return $true }
-  throw "Failed to remove the protected lifecycle recovery task."
+  return Remove-HwV3RecoveryTask -TaskName $RecoveryTaskName
 }
 
 $transactions = Join-Path $StateRoot "lifecycle\v3\transactions"
