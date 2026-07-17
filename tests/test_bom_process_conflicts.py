@@ -141,22 +141,26 @@ class BomProcessConflictTests(unittest.TestCase):
             self.assertEqual(conflict["reason"], expected["expected_reason"], code)
             self.assertEqual(conflict["high_confidence"], expected["high_confidence"], code)
             self.assertEqual(conflict["manual_choice_required"], expected["manual_choice_required"], code)
+            selected = conflict["recommended_signature"]
+            selected_payload = {
+                "model": selected["model"],
+                "description": selected["desc"],
+                "name": selected["name"],
+                "grade": selected["grade"],
+                "unit": selected["unit"],
+            }
+            self.assertIn(conflict["recommended_index"], range(len(conflict["variants"])))
+            self.assertIn(
+                json.dumps(selected_payload, ensure_ascii=False, sort_keys=True),
+                actual_signatures,
+                code,
+            )
             if expected["high_confidence"]:
-                selected = conflict["recommended_signature"]
                 self.assertEqual(
-                    {
-                        "model": selected["model"],
-                        "description": selected["desc"],
-                        "name": selected["name"],
-                        "grade": selected["grade"],
-                        "unit": selected["unit"],
-                    },
+                    selected_payload,
                     expected["selected_signature"],
                     code,
                 )
-                self.assertIn(conflict["recommended_index"], range(len(conflict["variants"])))
-            else:
-                self.assertNotIn("recommended_signature", conflict)
 
     def test_bulk_recommendation_merges_only_high_confidence_golden_groups(self) -> None:
         expectations = json.loads((FIXTURES / "expected_recommendations.json").read_text(encoding="utf-8"))
@@ -242,11 +246,49 @@ class BomProcessConflictTests(unittest.TestCase):
                     "conflict_choices": {},
                 },
             )
+            recommended_index = result["conflicts"][0]["recommended_index"]
+            resolved = run_bom_process(
+                root,
+                {
+                    "source_bom": str(source),
+                    "formats": ["plm"],
+                    "parent_code": "203010100819",
+                    "name": "TEST",
+                    "merge_conflicts": True,
+                    "conflict_choices": {"P1": recommended_index},
+                },
+            )
 
         self.assertEqual(result["status"], "needs_confirmation")
         self.assertEqual(result["reason"], "part_property_conflicts")
         self.assertEqual(result["conflict_count"], 1)
         self.assertEqual(result["conflicts"][0]["confidence"], "low")
+        self.assertEqual(resolved["status"], "ok")
+        p1_rows = [row for row in resolved["preview"]["rows"] if row[0] == "P1"]
+        self.assertEqual(len(p1_rows), 1)
+        self.assertEqual(p1_rows[0][1:3], ["M2", "D2"])
+
+    def test_low_confidence_conflict_still_exposes_a_deterministic_recommendation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source.xlsx"
+            make_source(source)
+
+            rows, _ = bom_process.load_source(source)
+            conflict = bom_process.detect_part_conflicts(rows)[0]
+
+        self.assertEqual(conflict["confidence"], "low")
+        self.assertTrue(conflict["manual_choice_required"])
+        self.assertEqual(conflict["recommended_index"], 1)
+        self.assertEqual(
+            conflict["recommended_signature"],
+            {
+                "name": "电阻",
+                "model": "M2",
+                "desc": "D2",
+                "grade": "优选",
+                "unit": "",
+            },
+        )
 
     def test_recommended_api_merge_finishes_a_grade_only_conflict(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

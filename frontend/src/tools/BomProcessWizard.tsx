@@ -31,6 +31,7 @@ import {
 import { runTool, secureFetch, uploadFiles } from "../api/client";
 import { useToolWorkspace } from "../state/toolWorkspace";
 import { packageDownloadName } from "../utils/downloadName";
+import { buildRecommendedConflictChoices } from "./bomConflictChoices";
 
 const { Dragger } = Upload;
 const ASSETS_UPDATED_EVENT = "insta360_hw:assets-updated";
@@ -190,8 +191,10 @@ export function BomProcessWizard() {
       });
       setPres(r);
       if (r.status === "ok") notifyAssetsUpdated();
-      setConflictChoices({});
-      if (r.status === "ok" && !hasBomConflicts(r)) setStage("risk");
+      if (r.status === "ok" && !hasBomConflicts(r)) {
+        setConflictChoices({});
+        setStage("risk");
+      }
     } catch (e: any) {
       setPres({ status: "error", error: e.message });
     } finally {
@@ -200,6 +203,17 @@ export function BomProcessWizard() {
   }
 
   async function applyRecommendedMerge() {
+    const conflicts = Array.isArray(pres?.conflicts) ? pres.conflicts : [];
+    const choices = buildRecommendedConflictChoices(conflicts, conflictChoices);
+    if (Object.keys(choices).length !== conflicts.length) {
+      setPres({
+        ...pres,
+        status: "error",
+        error: "部分编码冲突缺少可保留的原始候选，请返回重新导出 BOM。",
+      });
+      return;
+    }
+    setConflictChoices(choices);
     setRunning(true);
     try {
       const r = await runTool("bom_process", {
@@ -210,13 +224,15 @@ export function BomProcessWizard() {
         parent_desc: pdesc,
         extras: extras.filter((e) => e.code),
         merge_conflicts: true,
-        conflict_choices: {},
+        conflict_choices: choices,
         confirm_shields: confirmShields,
       });
       setPres(r);
       if (r.status === "ok") notifyAssetsUpdated();
-      setConflictChoices({});
-      if (r.status === "ok" && !hasBomConflicts(r)) setStage("risk");
+      if (r.status === "ok" && !hasBomConflicts(r)) {
+        setConflictChoices({});
+        setStage("risk");
+      }
     } catch (e: any) {
       setPres({ status: "error", error: e.message });
     } finally {
@@ -463,6 +479,7 @@ function ProcessView({ running, pres, conflictChoices, setConflictChoices, onRec
   const allDone = !hasC || conflicts.every((c: any) => conflictChoices[c.code] !== undefined);
   const activeConflict = conflicts.find((c: any) => c.code === activeConflictCode) || conflicts[0];
   const selectedCount = conflicts.filter((c: any) => conflictChoices[c.code] !== undefined).length;
+  const lowConfidenceCount = conflicts.filter((c: any) => !c.high_confidence).length;
 
   return (
     <div className="process-grid">
@@ -488,9 +505,11 @@ function ProcessView({ running, pres, conflictChoices, setConflictChoices, onRec
             </Space>
           ) : hasC ? (
             <Space direction="vertical" style={{ width: "100%" }}>
-              <Typography.Text type="secondary">可直接按系统推荐合并；需要精修时再逐项选择要保留的描述。</Typography.Text>
+              <Typography.Text type="secondary">
+                系统已为全部 {conflicts.length} 项给出原始候选推荐，其中 {lowConfidenceCount} 项为低置信推荐；可一键采用，也可逐项修改。
+              </Typography.Text>
               <Button type="primary" block onClick={onRecommendedMerge}>
-                按推荐合并
+                采用全部推荐并继续
               </Button>
               <Button type="primary" block disabled={!allDone} onClick={onApply}>
                 按所选项合并
@@ -780,6 +799,11 @@ function CConflict({ c, selected, onSelect }: any) {
             <div className="variant-card-title">
               <Space>
                 <Tag color={selected === i ? "blue" : "default"}>候选 {i + 1}</Tag>
+                {c?.recommended_index === i ? (
+                  <Tag color={c?.high_confidence ? "green" : "gold"}>
+                    {c?.high_confidence ? "高置信推荐" : "低置信推荐"}
+                  </Tag>
+                ) : null}
                 <Typography.Text strong>{v.name || "-"}</Typography.Text>
                 <Tag>{v.grade || "未分级"}</Tag>
                 <Tag color="purple">数量 {v.count ?? "-"}</Tag>

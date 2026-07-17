@@ -496,8 +496,9 @@ class FrontendBuildTests(unittest.TestCase):
 
         self.assertIn("applyRecommendedMerge", wizard)
         self.assertIn("onRecommendedMerge", wizard)
-        self.assertIn("按推荐合并", wizard)
-        self.assertIn("conflict_choices: {}", wizard)
+        self.assertIn("采用全部推荐并继续", wizard)
+        self.assertIn("buildRecommendedConflictChoices", wizard)
+        self.assertIn("conflict_choices: choices", wizard)
 
     def test_bom_process_wizard_confirms_shield_bracket_candidates(self) -> None:
         wizard = (ROOT / "frontend" / "src" / "tools" / "BomProcessWizard.tsx").read_text(encoding="utf-8")

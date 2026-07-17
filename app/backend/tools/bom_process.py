@@ -206,6 +206,33 @@ def _signature_payload(signature: tuple[str, str, str, str, str]) -> dict[str, s
     return dict(zip(CONFLICT_FIELDS, signature))
 
 
+def _fallback_recommendation(
+    variants: list[dict[str, object]],
+    signatures: list[tuple[str, str, str, str, str]],
+    reason: str,
+) -> dict[str, object]:
+    # Low-confidence recommendations still select one intact source variant.
+    # Richer text wins first, then completeness, grade, affected count, and source order.
+    index = max(
+        range(len(variants)),
+        key=lambda item: (
+            sum(len(value.strip()) for value in signatures[item]),
+            sum(1 for value in signatures[item] if value.strip()),
+            _grade_rank(signatures[item][CONFLICT_FIELDS.index("grade")]),
+            int(variants[item].get("count") or 0),
+            -item,
+        ),
+    )
+    return {
+        "confidence": "low",
+        "reason": reason,
+        "high_confidence": False,
+        "manual_choice_required": True,
+        "recommended_index": index,
+        "recommended_signature": _signature_payload(signatures[index]),
+    }
+
+
 def _conflict_recommendation(variants: list[dict[str, object]]) -> dict[str, object]:
     signatures = [tuple(str(variant.get(field) or "") for field in CONFLICT_FIELDS) for variant in variants]
 
@@ -250,12 +277,7 @@ def _conflict_recommendation(variants: list[dict[str, object]]) -> dict[str, obj
                 "recommended_index": index,
                 "recommended_signature": _signature_payload(signatures[index]),
             }
-        return {
-            "confidence": "low",
-            "reason": "complementary_incomplete_candidates",
-            "high_confidence": False,
-            "manual_choice_required": True,
-        }
+        return _fallback_recommendation(variants, signatures, "complementary_incomplete_candidates")
 
     dominant: list[int] = []
     for candidate_index, candidate in enumerate(signatures):
@@ -287,12 +309,11 @@ def _conflict_recommendation(variants: list[dict[str, object]]) -> dict[str, obj
         }
 
     all_complete = all(all(value for value in signature) for signature in signatures)
-    return {
-        "confidence": "low",
-        "reason": "multiple_complete_candidates" if all_complete else "conflicting_candidate_values",
-        "high_confidence": False,
-        "manual_choice_required": True,
-    }
+    return _fallback_recommendation(
+        variants,
+        signatures,
+        "multiple_complete_candidates" if all_complete else "conflicting_candidate_values",
+    )
 
 
 def detect_part_conflicts(source_rows: list[dict[str, str]]) -> list[dict[str, object]]:
