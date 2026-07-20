@@ -4,6 +4,9 @@ param(
   [switch]$SkipDiscovery
 )
 
+try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
+$OutputEncoding = [System.Text.Encoding]::UTF8
+
 $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $Root = Split-Path -Parent $scriptDir
