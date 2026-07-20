@@ -226,6 +226,74 @@ def _run_recover(install_root: Path, state_root: Path, job_id: str) -> subproces
     )
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="PowerShell lifecycle recovery")
+def test_recover_with_missing_protected_job_exits_zero(tmp_path: Path) -> None:
+    install_root = tmp_path / "HWAgent"
+    state_root = tmp_path / "state"
+    install_root.mkdir()
+    state_root.mkdir()
+    job_id = "9" * 32
+
+    result = _run_recover(install_root, state_root, job_id)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "already completed by a concurrent recoverer" in result.stdout
+    assert "recovery_outcome=already_recovered" in result.stdout
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="PowerShell lifecycle recovery")
+def test_concurrent_recovery_second_caller_succeeds(tmp_path: Path) -> None:
+    install_root, _, stage, metadata = _prepare_layout(tmp_path)
+    state_root = tmp_path / "state"
+    job_id = "c" * 32
+    old_relative = _runtime_relative(OLD_VERSION, OLD_REVISION)
+    new_relative = _runtime_relative(NEW_VERSION, NEW_REVISION)
+    new_runtime = install_root / Path(new_relative)
+    new_runtime.parent.mkdir(parents=True, exist_ok=True)
+    stage.rename(new_runtime)
+    original = json.loads(metadata.read_text(encoding="utf-8"))
+    metadata.write_text(
+        json.dumps(
+            {
+                **original,
+                "active_runtime": new_relative,
+                "previous_runtime": old_relative,
+                "generation": 2,
+            }
+        ),
+        encoding="utf-8",
+    )
+    protected_recovery = install_root / ".recovery" / job_id
+    protected_recovery.mkdir(parents=True)
+    (protected_recovery / "transaction.json").write_text(
+        json.dumps(
+            {
+                "schema": 3,
+                "product": "Insta360_HW",
+                "job_id": job_id,
+                "install_root": str(install_root),
+                "state_root": str(state_root),
+                "old_relative": old_relative,
+                "new_relative": new_relative,
+                "runtime_created": True,
+                "outcome": "completed",
+            }
+        ),
+        encoding="utf-8",
+    )
+    transaction = state_root / "lifecycle" / "v3" / "transactions" / job_id
+    transaction.mkdir(parents=True)
+
+    first = _run_recover(install_root, state_root, job_id)
+    second = _run_recover(install_root, state_root, job_id)
+
+    assert first.returncode == 0, first.stdout + first.stderr
+    assert "recovery_outcome=committed" in first.stdout
+    assert second.returncode == 0, second.stdout + second.stderr
+    assert "already completed by a concurrent recoverer" in second.stdout
+    assert "recovery_outcome=already_recovered" in second.stdout
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows file sharing semantics")
 def test_tree_hash_retries_a_transient_file_sharing_violation(tmp_path: Path) -> None:
     runtime = tmp_path / "runtime"

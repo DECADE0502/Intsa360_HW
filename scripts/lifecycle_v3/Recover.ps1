@@ -31,6 +31,14 @@ function Clear-HwV3RecoveryTask {
   return Remove-HwV3RecoveryTask -TaskName $RecoveryTaskName
 }
 
+function Write-HwV3RecoveryOutcome {
+  param(
+    [Parameter(Mandatory=$true)][string]$RecoveryJobId,
+    [Parameter(Mandatory=$true)][ValidateSet("already_recovered", "rolled_back", "committed")][string]$Outcome
+  )
+  Write-Host ("__HWAGENT_RECOVERY_RESULT__ job_id={0} recovery_outcome={1}" -f $RecoveryJobId, $Outcome)
+}
+
 $transactions = Join-Path $StateRoot "lifecycle\v3\transactions"
 $protectedRecoveryParent = Join-Path $InstallRoot ".recovery"
 
@@ -77,9 +85,26 @@ try {
   foreach ($recoveryJobId in $recoveryJobIds) {
     $recoveryJobId = Assert-HwV3JobId -JobId $recoveryJobId
     $transactionRoot = Join-Path $transactions $recoveryJobId
+    $journalPath = Join-Path $transactionRoot "journal.json"
     $protectedRecoveryRoot = Join-Path $InstallRoot (".recovery\" + $recoveryJobId)
     $protectedInstallationSnapshot = Join-Path $protectedRecoveryRoot "installation-before.json"
     $protectedTransactionSnapshot = Join-Path $protectedRecoveryRoot "transaction.json"
+    if (-not (Test-Path -LiteralPath $protectedRecoveryRoot -PathType Container)) {
+      if (-not [string]::IsNullOrWhiteSpace($JobId)) {
+        if (Test-Path -LiteralPath $journalPath -PathType Leaf) {
+          $existingJournal = Read-HwV3Json -Path $journalPath -Required
+          if ([int]$existingJournal.schema -ne 3 -or [string]$existingJournal.product -ne "Insta360_HW" -or
+              [string]$existingJournal.job_id -cne $recoveryJobId -or
+              [string]$existingJournal.phase -notin @("completed", "rolled_back")) {
+            throw "Protected lifecycle recovery metadata is missing for an unfinished transaction."
+          }
+        }
+        [void](Clear-HwV3RecoveryTask)
+        Write-Host ("recovery job {0} already completed by a concurrent recoverer" -f $recoveryJobId)
+        Write-HwV3RecoveryOutcome -RecoveryJobId $recoveryJobId -Outcome "already_recovered"
+      }
+      continue
+    }
     if (-not (Test-Path -LiteralPath $protectedTransactionSnapshot -PathType Leaf)) {
       if (-not [string]::IsNullOrWhiteSpace($JobId)) {
         throw "Protected lifecycle recovery metadata is missing."
@@ -103,7 +128,6 @@ try {
     $oldRuntime = Resolve-HwV3RuntimePointer -InstallRoot $InstallRoot -RelativePath $oldRelative -Field "old_relative"
     $newRuntime = Resolve-HwV3RuntimePointer -InstallRoot $InstallRoot -RelativePath $newRelative -Field "new_relative"
     $runtimeWasCreated = [bool]$protectedTransaction.runtime_created
-    $journalPath = Join-Path $transactionRoot "journal.json"
 
     if ($outcome -ceq "completed") {
       [void](Clear-HwV3RecoveryTask)
@@ -124,6 +148,7 @@ try {
       Set-HwV3JobPhase -StateRoot $StateRoot -JobId $recoveryJobId -Phase "completed" -Progress 100 `
         -Message "Update cleanup completed; the verified runtime remains active." `
         -Additional @{ rolled_back = $false; recovery_required = $false; cleanup_pending = $false; cancellable = $false } | Out-Null
+      Write-HwV3RecoveryOutcome -RecoveryJobId $recoveryJobId -Outcome "committed"
       continue
     }
 
@@ -226,6 +251,7 @@ try {
     Set-HwV3JobPhase -StateRoot $StateRoot -JobId $recoveryJobId -Phase "failed" -Progress 100 `
       -Message "An interrupted update was rolled back to the previous runtime." `
       -Additional @{ rolled_back = $true; recovery_required = $false; cleanup_pending = (-not [string]::IsNullOrWhiteSpace($cleanupWarning)); cleanup_warning = $cleanupWarning; cancellable = $false } | Out-Null
+    Write-HwV3RecoveryOutcome -RecoveryJobId $recoveryJobId -Outcome "rolled_back"
   }
 } finally {
   if ($null -ne $mutex) { Exit-HwV3LifecycleMutex -Mutex $mutex }
