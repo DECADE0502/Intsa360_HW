@@ -130,6 +130,32 @@ function Read-LegacyIdentity {
   } catch { return $null }
 }
 
+function Read-RegisteredInstallVersion {
+  $subKey = "Software\Microsoft\Windows\CurrentVersion\Uninstall\{B7F3AC9E-2D5E-4A8C-9F6E-1A3D4E5F6B72}_is1"
+  foreach ($view in @([Microsoft.Win32.RegistryView]::Registry64, [Microsoft.Win32.RegistryView]::Registry32)) {
+    $baseKey = $null
+    $installKey = $null
+    try {
+      $baseKey = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
+        [Microsoft.Win32.RegistryHive]::LocalMachine,
+        $view
+      )
+      $installKey = $baseKey.OpenSubKey($subKey, $false)
+      if ($null -eq $installKey) { continue }
+      $registered = [string]$installKey.GetValue("DisplayVersion", "")
+      if ([string]::IsNullOrWhiteSpace($registered)) { continue }
+      try { return Assert-HwV3Version -Version $registered }
+      catch { Write-SetupLog ("ignored invalid registered DisplayVersion: " + $registered) }
+    } catch {
+      Write-SetupLog ("could not read registered DisplayVersion: " + $_.Exception.Message)
+    } finally {
+      if ($null -ne $installKey) { $installKey.Dispose() }
+      if ($null -ne $baseKey) { $baseKey.Dispose() }
+    }
+  }
+  return ""
+}
+
 function Copy-TreeVerified {
   param(
     [Parameter(Mandatory=$true)][string]$Source,
@@ -308,6 +334,8 @@ $originalMetadata = $null
 $oldRuntime = ""
 $oldRelative = ""
 $oldVersion = ""
+$oldManifestMissing = $false
+$oldRuntimeExisted = $false
 $legacyInstall = $false
 $pointerCommitted = $false
 $pointerCommitIntent = $false
@@ -372,8 +400,23 @@ try {
     $originalMetadata = $metadata | ConvertTo-Json -Depth 24 | ConvertFrom-Json
     $oldRelative = [string]$metadata.active_runtime
     $oldRuntime = Resolve-HwV3RuntimePointer -InstallRoot $InstallRoot -RelativePath $oldRelative -Field "active_runtime"
-    $oldManifest = Read-HwV3Json -Path (Join-Path $oldRuntime "install_manifest.json") -Required
-    $oldVersion = Assert-HwV3Version -Version ([string]$oldManifest.version)
+    $oldRuntimeExisted = Test-Path -LiteralPath $oldRuntime -PathType Container
+    try {
+      $oldManifest = Read-HwV3Json -Path (Join-Path $oldRuntime "install_manifest.json") -Required
+      $oldVersion = Assert-HwV3Version -Version ([string]$oldManifest.version)
+    } catch {
+      $oldManifestMissing = $true
+      Write-SetupLog ("active runtime manifest is unavailable; maintenance may rebuild it: " + $_.Exception.Message)
+      $activeVersionProperty = $metadata.PSObject.Properties["active_version"]
+      if ($null -ne $activeVersionProperty -and
+          -not [string]::IsNullOrWhiteSpace([string]$activeVersionProperty.Value)) {
+        try { $oldVersion = Assert-HwV3Version -Version ([string]$activeVersionProperty.Value) }
+        catch { Write-SetupLog ("ignored invalid installation active_version: " + [string]$activeVersionProperty.Value) }
+      }
+      if ([string]::IsNullOrWhiteSpace($oldVersion)) {
+        $oldVersion = Read-RegisteredInstallVersion
+      }
+    }
   } else {
     $legacy = Read-LegacyIdentity
     if ($null -ne $legacy) {
@@ -383,21 +426,24 @@ try {
     }
   }
 
-  $hasExisting = -not [string]::IsNullOrWhiteSpace($oldVersion)
-  $versionComparison = if ($hasExisting) { Compare-SemanticVersion -Left $payloadVersion -Right $oldVersion } else { 1 }
-  if ($setupRecoveryRan -and $Action -in @("Repair", "Reinstall") -and $hasExisting -and
+  $hasExisting = ($null -ne $metadata) -or $legacyInstall
+  $hasKnownVersion = -not [string]::IsNullOrWhiteSpace($oldVersion)
+  $versionComparison = if ($hasKnownVersion) { Compare-SemanticVersion -Left $payloadVersion -Right $oldVersion } else { 1 }
+  if ($setupRecoveryRan -and $Action -in @("Repair", "Reinstall") -and $hasKnownVersion -and
       $versionComparison -gt 0) {
     Write-SetupLog ("interrupted setup recovery changed action from " + $Action + " to Upgrade")
     $Action = "Upgrade"
   }
   if ($Action -eq "Install" -and $hasExisting) { throw "Install action cannot replace an existing installation." }
-  if ($Action -eq "Upgrade" -and $hasExisting -and $versionComparison -lt 0) {
+  if ($Action -eq "Upgrade" -and $hasKnownVersion -and $versionComparison -lt 0) {
     throw "Implicit downgrade is refused: installed=$oldVersion setup=$payloadVersion"
   }
-  if ($Action -eq "Upgrade" -and $hasExisting -and $versionComparison -eq 0) {
+  if ($Action -eq "Upgrade" -and $hasKnownVersion -and $versionComparison -eq 0) {
     throw "Upgrade action requires a newer version; use Repair or Reinstall for the same version."
   }
-  if ($Action -in @("Repair", "Reinstall") -and $hasExisting -and $versionComparison -ne 0) {
+  if ($Action -in @("Repair", "Reinstall") -and $oldManifestMissing) {
+    Write-SetupLog ("rebuilding missing active runtime with action " + $Action)
+  } elseif ($Action -in @("Repair", "Reinstall") -and $hasKnownVersion -and $versionComparison -ne 0) {
     throw "$Action requires the setup package to match the installed version."
   }
 
@@ -483,6 +529,7 @@ try {
     product = "Insta360_HW"
     layout = "versioned-runtime-v3"
     active_runtime = $newRelative
+    active_version = $payloadVersion
     previous_runtime = if ($null -eq $metadata) {
       ""
     } elseif ($oldRelative -ceq $newRelative) {
@@ -568,7 +615,8 @@ try {
       Move-DirectoryWithRetry -Source $sameRuntimeBackup -Destination $newRuntime
       $sameRuntimeMoved = $false
       $newRuntimeCreated = $false
-    } elseif ($newRuntimeCreated -and $newRelative -cne $oldRelative -and (Test-Path -LiteralPath $newRuntime)) {
+    } elseif ($newRuntimeCreated -and (($newRelative -cne $oldRelative) -or (-not $oldRuntimeExisted)) -and
+        (Test-Path -LiteralPath $newRuntime)) {
       Remove-Item -LiteralPath $newRuntime -Recurse -Force
       $newRuntimeCreated = $false
     }

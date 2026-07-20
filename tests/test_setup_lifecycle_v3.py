@@ -208,9 +208,85 @@ class SetupLifecycleV3Tests(unittest.TestCase):
             self.assertEqual(metadata["schema_version"], 3)
             self.assertEqual(metadata["layout"], "versioned-runtime-v3")
             self.assertEqual(metadata["active_runtime"], f"runtime/1.2.3+{revision}")
+            self.assertEqual(metadata["active_version"], "1.2.3")
             self.assertEqual(metadata["generation"], 1)
             self.assertEqual((install_root / "Insta360_HW.exe").read_bytes(), b"launcher-v1")
             self.assertTrue((install_root / metadata["active_runtime"] / "app/backend/suite_app.py").is_file())
+
+    def test_repair_rebuilds_when_active_runtime_directory_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            install_root, state_root, payload = base / "install", base / "state", base / "payload"
+            revision = "b" * 40
+            _write_payload(payload, "1.2.3", revision, b"launcher-v1")
+            installed = _run_install(install_root, state_root, payload, "Install")
+            self.assertEqual(installed.returncode, 0, installed.stdout + installed.stderr)
+            metadata = json.loads((install_root / "installation.json").read_text(encoding="utf-8-sig"))
+            shutil.rmtree(install_root / metadata["active_runtime"])
+
+            repaired = _run_install(install_root, state_root, payload, "Repair")
+
+            self.assertEqual(repaired.returncode, 0, repaired.stdout + repaired.stderr)
+            rebuilt = json.loads((install_root / "installation.json").read_text(encoding="utf-8-sig"))
+            self.assertEqual(rebuilt["active_runtime"], f"runtime/1.2.3+{revision}")
+            self.assertTrue((install_root / rebuilt["active_runtime"] / "app/backend/suite_app.py").is_file())
+
+    def test_repair_rebuilds_when_active_manifest_is_corrupt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            install_root, state_root, payload = base / "install", base / "state", base / "payload"
+            revision = "c" * 40
+            _write_payload(payload, "1.2.3", revision, b"launcher-v1")
+            installed = _run_install(install_root, state_root, payload, "Install")
+            self.assertEqual(installed.returncode, 0, installed.stdout + installed.stderr)
+            metadata = json.loads((install_root / "installation.json").read_text(encoding="utf-8-sig"))
+            active_runtime = install_root / metadata["active_runtime"]
+            (active_runtime / "install_manifest.json").write_bytes(b"not-json")
+
+            repaired = _run_install(install_root, state_root, payload, "Repair")
+
+            self.assertEqual(repaired.returncode, 0, repaired.stdout + repaired.stderr)
+            rebuilt = json.loads((install_root / "installation.json").read_text(encoding="utf-8-sig"))
+            self.assertEqual(rebuilt["active_runtime"], f"runtime/1.2.3+{revision}")
+            manifest = json.loads(
+                (install_root / rebuilt["active_runtime"] / "install_manifest.json").read_text(encoding="utf-8-sig")
+            )
+            self.assertEqual(manifest["version"], "1.2.3")
+
+    def test_install_action_still_refuses_existing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            install_root, state_root, payload = base / "install", base / "state", base / "payload"
+            _write_payload(payload, "1.2.3", "d" * 40, b"launcher-v1")
+            installed = _run_install(install_root, state_root, payload, "Install")
+            self.assertEqual(installed.returncode, 0, installed.stdout + installed.stderr)
+            metadata = json.loads((install_root / "installation.json").read_text(encoding="utf-8-sig"))
+            shutil.rmtree(install_root / metadata["active_runtime"])
+
+            duplicate = _run_install(install_root, state_root, payload, "Install")
+
+            self.assertNotEqual(duplicate.returncode, 0)
+            self.assertIn("cannot replace an existing installation", duplicate.stdout + duplicate.stderr)
+
+    def test_upgrade_still_refuses_downgrade_when_active_runtime_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            install_root, state_root = base / "install", base / "state"
+            current, older = base / "current", base / "older"
+            _write_payload(current, "2.0.0", "e" * 40, b"launcher-current")
+            _write_payload(older, "1.9.9", "f" * 40, b"launcher-older")
+            installed = _run_install(install_root, state_root, current, "Install")
+            self.assertEqual(installed.returncode, 0, installed.stdout + installed.stderr)
+            metadata = json.loads((install_root / "installation.json").read_text(encoding="utf-8-sig"))
+            shutil.rmtree(install_root / metadata["active_runtime"])
+
+            downgrade = _run_install(install_root, state_root, older, "Upgrade")
+
+            self.assertNotEqual(downgrade.returncode, 0)
+            self.assertIn("downgrade", (downgrade.stdout + downgrade.stderr).lower())
+            preserved = json.loads((install_root / "installation.json").read_text(encoding="utf-8-sig"))
+            self.assertEqual(preserved["active_version"], "2.0.0")
+            self.assertEqual((install_root / "Insta360_HW.exe").read_bytes(), b"launcher-current")
 
     def test_install_rejects_unsupported_destination_length_before_copy(self) -> None:
         base = Path(tempfile.mkdtemp())
