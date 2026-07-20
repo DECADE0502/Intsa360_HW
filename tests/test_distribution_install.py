@@ -320,6 +320,21 @@ class DistributionLifecycleV2Tests(unittest.TestCase):
         self.assertNotIn("ProgressGauge.Position := ProgressValue", setup)
         self.assertNotIn("ProgressBar.Position := ProgressValue", setup)
 
+    def test_setup_keeps_install_and_uninstall_ui_out_of_each_others_runner(self) -> None:
+        setup = (ROOT / "HWAgent_Setup.iss").read_text(encoding="utf-8-sig")
+        install_start = setup.index("function RunLifecycleAsyncInstall")
+        uninstall_start = setup.index("function RunLifecycleAsyncUninstall", install_start)
+        runner_end = setup.index("function ShouldLaunchPlatform", uninstall_start)
+        install_runner = setup[install_start:uninstall_start]
+        uninstall_runner = setup[uninstall_start:runner_end]
+
+        self.assertIn("WizardForm.ProgressGauge", install_runner)
+        self.assertNotIn("UninstallProgressForm", install_runner)
+        self.assertIn("UninstallProgressForm.ProgressBar", uninstall_runner)
+        self.assertNotIn("WizardForm", uninstall_runner)
+        self.assertNotIn("UninstallProgressForm.Refresh", uninstall_runner)
+        self.assertNotIn("function RunLifecycleAsync(", setup)
+
     def test_setup_maintenance_uninstall_uses_standard_uninstaller_or_repairs_it(self) -> None:
         setup = (ROOT / "HWAgent_Setup.iss").read_text(encoding="utf-8-sig")
         next_start = setup.index("function NextButtonClick")
@@ -525,7 +540,7 @@ class DistributionLifecycleV2Tests(unittest.TestCase):
         postinstall = setup[start:end]
 
         self.assertIn("lifecycle_v3\\Install.ps1", postinstall)
-        self.assertIn("RunLifecycleAsync('Install'", postinstall)
+        self.assertIn("RunLifecycleAsyncInstall(InstallEntry, SelectedInstallAction)", postinstall)
         self.assertIn("RaiseException", postinstall)
         self.assertIn("Start-HwV3Service -RuntimeRoot $newRuntime", installer)
         self.assertIn('Invoke-HwV3Fault -FaultAt $FaultAt -Point "runtime_verified"', installer)

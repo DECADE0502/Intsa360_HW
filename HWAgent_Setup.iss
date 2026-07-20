@@ -631,21 +631,15 @@ begin
     Result := (BoundedPercent * Maximum) div 100;
 end;
 
-function RunLifecycleAsync(
+function StartLifecycleOperation(
   const Operation, EntryPath, ActionOrMode: String;
-  const IsUninstall: Boolean): Integer;
+  var ProgressPath, ResultPath: String): Boolean;
 var
   RunnerPath: String;
-  ProgressPath: String;
-  ResultPath: String;
   Parameters: String;
-  Started: Boolean;
   ProcessCode: Integer;
-  ProgressValue: Integer;
-  Stage: String;
-  ResultText: AnsiString;
 begin
-  Result := 9001;
+  Result := False;
   RunnerPath := ExpandConstant('{app}\maintenance\SetupRunner.ps1');
   if not FileExists(RunnerPath) then
     Exit;
@@ -666,36 +660,79 @@ begin
   else
     Parameters := Parameters + '-Mode ' + ActionOrMode;
 
-  Started := Exec('powershell.exe', Parameters, ExpandConstant('{app}'), SW_HIDE, ewNoWait, ProcessCode);
-  if not Started then begin
-    Result := 9001;
+  Result := Exec(
+    'powershell.exe', Parameters, ExpandConstant('{app}'),
+    SW_HIDE, ewNoWait, ProcessCode);
+end;
+
+function FinishLifecycleOperation(
+  const ProgressPath, ResultPath: String): Integer;
+var
+  ResultText: AnsiString;
+begin
+  Result := 9001;
+  if LoadStringFromFile(ResultPath, ResultText) then
+    Result := StrToIntDef(Trim(ResultText), 9001);
+  DeleteFile(ProgressPath);
+  DeleteFile(ResultPath);
+end;
+
+function RunLifecycleAsyncInstall(
+  const EntryPath, Action: String): Integer;
+var
+  ProgressPath: String;
+  ResultPath: String;
+  ProgressValue: Integer;
+  Stage: String;
+begin
+  Result := 9001;
+  if not StartLifecycleOperation(
+    'Install', EntryPath, Action, ProgressPath, ResultPath) then
     Exit;
-  end;
 
   while not FileExists(ResultPath) do begin
     if FileExists(ProgressPath) then begin
       if not ReadJsonInteger(ProgressPath, 'progress', ProgressValue) then
         ProgressValue := 0;
       ReadJsonString(ProgressPath, 'stage', Stage);
-      if IsUninstall then begin
-        UninstallProgressForm.ProgressBar.Position :=
-          ScaleProgress(ProgressValue, UninstallProgressForm.ProgressBar.Max);
-        UninstallProgressForm.StatusLabel.Caption := ProgressText(Stage);
-        UninstallProgressForm.Refresh;
-      end else begin
-        WizardForm.ProgressGauge.Style := npbstNormal;
-        WizardForm.ProgressGauge.Position :=
-          ScaleProgress(ProgressValue, WizardForm.ProgressGauge.Max);
-        WizardForm.StatusLabel.Caption := ProgressText(Stage);
-        WizardForm.Refresh;
-      end;
+      WizardForm.ProgressGauge.Style := npbstNormal;
+      WizardForm.ProgressGauge.Position :=
+        ScaleProgress(ProgressValue, WizardForm.ProgressGauge.Max);
+      WizardForm.StatusLabel.Caption := ProgressText(Stage);
+      WizardForm.Refresh;
     end;
     Sleep(150);
   end;
-  if LoadStringFromFile(ResultPath, ResultText) then
-    Result := StrToIntDef(Trim(ResultText), 9001);
-  DeleteFile(ProgressPath);
-  DeleteFile(ResultPath);
+  Result := FinishLifecycleOperation(ProgressPath, ResultPath);
+end;
+
+function RunLifecycleAsyncUninstall(
+  const EntryPath, Mode: String): Integer;
+var
+  ProgressPath: String;
+  ResultPath: String;
+  ProgressValue: Integer;
+  Stage: String;
+begin
+  Result := 9001;
+  if not StartLifecycleOperation(
+    'Uninstall', EntryPath, Mode, ProgressPath, ResultPath) then
+    Exit;
+
+  while not FileExists(ResultPath) do begin
+    if FileExists(ProgressPath) then begin
+      if not ReadJsonInteger(ProgressPath, 'progress', ProgressValue) then
+        ProgressValue := 0;
+      ReadJsonString(ProgressPath, 'stage', Stage);
+      UninstallProgressForm.ProgressBar.Position :=
+        ScaleProgress(ProgressValue, UninstallProgressForm.ProgressBar.Max);
+      UninstallProgressForm.StatusLabel.Caption := ProgressText(Stage);
+      UninstallProgressForm.ProgressBar.Update;
+      UninstallProgressForm.StatusLabel.Update;
+    end;
+    Sleep(150);
+  end;
+  Result := FinishLifecycleOperation(ProgressPath, ResultPath);
 end;
 
 function ShouldLaunchPlatform(): Boolean;
@@ -710,7 +747,7 @@ var
 begin
   if CurStep = ssPostInstall then begin
     InstallEntry := ExpandConstant('{tmp}\Insta360_HW_payload\scripts\lifecycle_v3\Install.ps1');
-    ResultCode := RunLifecycleAsync('Install', InstallEntry, SelectedInstallAction, False);
+    ResultCode := RunLifecycleAsyncInstall(InstallEntry, SelectedInstallAction);
     if ResultCode <> 0 then begin
       RestoreExistingDisplayVersion();
       RaiseException(
@@ -781,7 +818,7 @@ begin
     UninstallProgressForm.ProgressBar.Position :=
       ScaleProgress(2, UninstallProgressForm.ProgressBar.Max);
     UninstallProgressForm.StatusLabel.Caption := '正在准备卸载';
-    ResultCode := RunLifecycleAsync('Uninstall', ScriptPath, Mode, True);
+    ResultCode := RunLifecycleAsyncUninstall(ScriptPath, Mode);
     if ResultCode <> 0 then begin
       MsgBox(
         '卸载准备失败，程序文件尚未删除。错误码：' + IntToStr(ResultCode) + #13#10 +
