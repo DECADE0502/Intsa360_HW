@@ -1,4 +1,4 @@
-from app.backend.contracts.api import ApiEnvelope, ApiError
+from app.backend.contracts.api import ApiError
 from app.backend.contracts.assets import Asset, AssetKind, ToolRun, ToolRunStatus
 from app.backend.contracts.jobs import Job, JobPhase, JobStatus
 from app.backend.contracts.plugins import ActivationMode, PluginSource, PluginState
@@ -6,7 +6,6 @@ from app.backend.contracts.releases import BuildKind, ReleaseAsset, ReleaseManif
 
 __all__ = [
     "ActivationMode",
-    "ApiEnvelope",
     "ApiError",
     "Asset",
     "AssetKind",

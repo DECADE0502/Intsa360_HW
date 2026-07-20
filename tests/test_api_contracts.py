@@ -6,7 +6,8 @@ from uuid import uuid4
 
 from pydantic import ValidationError
 
-from app.backend.contracts.api import ApiEnvelope, ApiError
+import app.backend.contracts as contracts
+from app.backend.contracts.api import ApiError
 from app.backend.contracts.assets import Asset, AssetKind, ToolRun, ToolRunStatus
 from app.backend.contracts.jobs import Job, JobPhase, JobStatus
 from app.backend.contracts.plugins import ActivationMode, PluginSource, PluginState
@@ -17,28 +18,8 @@ NOW = datetime(2026, 7, 14, 8, 0, tzinfo=timezone.utc)
 
 
 class ApiContractTests(unittest.TestCase):
-    def test_api_envelope_has_exact_public_fields(self) -> None:
-        envelope = ApiEnvelope[dict[str, str]](
-            ok=True,
-            request_id=uuid4(),
-            data={"status": "healthy"},
-            error=None,
-        )
-
-        payload = envelope.model_dump(mode="json")
-
-        self.assertEqual(set(payload), {"ok", "request_id", "data", "error"})
-        self.assertEqual(payload["data"], {"status": "healthy"})
-
-    def test_error_envelope_rejects_success_without_data_contract(self) -> None:
-        error = ApiError(code="invalid_input", message="输入无效", details={"field": "bom"})
-        envelope = ApiEnvelope[dict[str, str]](
-            ok=False,
-            request_id=uuid4(),
-            data=None,
-            error=error,
-        )
-        self.assertEqual(envelope.error.code, "invalid_input")
+    def test_dead_api_envelope_is_not_a_public_contract(self) -> None:
+        self.assertFalse(hasattr(contracts, "ApiEnvelope"))
 
     def test_asset_rejects_invalid_sha256_and_negative_size(self) -> None:
         with self.assertRaises(ValidationError):
@@ -285,7 +266,6 @@ class ApiContractTests(unittest.TestCase):
             "created_at": NOW,
         }
         cases = (
-            (ApiEnvelope[dict[str, str]], {"ok": "false", "request_id": uuid4(), "data": {}}),
             (Job, {**job, "progress": "50"}),
             (Job, {**job, "cancellable": 1}),
             (PluginState, {**plugin, "enabled": "false"}),
@@ -359,7 +339,6 @@ class ApiContractTests(unittest.TestCase):
         }
         cases = (
             (ApiError, {"code": "invalid", "message": "输入无效"}),
-            (ApiEnvelope[dict[str, str]], {"ok": True, "request_id": uuid4(), "data": {"status": "ok"}}),
             (Asset, {"id": uuid4(), "kind": "bom", "format": "xlsx", "display_name": "BOM", "relative_path": "bom/main.xlsx", "sha256": "a" * 64, "size": 1, "created_at": NOW}),
             (ToolRun, {"id": uuid4(), "tool_id": "bom_process", "status": "queued", "created_at": NOW}),
             (Job, {"id": uuid4(), "kind": "tool_run", "status": "running", "phase": "processing", "progress": 1, "message": "开始", "cancellable": True, "created_at": NOW, "updated_at": NOW}),
@@ -382,7 +361,6 @@ class ApiContractTests(unittest.TestCase):
         )
         models_and_expected = (
             (ApiError(code="invalid", message="输入无效"), ("code", "invalid")),
-            (ApiEnvelope[dict[str, str]](ok=True, request_id=uuid4(), data={"status": "ok"}), ("data", {"status": "ok"})),
             (Asset(id=asset_id, kind=AssetKind.BOM, format="xlsx", display_name="BOM", relative_path=r"bom\main.xlsx", sha256="a" * 64, size=1, created_at=NOW), ("relative_path", "bom/main.xlsx")),
             (ToolRun(id=run_id, tool_id="bom_process", status=ToolRunStatus.QUEUED, created_at=NOW), ("id", str(run_id))),
             (Job(id=uuid4(), kind="tool_run", status=JobStatus.RUNNING, phase=JobPhase.PROCESSING, progress=1, message="开始", cancellable=True, created_at=NOW, updated_at=NOW), ("phase", "processing")),
