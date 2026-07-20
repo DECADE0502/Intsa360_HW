@@ -82,19 +82,23 @@ export function BomProcessWizard() {
   const presetSource = params.get("source") || "";
   const presetName = params.get("name") || "";
   const [presetConsumed, setPresetConsumed] = useState(false);
-  const [workspace, setWorkspace, resetWorkspace] = useToolWorkspace("bom_process", {
-    stage: presetSource ? "review" : "source",
-    sp: presetSource,
-    name: presetName,
-    pcode: "203010100819",
-    pdesc: "",
-    fmts: ["plm", "oa"],
-    extras: [] as Extra[],
-    pres: null as any,
-    rres: null as any,
-    conflictChoices: {} as Record<string, number>,
-    confirmShields: false,
-  });
+  const [workspace, setWorkspace, resetWorkspace] = useToolWorkspace(
+    "bom_process",
+    {
+      stage: presetSource ? "review" : "source",
+      sp: presetSource,
+      name: presetName,
+      pcode: "203010100819",
+      pdesc: "",
+      fmts: ["plm", "oa"],
+      extras: [] as Extra[],
+      pres: null as any,
+      rres: null as any,
+      conflictChoices: {} as Record<string, number>,
+      confirmShields: false,
+    },
+    { heavyKeys: ["pres", "rres"] },
+  );
   const activePresetSource = presetConsumed ? "" : presetSource;
   const activePresetName = presetConsumed ? "" : presetName;
   const freshPreset = Boolean(activePresetSource && activePresetSource !== workspace.sp);
@@ -377,6 +381,7 @@ export function BomProcessWizard() {
             setPres(null);
             setRres(null);
             setConflictChoices({});
+            setConfirmShields(false);
             resetWorkspace();
             setStage("review");
           }}

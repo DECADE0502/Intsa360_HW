@@ -146,12 +146,16 @@ function SimpleTable({ table }: { table?: any }) {
 }
 
 export function NetlistComparePane({ tool }: { tool: ToolInfo }) {
-  const [workspace, setWorkspace, resetWorkspace] = useToolWorkspace("netlist_compare", {
-    filter: "focus",
-    query: "",
-    selectedKey: "",
-    result: null as any,
-  });
+  const [workspace, setWorkspace, resetWorkspace] = useToolWorkspace(
+    "netlist_compare",
+    {
+      filter: "focus",
+      query: "",
+      selectedKey: "",
+      result: null as any,
+    },
+    { heavyKeys: ["result"] },
+  );
   const [leftFiles, setLeftFiles] = useState<File[]>([]);
   const [rightFiles, setRightFiles] = useState<File[]>([]);
   const [running, setRunning] = useState(false);

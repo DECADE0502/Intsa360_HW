@@ -20,10 +20,14 @@ export function LegacyToolPane({ tool }: { tool: ToolInfo }) {
   if (tool.id === "single_network_check") return <Suspense fallback={null}><SingleNetworkCheckPane tool={tool} /></Suspense>;
 
   const inputs = toolInputs[tool.id] || [];
-  const [workspace, setWorkspace, resetWorkspace] = useToolWorkspace(`legacy_${tool.id}`, {
-    historyBom: "",
-    result: null as any,
-  });
+  const [workspace, setWorkspace, resetWorkspace] = useToolWorkspace(
+    `legacy_${tool.id}`,
+    {
+      historyBom: "",
+      result: null as any,
+    },
+    { heavyKeys: ["result"] },
+  );
   const [files, setFiles] = useState<Record<string, File[]>>({});
   const [historyBom, setHistoryBom] = useState<string>(() => String(workspace.historyBom || ""));
   const [running, setRunning] = useState(false);

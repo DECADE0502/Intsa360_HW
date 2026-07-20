@@ -140,12 +140,16 @@ function SimpleTable({ table }: { table?: any }) {
 }
 
 export function SingleNetworkCheckPane({ tool }: { tool: ToolInfo }) {
-  const [workspace, setWorkspace, resetWorkspace] = useToolWorkspace("single_network_check", {
-    result: null as any,
-    filter: "focus",
-    query: "",
-    selectedKey: "",
-  });
+  const [workspace, setWorkspace, resetWorkspace] = useToolWorkspace(
+    "single_network_check",
+    {
+      result: null as any,
+      filter: "focus",
+      query: "",
+      selectedKey: "",
+    },
+    { heavyKeys: ["result"] },
+  );
   const [netlistFiles, setNetlistFiles] = useState<File[]>([]);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<any>(workspace.result || null);

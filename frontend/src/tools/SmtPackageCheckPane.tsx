@@ -163,13 +163,17 @@ function filterOf(item: SmtReviewItem) {
 }
 
 export function SmtPackageCheckPane({ tool }: { tool: ToolInfo }) {
-  const [workspace, setWorkspace, resetWorkspace] = useToolWorkspace("smt_package_check", {
-    historyBom: "",
-    result: null as any,
-    filter: "focus",
-    query: "",
-    selectedKey: "",
-  });
+  const [workspace, setWorkspace, resetWorkspace] = useToolWorkspace(
+    "smt_package_check",
+    {
+      historyBom: "",
+      result: null as any,
+      filter: "focus",
+      query: "",
+      selectedKey: "",
+    },
+    { heavyKeys: ["result"] },
+  );
   const [netlistFiles, setNetlistFiles] = useState<File[]>([]);
   const [bomFile, setBomFile] = useState<File | undefined>();
   const [historyBom, setHistoryBom] = useState<string>(() => String(workspace.historyBom || ""));

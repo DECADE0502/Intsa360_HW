@@ -185,14 +185,18 @@ function OriginRows({ origin, side }: { origin: any; side: "left" | "right" }) {
 }
 
 export function BomComparePane({ tool }: { tool: ToolInfo }) {
-  const [workspace, setWorkspace, resetWorkspace] = useToolWorkspace("bom_compare", {
-    historyBom1: "",
-    historyBom2: "",
-    result: null as any,
-    filter: "diff",
-    query: "",
-    selectedKey: "",
-  });
+  const [workspace, setWorkspace, resetWorkspace] = useToolWorkspace(
+    "bom_compare",
+    {
+      historyBom1: "",
+      historyBom2: "",
+      result: null as any,
+      filter: "diff",
+      query: "",
+      selectedKey: "",
+    },
+    { heavyKeys: ["result"] },
+  );
   const [bom1, setBom1] = useState<File | undefined>();
   const [bom2, setBom2] = useState<File | undefined>();
   const [historyBom1, setHistoryBom1] = useState<string>(() => String(workspace.historyBom1 || ""));
