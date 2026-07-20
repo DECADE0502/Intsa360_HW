@@ -36,7 +36,7 @@ def make_source(path: Path) -> None:
 
 
 class BomProcessConflictTests(unittest.TestCase):
-    def test_numeric_prefix_conflicts_require_manual_choice(self) -> None:
+    def test_letter_notation_numeric_pairs_require_manual_choice(self) -> None:
         def variants(first: str, second: str) -> list[dict[str, object]]:
             return [
                 {
@@ -50,13 +50,73 @@ class BomProcessConflictTests(unittest.TestCase):
                 for model in (first, second)
             ]
 
-        for first, second in (("100", "1000"), ("1K", "1K2")):
+        pairs = (
+            ("1u", "1u5"),
+            ("4n7", "4n70"),
+            ("5V", "5V0"),
+            ("1n", "1n5"),
+            ("3V3", "3V30"),
+            ("4R7", "4R75"),
+            ("2m2", "2m25"),
+            ("100", "1000"),
+            ("1K", "1K2"),
+        )
+        for first, second in pairs:
             with self.subTest(first=first, second=second):
                 recommendation = bom_process._conflict_recommendation(variants(first, second))
 
                 self.assertEqual(recommendation["reason"], "conflicting_candidate_values")
                 self.assertFalse(recommendation["high_confidence"])
                 self.assertTrue(recommendation["manual_choice_required"])
+
+    def test_digit_extension_prefix_is_never_truncation(self) -> None:
+        for first, second in (("ABC-1", "ABC-12"), ("X 5", "X 52")):
+            with self.subTest(first=first, second=second):
+                variants = [
+                    {
+                        "name": "Component",
+                        "model": model,
+                        "desc": "Description",
+                        "grade": "Preferred",
+                        "unit": "ea",
+                        "count": 1,
+                    }
+                    for model in (first, second)
+                ]
+
+                recommendation = bom_process._conflict_recommendation(variants)
+
+                self.assertEqual(recommendation["reason"], "conflicting_candidate_values")
+                self.assertFalse(recommendation["high_confidence"])
+                self.assertTrue(recommendation["manual_choice_required"])
+
+    def test_looks_numeric_classification_table(self) -> None:
+        numeric_values = (
+            "100",
+            "1000",
+            "1K",
+            "1K2",
+            "4R7",
+            "1u",
+            "1u5",
+            "4n7",
+            "3V3",
+            "5V",
+            "5V0",
+            "4.7uF",
+            "10nF",
+            "100 Ohm",
+            "3.3",
+            "0402",
+        )
+        text_values = ("10K resistor 0402 5%", "GRM155R71C104KA88D", "", "Chip resistor")
+
+        for value in numeric_values:
+            with self.subTest(value=value, expected=True):
+                self.assertTrue(bom_process._looks_numeric(value))
+        for value in text_values:
+            with self.subTest(value=value, expected=False):
+                self.assertFalse(bom_process._looks_numeric(value))
 
     def test_text_prefix_completion_remains_high_confidence(self) -> None:
         variants = [

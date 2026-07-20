@@ -52,7 +52,7 @@ OA_HEADERS = [
 NC_HEADERS = ["原始行号", "位号", "子项编码", "物料名称", "型号", "描述", "Value", "过滤原因"]
 CONFLICT_FIELDS = ("name", "model", "desc", "grade", "unit")
 _NUMERIC_VALUE_RE = re.compile(
-    r"^(?:\d+(?:\.\d+)?(?:\s*[RrKkMmGgUuNnPp])?|\d+[RrKkMm]\d+)"
+    r"^\d+(?:\.\d+)?(?:\s*[RrKkMmGgTtUuNnPpFfHhVv]\d*)?"
     r"\s*(?:Ω|ohms?|%|℃|°C|[VvAaWwFfHh])?$",
     re.IGNORECASE,
 )
@@ -320,6 +320,11 @@ def _conflict_recommendation(variants: list[dict[str, object]]) -> dict[str, obj
                     dominates_all = False
                     break
                 if not candidate_value.startswith(other_value):
+                    dominates_all = False
+                    break
+                extension = candidate_value[len(other_value):]
+                if extension and extension[0].isdigit():
+                    has_numeric_conflict = True
                     dominates_all = False
                     break
                 has_strict_prefix = True
