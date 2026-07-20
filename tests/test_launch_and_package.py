@@ -11,6 +11,27 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class LaunchAndPackageTests(unittest.TestCase):
+    def test_raw_suite_entry_requires_explicit_dev_only_switch(self) -> None:
+        powershell = shutil.which("powershell.exe") or shutil.which("powershell")
+        self.assertIsNotNone(powershell)
+        script = ROOT / "run_tool_suite.ps1"
+        completed = subprocess.run(
+            [str(powershell), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+            check=False,
+        )
+        source = script.read_text(encoding="utf-8-sig")
+
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("launch_tool_suite.ps1", completed.stdout + completed.stderr)
+        self.assertIn("[switch]$DevOnly", source)
+        self.assertIn("Write-Warning", source)
+
     def _run_runtime_probe(self, body: str) -> str:
         powershell = shutil.which("powershell.exe") or shutil.which("powershell")
         self.assertIsNotNone(powershell, "PowerShell is required for lifecycle behavior tests")
