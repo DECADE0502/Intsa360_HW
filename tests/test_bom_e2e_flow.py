@@ -6,7 +6,7 @@ import zipfile
 from pathlib import Path
 
 from fastapi.testclient import TestClient
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 
 from app.backend.main import create_app
 
@@ -115,3 +115,51 @@ def test_bom_process_confirmation_package_and_history_flow(tmp_path: Path) -> No
             run.get("tool") == "bom_process" and run.get("status") == "succeeded"
             for run in history.json()["runs"]
         )
+
+
+def test_e2e_rejected_shield_stays_out_of_plm_and_keeps_raw_nc_name(tmp_path: Path) -> None:
+    root = _runtime_root(tmp_path)
+    with TestClient(create_app(root), base_url=BASE_URL) as client:
+        headers = _mutation_headers(client)
+        upload = client.post(
+            "/api/v1/upload",
+            files={"files": ("source.xlsx", _source_bom(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+            headers=headers,
+        )
+        assert upload.status_code == 200, upload.text
+        params: dict[str, object] = {
+            "source_bom": upload.json()["files"][0]["path"],
+            "formats": ["plm"],
+            "parent_code": "203010100819",
+            "parent_desc": "E2E board",
+            "name": "E2E_REJECT_SH",
+        }
+
+        shield_review = client.post("/api/v1/tools/bom_process/run", json=params, headers=headers)
+        assert shield_review.json()["reason"] == "shield_bracket_candidates"
+
+        params["confirm_shields"] = False
+        conflict_review = client.post("/api/v1/tools/bom_process/run", json=params, headers=headers)
+        conflict = conflict_review.json()["conflicts"][0]
+        params["merge_conflicts"] = True
+        params["conflict_choices"] = {"P1": conflict["recommended_index"]}
+        completed = client.post("/api/v1/tools/bom_process/run", json=params, headers=headers)
+        assert completed.status_code == 200, completed.text
+        result = completed.json()
+        assert result["status"] == "ok"
+
+        plm_path = next(Path(path) for path in result["outputs"] if path.endswith("_PLM_BOM.xlsx"))
+        nc_path = next(Path(path) for path in result["outputs"] if path.endswith("_NC未贴汇总.xlsx"))
+        plm = load_workbook(plm_path, data_only=True)
+        nc = load_workbook(nc_path, data_only=True)
+        try:
+            plm_refs = [str(row[8] or "") for row in plm.active.iter_rows(min_row=3, values_only=True)]
+            nc_rows = list(nc.active.iter_rows(min_row=2, values_only=True))
+        finally:
+            plm.close()
+            nc.close()
+
+        assert all("SH1" not in refs for refs in plm_refs)
+        shield_nc = next(row for row in nc_rows if row[2] == "SH-PN")
+        assert shield_nc[1] == "SH1"
+        assert shield_nc[3] == "Shield bracket"

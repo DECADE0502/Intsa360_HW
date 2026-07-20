@@ -620,6 +620,34 @@ class BomProcessConflictTests(unittest.TestCase):
             self.assertEqual(result["shield_candidates"][0]["refs"], ["SH1"])
             self.assertEqual(result["shield_candidates"][0]["code"], "SH-PN")
 
+    def test_shield_confirmation_precedes_conflict_prompt_for_same_code(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["Reference", "Part Number", "Value", "Model", "Description", "Name"])
+            ws.append(["SH1", "P-SHARED", "SHIELD", "BRACKET-A", "Shield bracket", "屏蔽支架"])
+            ws.append(["R1", "P-SHARED", "10K", "R0402", "Chip resistor", "电阻"])
+            wb.save(source)
+            params: dict[str, object] = {
+                "source_bom": str(source),
+                "formats": ["plm"],
+                "parent_code": "203010100819",
+                "name": "TEST",
+            }
+
+            shield_review = run_bom_process(root, params)
+            params["confirm_shields"] = True
+            conflict_review = run_bom_process(root, params)
+
+        self.assertEqual(shield_review["status"], "needs_confirmation")
+        self.assertEqual(shield_review["reason"], "shield_bracket_candidates")
+        self.assertNotIn("conflicts", shield_review)
+        self.assertEqual(conflict_review["status"], "needs_confirmation")
+        self.assertEqual(conflict_review["reason"], "part_property_conflicts")
+        self.assertEqual(conflict_review["conflicts"][0]["code"], "P-SHARED")
+
     def test_confirmed_sh_shield_brackets_enter_final_bom_not_nc_summary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
