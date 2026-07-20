@@ -239,7 +239,7 @@ def _run_recover(install_root: Path, state_root: Path, job_id: str) -> subproces
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="PowerShell lifecycle recovery")
-def test_recover_with_missing_protected_job_exits_zero(tmp_path: Path) -> None:
+def test_recovery_fails_loudly_when_journal_is_missing(tmp_path: Path) -> None:
     install_root = tmp_path / "HWAgent"
     state_root = tmp_path / "state"
     install_root.mkdir()
@@ -248,9 +248,9 @@ def test_recover_with_missing_protected_job_exits_zero(tmp_path: Path) -> None:
 
     result = _run_recover(install_root, state_root, job_id)
 
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "already completed by a concurrent recoverer" in result.stdout
-    assert "recovery_outcome=already_recovered" in result.stdout
+    assert result.returncode != 0
+    assert "Protected lifecycle recovery metadata is missing" in result.stdout + result.stderr
+    assert "already completed by a concurrent recoverer" not in result.stdout
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="PowerShell lifecycle recovery")

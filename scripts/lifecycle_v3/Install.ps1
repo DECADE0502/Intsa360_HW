@@ -442,6 +442,7 @@ try {
     throw "Upgrade action requires a newer version; use Repair or Reinstall for the same version."
   }
   if ($Action -in @("Repair", "Reinstall") -and $oldManifestMissing) {
+    $Action = "Reinstall"
     Write-SetupLog ("rebuilding missing active runtime with action " + $Action)
   } elseif ($Action -in @("Repair", "Reinstall") -and $hasKnownVersion -and $versionComparison -ne 0) {
     throw "$Action requires the setup package to match the installed version."

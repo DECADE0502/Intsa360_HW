@@ -213,7 +213,7 @@ class SetupLifecycleV3Tests(unittest.TestCase):
             self.assertEqual((install_root / "Insta360_HW.exe").read_bytes(), b"launcher-v1")
             self.assertTrue((install_root / metadata["active_runtime"] / "app/backend/suite_app.py").is_file())
 
-    def test_repair_rebuilds_when_active_runtime_directory_is_missing(self) -> None:
+    def test_repair_rebuilds_when_registry_version_matches_but_runtime_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             install_root, state_root, payload = base / "install", base / "state", base / "payload"
@@ -227,6 +227,8 @@ class SetupLifecycleV3Tests(unittest.TestCase):
             repaired = _run_install(install_root, state_root, payload, "Repair")
 
             self.assertEqual(repaired.returncode, 0, repaired.stdout + repaired.stderr)
+            install_log = (state_root / "logs" / "install_latest.log").read_text(encoding="utf-8-sig")
+            self.assertIn("rebuilding missing active runtime with action Reinstall", install_log)
             rebuilt = json.loads((install_root / "installation.json").read_text(encoding="utf-8-sig"))
             self.assertEqual(rebuilt["active_runtime"], f"runtime/1.2.3+{revision}")
             self.assertTrue((install_root / rebuilt["active_runtime"] / "app/backend/suite_app.py").is_file())

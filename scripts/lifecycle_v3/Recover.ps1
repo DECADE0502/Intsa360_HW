@@ -98,6 +98,8 @@ try {
               [string]$existingJournal.phase -notin @("completed", "rolled_back")) {
             throw "Protected lifecycle recovery metadata is missing for an unfinished transaction."
           }
+        } else {
+          throw "Protected lifecycle recovery metadata is missing."
         }
         [void](Clear-HwV3RecoveryTask)
         Write-Host ("recovery job {0} already completed by a concurrent recoverer" -f $recoveryJobId)
