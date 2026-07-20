@@ -214,6 +214,39 @@ def test_signing_key_verification_accepts_only_the_trusted_pair(tmp_path: Path) 
         release_tool.verify_signing_key(wrong_private, public_key)
 
 
+def test_release_verifier_accepts_equivalent_pem_with_different_line_endings(tmp_path: Path) -> None:
+    release_tool = _load_release_tool()
+    version = "0.4.7"
+    revision = "a" * 40
+    private_key = tmp_path / "keys" / "private.pem"
+    public_key = tmp_path / "keys" / "public-lf.pem"
+    _write_key_pair(private_key, public_key)
+    runtime = tmp_path / "runtime"
+    _write_runtime(runtime, public_key, version, revision)
+    setup = tmp_path / "Insta360_HW_Setup.exe"
+    setup.write_bytes(b"setup")
+    bundle = tmp_path / "bundle"
+    release_tool.build_bundle(
+        runtime_root=runtime,
+        setup_path=setup,
+        output_dir=bundle,
+        private_key_path=private_key,
+        public_key_path=public_key,
+        version=version,
+        revision=revision,
+        repository="DECADE0502/Intsa360_HW",
+        notice={"highlights": ["line ending test"]},
+        published_at=datetime(2026, 7, 20, tzinfo=timezone.utc),
+        source_date_epoch=1_784_524_800,
+    )
+    crlf_key = tmp_path / "keys" / "public-crlf.pem"
+    crlf_key.write_bytes(public_key.read_bytes().replace(b"\n", b"\r\n"))
+
+    verified = release_tool.verify_bundle(bundle, crlf_key, version, revision)
+
+    assert verified["version"] == version
+
+
 def test_release_entrypoint_treats_key_generation_as_bootstrap_only() -> None:
     script = (ROOT / "scripts" / "build_release_bundle.ps1").read_text(encoding="utf-8")
 

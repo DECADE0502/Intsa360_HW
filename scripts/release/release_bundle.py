@@ -475,14 +475,10 @@ def verify_bundle(
         safe_extract(bundle / runtime_name, extracted)
         validate_payload(extracted, manifest)
         _assert_no_python_cache_artifacts(extracted)
-        extracted_anchor = (extracted / "config" / "update_public_key.pem").read_bytes()
-        trusted_anchor = public_key_path.read_bytes()
-        if extracted_anchor != trusted_anchor:
-            raise ValueError(
-                "runtime trust anchor bytes do not match the release public key "
-                f"(runtime={hashlib.sha256(extracted_anchor).hexdigest()}, "
-                f"trusted={hashlib.sha256(trusted_anchor).hexdigest()})"
-            )
+        extracted_anchor = _load_public_key(extracted / "config" / "update_public_key.pem")
+        trusted_anchor = _load_public_key(public_key_path)
+        if _public_der(extracted_anchor) != _public_der(trusted_anchor):
+            raise ValueError("runtime trust anchor does not match the release public key (DER identity)")
     return {
         "version": manifest.version,
         "revision": manifest.revision.lower(),

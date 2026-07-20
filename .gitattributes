@@ -1,0 +1,2 @@
+*.pem binary
+config/*.json text eol=lf

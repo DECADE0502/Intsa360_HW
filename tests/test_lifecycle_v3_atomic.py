@@ -138,6 +138,7 @@ def _signed_manifest() -> tuple[dict[str, object], Ed25519PrivateKey]:
 
 def _public_key_file(tmp_path: Path, private_key: Ed25519PrivateKey) -> Path:
     path = tmp_path / "update_public_key.pem"
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(
         private_key.public_key().public_bytes(
             encoding=serialization.Encoding.PEM,
@@ -145,6 +146,17 @@ def _public_key_file(tmp_path: Path, private_key: Ed25519PrivateKey) -> Path:
         )
     )
     return path
+
+
+def test_trust_anchor_identity_accepts_lf_and_crlf_but_rejects_another_key(tmp_path: Path) -> None:
+    trusted_private = Ed25519PrivateKey.generate()
+    trusted_lf = _public_key_file(tmp_path / "trusted", trusted_private)
+    trusted_crlf = tmp_path / "trusted-crlf.pem"
+    trusted_crlf.write_bytes(trusted_lf.read_bytes().replace(b"\n", b"\r\n"))
+    other_key = _public_key_file(tmp_path / "other", Ed25519PrivateKey.generate())
+
+    assert lifecycle_v3._trust_anchors_match(trusted_lf, trusted_crlf)
+    assert not lifecycle_v3._trust_anchors_match(trusted_lf, other_key)
 
 
 def _prepare_layout(tmp_path: Path) -> tuple[Path, Path, Path, Path]:

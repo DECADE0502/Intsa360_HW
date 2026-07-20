@@ -12,6 +12,9 @@ from urllib.error import HTTPError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
 from app.backend.config import load_config
 from app.backend.contracts.releases import ReleaseManifestV3
 from app.backend.lifecycle_v3_archive import (
@@ -81,6 +84,20 @@ def _manifest_url(root: Path) -> str:
 
 def _public_key_path(root: Path) -> Path:
     return root / "config" / "update_public_key.pem"
+
+
+def _trust_anchor_identity(path: Path) -> bytes:
+    try:
+        key = serialization.load_pem_public_key(path.read_bytes())
+    except (OSError, ValueError, TypeError) as exc:
+        raise ValueError(f"update trust anchor is invalid: {path}") from exc
+    if not isinstance(key, Ed25519PublicKey):
+        raise ValueError(f"update trust anchor must be Ed25519: {path}")
+    return key.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+
+
+def _trust_anchors_match(first: Path, second: Path) -> bool:
+    return _trust_anchor_identity(first) == _trust_anchor_identity(second)
 
 
 def _fetch_manifest(root: Path) -> tuple[ReleaseManifestV3, dict[str, object]]:
@@ -250,7 +267,7 @@ def _prepare_update(root: Path, job_id: str, manifest: ReleaseManifestV3) -> Non
         _validate_payload(stage, manifest)
         current_key = _public_key_path(root)
         candidate_key = stage / "config" / "update_public_key.pem"
-        if candidate_key.read_bytes() != current_key.read_bytes():
+        if not _trust_anchors_match(candidate_key, current_key):
             raise ValueError("candidate runtime attempts to replace the update trust anchor")
         tree_sha256 = _runtime_tree_sha256(stage)
         with _ACTIVE_LOCK:
