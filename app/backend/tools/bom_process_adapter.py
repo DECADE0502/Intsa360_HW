@@ -10,6 +10,19 @@ from app.backend.tools.common import (
     _timestamp,
     _user_error,
 )
+
+
+def _find_plm_template(root: Path) -> Path | None:
+    filename = "203010100819_ERP_BOM导入模板.xlsx"
+    for candidate in (
+        root / "tools" / "bom" / "templates" / filename,
+        root / "templates" / filename,
+    ):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def _run_bom_process_impl(root: Path, params: dict[str, object]) -> dict[str, object]:
     from app.backend.tools import bom_process
 
@@ -22,8 +35,9 @@ def _run_bom_process_impl(root: Path, params: dict[str, object]) -> dict[str, ob
     formats = [f for f in formats if f in ("plm", "oa")] or ["plm"]
     extras = params.get("extras") if isinstance(params.get("extras"), list) else []
     out_dir = _output_dir(params, root, "bom")
-    template = next(root.rglob("203010100819_ERP_BOM导入模板.xlsx"), None)
-    source_rows_for_checks, _ = bom_process.load_source(source, include_shields=True)
+    template = _find_plm_template(root)
+    parsed = bom_process.parse_source(source)
+    source_rows_for_checks, _ = bom_process.filter_rows(parsed, include_shields=True)
     shield_candidates = bom_process.detect_shield_candidates(source_rows_for_checks)
     if shield_candidates and "confirm_shields" not in params:
         return {
@@ -36,7 +50,7 @@ def _run_bom_process_impl(root: Path, params: dict[str, object]) -> dict[str, ob
             "summary": {"shield_candidates": len(shield_candidates)},
         }
     confirm_shields = bool(params.get("confirm_shields"))
-    source_rows, _ = bom_process.load_source(source, include_shields=confirm_shields)
+    source_rows, _ = bom_process.filter_rows(parsed, include_shields=confirm_shields)
     conflicts = bom_process.conflict_summary(source_rows)
     if conflicts and "merge_conflicts" not in params:
         return {
@@ -74,7 +88,7 @@ def _run_bom_process_impl(root: Path, params: dict[str, object]) -> dict[str, ob
             },
         }
     result = bom_process.process(
-        source,
+        parsed,
         formats,
         str(params.get("parent_code") or ""),
         str(params.get("parent_desc") or ""),

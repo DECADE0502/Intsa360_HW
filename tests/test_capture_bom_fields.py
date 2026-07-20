@@ -171,7 +171,8 @@ class CaptureBomFieldTests(unittest.TestCase):
             ws.append([2, 1, "C1", "PN-002", "1uF", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "0603", "Capacitor"])
             wb.save(source)
 
-            result = bom_process.process(source, ["plm"], "PARENT", "Parent desc", "TEST", [], tmp_path, "STAMP")
+            parsed = bom_process.parse_source(source)
+            result = bom_process.process(parsed, ["plm"], "PARENT", "Parent desc", "TEST", [], tmp_path, "STAMP")
             wb = load_workbook(result["outputs"][0], read_only=True, data_only=True)
             ws = wb.active
             headers = [ws.cell(2, col).value for col in range(1, ws.max_column + 1)]
@@ -201,7 +202,8 @@ class CaptureBomFieldTests(unittest.TestCase):
             ws.append([1, 1, "R1", "PN-001", "10K"])
             wb.save(source)
 
-            result = bom_process.process(source, ["plm"], "PARENT", "Parent desc", "BAD?NAME", [], tmp_path, "STAMP?")
+            parsed = bom_process.parse_source(source)
+            result = bom_process.process(parsed, ["plm"], "PARENT", "Parent desc", "BAD?NAME", [], tmp_path, "STAMP?")
 
             self.assertTrue(Path(result["outputs"][0]).exists())
             self.assertNotIn("?", Path(result["outputs"][0]).name)

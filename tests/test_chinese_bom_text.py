@@ -57,7 +57,8 @@ class ChineseBomTextTests(unittest.TestCase):
             ws.append([2, 1, "TP1", "PN-TP", "TP", "TP", "测试点", "测试点", "正常"])
             wb.save(source)
 
-            result = bom_process.process(source, ["plm"], "PARENT", "Parent desc", "TEST", [], tmp_path, "STAMP")
+            parsed = bom_process.parse_source(source)
+            result = bom_process.process(parsed, ["plm"], "PARENT", "Parent desc", "TEST", [], tmp_path, "STAMP")
 
             self.assertEqual(Path(result["nc_summary"]).name, "TEST_STAMP_NC未贴汇总.xlsx")
             self.assertEqual(Path(result["outputs"][0]).name, "TEST_STAMP_PLM_BOM.xlsx")

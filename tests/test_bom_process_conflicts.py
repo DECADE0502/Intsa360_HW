@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from openpyxl import Workbook, load_workbook
 
@@ -36,6 +37,57 @@ def make_source(path: Path) -> None:
 
 
 class BomProcessConflictTests(unittest.TestCase):
+    def test_parsed_source_can_filter_shields_without_reopening_workbook(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["Reference", "Part Number", "Value", "物料名称"])
+            ws.append(["R1", "P1", "10K", "电阻"])
+            ws.append(["SH1", "SH-PN", "SHIELD", "屏蔽支架"])
+            wb.save(source)
+
+            parsed = bom_process.parse_source(source)
+            with mock.patch.object(
+                bom_process,
+                "open_bom_workbook",
+                wraps=bom_process.open_bom_workbook,
+            ) as opener:
+                without_shields, excluded = bom_process.filter_rows(parsed, include_shields=False)
+                with_shields, _ = bom_process.filter_rows(parsed, include_shields=True)
+
+            self.assertEqual(opener.call_count, 0)
+            self.assertEqual([row["part_number"] for row in without_shields], ["P1"])
+            self.assertEqual([row["part_number"] for row in with_shields], ["P1", "SH-PN"])
+            self.assertEqual(excluded[0][1], "SH1")
+
+    def test_complete_bom_process_opens_source_workbook_once(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source.xlsx"
+            make_source(source)
+
+            with mock.patch.object(
+                bom_process,
+                "open_bom_workbook",
+                wraps=bom_process.open_bom_workbook,
+            ) as opener:
+                result = run_bom_process(
+                    root,
+                    {
+                        "source_bom": str(source),
+                        "formats": ["plm", "oa"],
+                        "parent_code": "203010100819",
+                        "name": "TEST",
+                        "confirm_shields": False,
+                        "merge_conflicts": True,
+                        "conflict_choices": {"P1": 1},
+                    },
+                )
+
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(opener.call_count, 1)
+
     def test_jumper_resistor_description_is_not_excluded(self) -> None:
         row = {
             "part_number": "R.001",
@@ -211,9 +263,10 @@ class BomProcessConflictTests(unittest.TestCase):
             tmp_path = Path(tmp)
             source = tmp_path / "source.xlsx"
             make_source(source)
+            parsed = bom_process.parse_source(source)
 
             result = bom_process.process(
-                source,
+                parsed,
                 ["plm"],
                 "203010100819",
                 "",
@@ -300,7 +353,8 @@ class BomProcessConflictTests(unittest.TestCase):
         expectations = json.loads((FIXTURES / "expected_recommendations.json").read_text(encoding="utf-8"))
         with tempfile.TemporaryDirectory() as tmp:
             source = build_capture_bom(Path(tmp) / "conflicts.xlsx", "known_conflicts")
-            records = bom_process.build_records(source, merge_conflicts=True)
+            parsed = bom_process.parse_source(source)
+            records = bom_process.build_records(parsed, merge_conflicts=True)
 
         by_code: dict[str, list[dict[str, object]]] = {}
         for record in records:
@@ -329,9 +383,10 @@ class BomProcessConflictTests(unittest.TestCase):
             ws.append(["R2", "P1", "", "D1", "RESISTOR", "优选", "ea"])
             wb.save(source)
 
-            rows, _ = bom_process.load_source(source)
+            parsed = bom_process.parse_source(source)
+            rows, _ = bom_process.filter_rows(parsed)
             conflict = bom_process.detect_part_conflicts(rows)[0]
-            records = bom_process.build_records(source, merge_conflicts=True)
+            records = bom_process.build_records(parsed, merge_conflicts=True)
 
         self.assertEqual(conflict["confidence"], "low")
         self.assertEqual(conflict["reason"], "complementary_incomplete_candidates")
@@ -351,9 +406,10 @@ class BomProcessConflictTests(unittest.TestCase):
             ws.append(["R2", "P1", "M1", "D1", "RESISTOR", "优选", "ea"])
             wb.save(source)
 
-            rows, _ = bom_process.load_source(source)
+            parsed = bom_process.parse_source(source)
+            rows, _ = bom_process.filter_rows(parsed)
             conflict = bom_process.detect_part_conflicts(rows)[0]
-            records = bom_process.build_records(source, merge_conflicts=True)
+            records = bom_process.build_records(parsed, merge_conflicts=True)
 
         self.assertEqual(conflict["confidence"], "high")
         self.assertEqual(conflict["reason"], "blank_completion")
@@ -460,9 +516,10 @@ class BomProcessConflictTests(unittest.TestCase):
             ws.append(["R1", "P1", "M1", "D1", "RESISTOR", "优选", "ea"])
             ws.append(["R2", "P1", "M1", "D1", "RESISTOR", "优选", "pcs"])
             wb.save(source)
+            parsed = bom_process.parse_source(source)
 
             records = bom_process.build_records(
-                source,
+                parsed,
                 merge_conflicts=True,
                 conflict_choices={"P1": 1},
             )
@@ -475,9 +532,10 @@ class BomProcessConflictTests(unittest.TestCase):
             tmp_path = Path(tmp)
             source = tmp_path / "source.xlsx"
             make_source(source)
+            parsed = bom_process.parse_source(source)
 
             result = bom_process.process(
-                source,
+                parsed,
                 ["plm"],
                 "203010100819",
                 "",
@@ -501,9 +559,10 @@ class BomProcessConflictTests(unittest.TestCase):
             tmp_path = Path(tmp)
             source = tmp_path / "source.xlsx"
             make_source(source)
+            parsed = bom_process.parse_source(source)
 
             result = bom_process.process(
-                source,
+                parsed,
                 ["plm"],
                 "203010100819",
                 "",
@@ -554,9 +613,10 @@ class BomProcessConflictTests(unittest.TestCase):
             ws.append(["Item", "Quantity", "Reference", "Part Number", "Value", "规格型号", "器件描述（新整理）", "物料名称", "等级"])
             ws.append([1, 1, "SH1", "SH-PN", "SHIELD", "shield bracket", "屏蔽支架", "屏蔽支架", "正常"])
             wb.save(source)
+            parsed = bom_process.parse_source(source)
 
             result = bom_process.process(
-                source,
+                parsed,
                 ["plm"],
                 "203010100819",
                 "",
@@ -608,9 +668,10 @@ class BomProcessConflictTests(unittest.TestCase):
             ws.append(["Item", "Quantity", "Reference", "Part Number", "Value", "Model", "Description", "Name"])
             ws.append([1, 1, "SH1", "SH-PN", "NC", "shield bracket", "shield bracket", "shield bracket"])
             wb.save(source)
+            parsed = bom_process.parse_source(source)
 
             result = bom_process.process(
-                source,
+                parsed,
                 ["plm"],
                 "203010100819",
                 "",
@@ -643,9 +704,10 @@ class BomProcessConflictTests(unittest.TestCase):
             ws.append([3, 1, "R3", "P-NC-DASH", "NC-keep", "M3", "dash should stay", "Resistor"])
             ws.append([4, 1, "R4", "P-NC-EXACT", "NC", "M4", "exact nc", "Resistor"])
             wb.save(source)
+            parsed = bom_process.parse_source(source)
 
             result = bom_process.process(
-                source,
+                parsed,
                 ["plm"],
                 "203010100819",
                 "",

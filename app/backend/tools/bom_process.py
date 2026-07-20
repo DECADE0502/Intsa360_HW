@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter, OrderedDict
+from dataclasses import dataclass
 from pathlib import Path
 
 from app.backend.capture_fields import BOM_OPTIONAL_FIELDS, FIELD_DEFAULTS, PLM_TEMPLATE_HEADERS
@@ -68,6 +69,13 @@ def _looks_numeric(value: str) -> bool:
     """Return whether a value is a numeric component specification."""
     return bool(_NUMERIC_VALUE_RE.fullmatch(value.strip()))
 GRADE_RANK = {"优选": 5, "正常": 4, "限选": 3, "验证中": 2, "": 0}
+
+
+@dataclass(frozen=True)
+class ParsedSource:
+    source_path: Path
+    raw_rows: list[dict[str, str]]
+    row_numbers: list[int]
 
 
 def normalize_ref(ref: str) -> str:
@@ -162,13 +170,13 @@ def exclusion_reason(row: dict[str, str], refs: list[str], include_shields: bool
     return None
 
 
-def load_source(path: Path, include_shields: bool = False) -> tuple[list[dict[str, str]], list[list[object]]]:
+def parse_source(path: Path) -> ParsedSource:
     with open_bom_workbook(path, data_only=True) as wb:
         ws = wb.active
         merged_lookup = build_merged_cell_lookup(ws)
         header_row, mapping = detect_header(ws)
         rows: list[dict[str, str]] = []
-        excluded: list[list[object]] = []
+        row_numbers: list[int] = []
         for row_num in range(header_row + 1, ws.max_row + 1):
             row = {key: _cell(ws, row_num, mapping, key, merged_lookup) for key in SRC_ALIASES}
             if not row.get("name"):
@@ -181,13 +189,38 @@ def load_source(path: Path, include_shields: bool = False) -> tuple[list[dict[st
                 continue
             refs = [normalize_ref(r) for r in split_refs(row.get("reference"))]
             _normalize_shield_row(row, refs)
-            reason = exclusion_reason(row, refs, include_shields=include_shields)
-            if reason:
-                excluded.append([row_num, ",".join(refs), row.get("part_number"), row.get("name"),
-                                 row.get("model"), row.get("desc"), row.get("value"), reason])
-                continue
             rows.append(row)
-        return rows, excluded
+            row_numbers.append(row_num)
+        return ParsedSource(source_path=Path(path), raw_rows=rows, row_numbers=row_numbers)
+
+
+def filter_rows(
+    parsed: ParsedSource,
+    include_shields: bool = False,
+) -> tuple[list[dict[str, str]], list[list[object]]]:
+    rows: list[dict[str, str]] = []
+    excluded: list[list[object]] = []
+    for row_num, row in zip(parsed.row_numbers, parsed.raw_rows):
+        refs = [normalize_ref(r) for r in split_refs(row.get("reference"))]
+        reason = exclusion_reason(row, refs, include_shields=include_shields)
+        if reason:
+            excluded.append([
+                row_num,
+                ",".join(refs),
+                row.get("part_number"),
+                row.get("name"),
+                row.get("model"),
+                row.get("desc"),
+                row.get("value"),
+                reason,
+            ])
+            continue
+        rows.append(row)
+    return rows, excluded
+
+
+def load_source(path: Path, include_shields: bool = False) -> tuple[list[dict[str, str]], list[list[object]]]:
+    return filter_rows(parse_source(path), include_shields=include_shields)
 
 
 def detect_shield_candidates(source_rows: list[dict[str, str]]) -> list[dict[str, object]]:
@@ -448,13 +481,13 @@ def unresolved_part_conflicts(
 
 
 def build_records(
-    path: Path,
+    parsed: ParsedSource,
     merge_conflicts: bool = False,
     conflict_choices: dict[str, object] | None = None,
     include_shields: bool = False,
 ) -> list[dict[str, object]]:
     groups: "OrderedDict[tuple, dict[str, object]]" = OrderedDict()
-    source_rows, _ = load_source(path, include_shields=include_shields)
+    source_rows, _ = filter_rows(parsed, include_shields=include_shields)
     conflicts_by_code = {str(conflict["code"]): conflict for conflict in detect_part_conflicts(source_rows)}
     selected_by_code: dict[str, tuple[str, str, str, str, str]] = {}
     if merge_conflicts:
@@ -687,7 +720,7 @@ def write_nc_summary(path: Path, excluded: list[list[object]], name: str) -> Non
 
 
 def process(
-    source_path: Path,
+    parsed: ParsedSource,
     formats: list[str],
     parent_code: str,
     parent_desc: str,
@@ -700,13 +733,14 @@ def process(
     conflict_choices: dict[str, object] | None = None,
     confirm_shields: bool = False,
 ) -> dict[str, object]:
+    source_path = parsed.source_path
     name = (name or source_path.stem).strip() or "BOM"
     parent_code = (parent_code or "").strip()
     parent_desc = (parent_desc or name).strip()
 
-    source_rows_for_checks, _ = load_source(source_path, include_shields=True)
+    source_rows_for_checks, _ = filter_rows(parsed, include_shields=True)
     shield_candidates = detect_shield_candidates(source_rows_for_checks)
-    source_rows, excluded = load_source(source_path, include_shields=confirm_shields)
+    source_rows, excluded = filter_rows(parsed, include_shields=confirm_shields)
     conflicts = detect_part_conflicts(source_rows)
     unresolved_conflicts = (
         unresolved_part_conflicts(source_rows, conflict_choices)
@@ -714,7 +748,7 @@ def process(
         else []
     )
     records = _extra_records(extras) + build_records(
-        source_path,
+        parsed,
         merge_conflicts=merge_conflicts,
         conflict_choices=conflict_choices,
         include_shields=confirm_shields,
