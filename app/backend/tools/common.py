@@ -64,19 +64,22 @@ def _write_table(path: Path, title: str, headers: list[str], rows: list[list[obj
     from openpyxl.styles import Font, PatternFill
 
     wb = Workbook()
-    ws = wb.active
-    ws.title = title[:31]
-    ws.append(headers)
-    for row in rows:
-        ws.append(row)
-    header_fill = PatternFill("solid", fgColor="D9EAF7")
-    for cell in ws[1]:
-        cell.font = Font(bold=True)
-        cell.fill = header_fill
-    for column in ws.columns:
-        width = min(max(len(str(cell.value or "")) for cell in column) + 2, 60)
-        ws.column_dimensions[column[0].column_letter].width = width
-    wb.save(path)
+    try:
+        ws = wb.active
+        ws.title = title[:31]
+        ws.append(headers)
+        for row in rows:
+            ws.append(row)
+        header_fill = PatternFill("solid", fgColor="D9EAF7")
+        for cell in ws[1]:
+            cell.font = Font(bold=True)
+            cell.fill = header_fill
+        for column in ws.columns:
+            width = min(max(len(str(cell.value or "")) for cell in column) + 2, 60)
+            ws.column_dimensions[column[0].column_letter].width = width
+        wb.save(path)
+    finally:
+        wb.close()
 
 
 MAX_INLINE_ROWS = 5000
@@ -133,20 +136,23 @@ def _write_sheets(path: Path, sheets: list[tuple[str, list[str], list[list[objec
     from openpyxl.styles import Font, PatternFill
 
     wb = Workbook()
-    header_fill = PatternFill("solid", fgColor="D9EAF7")
-    for index, (title, headers, rows) in enumerate(sheets):
-        ws = wb.active if index == 0 else wb.create_sheet()
-        ws.title = title[:31]
-        ws.append(headers)
-        for row in rows:
-            ws.append(row)
-        for cell in ws[1]:
-            cell.font = Font(bold=True)
-            cell.fill = header_fill
-        for column in ws.columns:
-            width = min(max(len(str(cell.value or "")) for cell in column) + 2, 60)
-            ws.column_dimensions[column[0].column_letter].width = width
-    wb.save(path)
+    try:
+        header_fill = PatternFill("solid", fgColor="D9EAF7")
+        for index, (title, headers, rows) in enumerate(sheets):
+            ws = wb.active if index == 0 else wb.create_sheet()
+            ws.title = title[:31]
+            ws.append(headers)
+            for row in rows:
+                ws.append(row)
+            for cell in ws[1]:
+                cell.font = Font(bold=True)
+                cell.fill = header_fill
+            for column in ws.columns:
+                width = min(max(len(str(cell.value or "")) for cell in column) + 2, 60)
+                ws.column_dimensions[column[0].column_letter].width = width
+        wb.save(path)
+    finally:
+        wb.close()
 
 
 def _result(
