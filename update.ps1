@@ -1,3 +1,4 @@
+﻿# 遗留开发脚本，不支持 v3 安装布局，日常请勿使用。
 param([switch]$OpenPlatform)
 
 $ErrorActionPreference = "Stop"

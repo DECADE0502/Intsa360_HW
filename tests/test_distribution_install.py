@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -545,16 +546,58 @@ class DistributionLifecycleV2Tests(unittest.TestCase):
             self.assertNotIn("exit $LASTEXITCODE", text, name)
             self.assertIn("exit 0", text, name)
 
-    def test_source_lifecycle_wrappers_dispatch_only_to_v3(self) -> None:
+    def test_source_install_wrapper_dispatches_only_to_v3(self) -> None:
         installer = (ROOT / "install.ps1").read_text(encoding="utf-8-sig")
-        uninstaller = (ROOT / "uninstall.ps1").read_text(encoding="utf-8-sig")
 
         self.assertIn(r"scripts\lifecycle_v3\Install.ps1", installer)
         self.assertIn("PayloadRoot", installer)
         self.assertNotIn(r"scripts\lifecycle\Install.ps1", installer)
+
+    def test_root_uninstall_wrapper_dispatches_to_standard_uninstaller(self) -> None:
+        uninstaller = (ROOT / "uninstall.ps1").read_text(encoding="utf-8-sig")
+
         self.assertIn('[string]$Mode = "PurgeData"', uninstaller)
-        self.assertIn(r"scripts\lifecycle_v3\Uninstall.ps1", uninstaller)
+        self.assertIn("unins000.exe", uninstaller)
+        self.assertIn("/PRESERVEDATA", uninstaller)
+        self.assertIn("/PURGEDATA", uninstaller)
+        self.assertIn("Start-Process", uninstaller)
+        self.assertNotIn(r"scripts\lifecycle_v3\Uninstall.ps1", uninstaller)
         self.assertNotIn(r"scripts\lifecycle\Uninstall.ps1", uninstaller)
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows PowerShell only")
+    def test_root_uninstall_wrapper_dry_run_prints_official_command(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            install_dir = Path(tmp) / "HWAgent"
+            install_dir.mkdir()
+            (install_dir / "unins000.exe").write_bytes(b"not executed during dry run")
+            script = ROOT / "uninstall.ps1"
+
+            for mode, expected in (("PreserveData", "/PRESERVEDATA"), ("PurgeData", "/PURGEDATA")):
+                with self.subTest(mode=mode):
+                    result = subprocess.run(
+                        [
+                            "powershell.exe",
+                            "-NoProfile",
+                            "-ExecutionPolicy",
+                            "Bypass",
+                            "-File",
+                            str(script),
+                            "-Mode",
+                            mode,
+                            "-InstallDir",
+                            str(install_dir),
+                            "-DryRun",
+                        ],
+                        capture_output=True,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                        timeout=30,
+                    )
+
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn("unins000.exe", result.stdout)
+                    self.assertIn(expected, result.stdout)
 
     def test_release_root_exposes_only_the_main_application_entry(self) -> None:
         builder = (ROOT / "scripts" / "build_release.ps1").read_text(encoding="utf-8")

@@ -1,48 +1,46 @@
 # Insta360 硬件提效平台卸载指南
 
-## 卸载入口
+## 标准卸载入口
 
-平台**不提供** Web 界面卸载按钮（避免 Web 服务自删的踩坑）。三种卸载方式：
+平台的完整卸载统一由 Inno Setup 官方卸载器 `unins000.exe` 执行。可以从以下任一入口启动，它们使用同一套卸载逻辑：
 
-### 1. Windows 设置 → 应用 → Insta360_HW → 卸载（推荐）
+- Windows 设置 → 应用 → 已安装的应用 → Insta360硬件提效平台 → 卸载（推荐）。
+- 开始菜单中的卸载快捷方式。
+- 再次运行 `Insta360_HW_Setup.exe`，在维护页选择卸载。
+- Geek Uninstaller 等标准软件管理工具中的平台卸载条目。
 
-弹出「保留 / 完全清除」对话框：
+交互卸载时会询问是否保留用户数据：
 
-- **是（保留数据）** = 保留 `data\`、`config\local.json`、`plugins\user\`，并把它们备份到 `%LOCALAPPDATA%\Insta360_HW\keep_data\<时间戳>\`。
-- **否（完全清除）** = 完全清除 `<install_root>` 与 `%LOCALAPPDATA%\Insta360_HW\` 下的所有内容，包括之前保留的 `keep_data`。
+- **保留数据**：删除程序、Cadence 集成和平台运行状态，业务数据仍原地保留在 `%LOCALAPPDATA%\Insta360_HW`。
+- **完全清除**：删除程序、Cadence 集成以及 `%LOCALAPPDATA%\Insta360_HW` 中的历史、配置和用户插件。此操作无法撤销。
 
-### 2. 平台前端 → 「移除 Cadence 集成」
+## 命令行卸载
 
-**仅移除** OrCAD Capture 菜单集成，不停止平台服务，不删除数据：
-
-- 会删除 `%USERPROFILE%\cdssetup\OrCAD_Capture\tclscripts\capAutoLoad\` 下由平台部署的 Tcl 脚本。
-- 之前为了避让冲突而被禁用的 vendor 脚本（`_disabled_custom_scripts_*`）会被还原到 auto-load 目录。
-- 重启 OrCAD Capture 后，`insta360_HW` 菜单消失，原有第三方菜单恢复。
-
-### 3. 命令行
+根目录 `uninstall.ps1` 只负责定位并调用官方 `unins000.exe`，不会用另一套脚本直接删文件。
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\uninstall.ps1 -Mode Detach -InstallDir "C:\Program Files\Insta360\HWAgent"          # 保留数据
-powershell -ExecutionPolicy Bypass -File .\uninstall.ps1 -Mode Full   -InstallDir "C:\Program Files\Insta360\HWAgent" -Force   # 完全清除
+# 保留 %LOCALAPPDATA%\Insta360_HW 中的业务数据
+powershell -ExecutionPolicy Bypass -File .\uninstall.ps1 -Mode PreserveData
+
+# 完全清除程序和用户数据
+powershell -ExecutionPolicy Bypass -File .\uninstall.ps1 -Mode PurgeData
+
+# 自定义安装目录时显式指定路径
+powershell -ExecutionPolicy Bypass -File .\uninstall.ps1 -Mode PreserveData -InstallDir "D:\Apps\Insta360\HWAgent"
+
+# 只打印将要执行的官方卸载命令，不执行
+powershell -ExecutionPolicy Bypass -File .\uninstall.ps1 -Mode PreserveData -DryRun
 ```
 
-- `-Mode Detach`：等价于「保留数据」，会生成 `keep_data\<时间戳>\` 备份。
-- `-Mode Full -Force`：等价于「完全清除」，跳过所有交互，谨慎使用。
-- `-InstallDir`：如果自定义过安装目录，需要显式传入实际路径。
+旧参数 `Detach` 会明确映射为 `PreserveData`，`Full` 会明确映射为 `PurgeData`。新的自动化脚本应直接使用新名称。
 
-## 常见问题
+## 仅移除 Cadence 集成
 
-**Q: 卸载时提示「文件被占用」怎么办？**
-A: 平台服务正在运行。Inno Setup 的 `PrepareToInstall` 阶段会尝试自动停止服务；若失败，请手动执行 `taskkill /IM python.exe /F` 或从任务管理器结束 `Insta360_HW.exe`，再重试卸载。
+平台中的「移除 Cadence 集成」不是卸载：它只删除平台部署的 Capture Loader 和已挂载自定义脚本，不删除平台程序和 BOM 历史。操作后需重启 Capture；要恢复入口，使用「修复 Cadence 集成」。
 
-**Q: 卸载后 OrCAD Capture 里的菜单还在？**
-A: 需要重启 Capture 才能让菜单变更生效。若重启后仍在，请检查 `%USERPROFILE%\cdssetup\OrCAD_Capture\tclscripts\capAutoLoad\` 是否残留 `iac_bom_tool.tcl` 或 `insta360_hw_*.tcl`，可以手工删除。
+## 异常处理
 
-**Q: 保留的数据在哪里、怎么恢复？**
-A: 位于 `%LOCALAPPDATA%\Insta360_HW\keep_data\<时间戳>\`，含 `data\`、`config\local.json`、`plugins\user\`。重新安装后，把这些内容手工复制回新的 `<install_root>\` 即可继续使用旧的历史记录和自定义脚本。
-
-**Q: 完全清除的数据可以恢复吗？**
-A: 不能。`Mode Full` 会彻底删除 `%LOCALAPPDATA%\Insta360_HW\`，包括 `keep_data`。请在卸载前手工备份重要的 BOM、网表历史和自定义脚本。
-
-**Q: 卸载后 Windows 设置里的条目还在？**
-A: Inno Setup 在成功卸载后会自动移除注册表项。如果异常中断，可以再次运行 `Insta360_HW_Setup.exe` 选择「修复」，然后再走一次卸载流程。
+- **提示文件被占用**：先关闭平台和 OrCAD Capture，然后从同一标准入口重试。不要批量结束所有 `python.exe`，以免误伤其他工具。
+- **找不到 `unins000.exe`**：重新运行同版本 `Insta360_HW_Setup.exe` 选择修复，再从 Windows 设置卸载。
+- **卸载后 Capture 菜单仍在**：先重启 Capture。若仍存在，查看 `%LOCALAPPDATA%\Insta360_HW\logs\uninstall_latest.log`，不要删除非平台所有的 Tcl 脚本。
+- **Windows 卸载条目损坏**：先用 Setup 修复卸载注册；修复仍失败时，将 `%LOCALAPPDATA%\Insta360_HW\logs\install_latest.log` 与 `uninstall_latest.log` 提供给维护人员。

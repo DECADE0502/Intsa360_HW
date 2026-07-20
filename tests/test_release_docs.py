@@ -54,14 +54,27 @@ class ReleaseDocsTests(unittest.TestCase):
         self.assertIn("send-pack", text)
         self.assertNotIn("$env:GH_TOKEN", text)
 
-    def test_uninstall_doc_covers_three_modes_and_keep_data(self) -> None:
+    def test_uninstall_doc_matches_standard_uninstaller_contract(self) -> None:
         text = (ROOT / "docs" / "UNINSTALL.md").read_text(encoding="utf-8")
 
         self.assertIn("Windows 设置", text)
         self.assertIn("移除 Cadence 集成", text)
         self.assertIn("uninstall.ps1", text)
-        self.assertIn("keep_data", text)
+        self.assertIn("unins000.exe", text)
+        self.assertIn("PreserveData", text)
+        self.assertIn("PurgeData", text)
         self.assertIn("%LOCALAPPDATA%\\Insta360_HW", text)
+        self.assertNotIn("-Force", text)
+        self.assertNotIn("keep_data", text)
+
+    def test_rollback_doc_matches_v3_recovery_contract(self) -> None:
+        text = (ROOT / "docs" / "ROLLBACK.md").read_text(encoding="utf-8")
+
+        self.assertIn("installation.json", text)
+        self.assertIn(".recovery", text)
+        self.assertIn("启动器", text)
+        self.assertNotIn("_hwagent_backup_", text)
+        self.assertNotIn("update.ps1 -AllowDowngrade", text)
 
     def test_verify_all_script_runs_required_checks(self) -> None:
         text = (ROOT / "scripts" / "verify_all.ps1").read_text(encoding="utf-8")

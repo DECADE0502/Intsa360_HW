@@ -1,55 +1,97 @@
-param(
+﻿param(
   [ValidateSet("PreserveData", "PurgeData", "Detach", "Full")]
   [string]$Mode = "PurgeData",
   [string]$InstallDir = "",
-  [string]$StateRoot = "",
-  [switch]$NoStop,
-  [switch]$SkipCadence,
-  [switch]$SkipRecoveryRegistration,
   [switch]$DryRun
 )
 
 $ErrorActionPreference = "Stop"
-$sourceRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-if ([string]::IsNullOrWhiteSpace($InstallDir)) {
-  $InstallDir = Join-Path $env:ProgramFiles "Insta360\HWAgent"
-}
-if ([string]::IsNullOrWhiteSpace($StateRoot)) {
-  $StateRoot = Join-Path $env:LOCALAPPDATA "Insta360_HW"
-}
-$mappedMode = if ($Mode -eq "Detach") { "PreserveData" } elseif ($Mode -eq "Full") { "PurgeData" } else { $Mode }
+$uninstallKey = "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{B7F3AC9E-2D5E-4A8C-9F6E-1A3D4E5F6B72}_is1"
 
-try {
-  if ($DryRun) { Write-Host "Lifecycle V3 dry run: mode=$mappedMode root=$InstallDir"; exit 0 }
-  $entry = Join-Path $InstallDir "maintenance\Uninstall.ps1"
-  if (-not (Test-Path -LiteralPath $entry -PathType Leaf)) {
-    $metadataPath = Join-Path $InstallDir "installation.json"
-    if (Test-Path -LiteralPath $metadataPath -PathType Leaf) {
-      $metadata = Get-Content -LiteralPath $metadataPath -Raw -Encoding UTF8 | ConvertFrom-Json
-      $relative = [string]$metadata.active_runtime
-      if ([int]$metadata.schema_version -ne 3 -or [string]$metadata.product -ne "Insta360_HW" -or
-          $relative -notmatch '^runtime/[0-9A-Za-z.+-]+\+[0-9a-fA-F]{40}$') {
-        throw "Installation metadata is invalid."
+function Get-ExecutableFromCommand {
+  param([string]$Command)
+
+  $value = [string]$Command
+  if ([string]::IsNullOrWhiteSpace($value)) { return "" }
+  $value = $value.Trim()
+  if ($value -match '^"([^"]+\.exe)"') { return [string]$Matches[1] }
+  if ($value -match '^(.+?\.exe)(?:\s|$)') { return ([string]$Matches[1]).Trim() }
+  return ""
+}
+
+function Find-RegisteredUninstaller {
+  foreach ($registryPath in @(
+    "Registry::HKEY_LOCAL_MACHINE\$uninstallKey",
+    "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\{B7F3AC9E-2D5E-4A8C-9F6E-1A3D4E5F6B72}_is1"
+  )) {
+    $registration = Get-ItemProperty -LiteralPath $registryPath -ErrorAction SilentlyContinue
+    if ($null -eq $registration) { continue }
+
+    $fromCommand = Get-ExecutableFromCommand -Command ([string]$registration.UninstallString)
+    if (-not [string]::IsNullOrWhiteSpace($fromCommand) -and
+        (Test-Path -LiteralPath $fromCommand -PathType Leaf)) {
+      return [System.IO.Path]::GetFullPath($fromCommand)
+    }
+
+    $registeredDir = [string]$registration.InstallLocation
+    if (-not [string]::IsNullOrWhiteSpace($registeredDir)) {
+      $candidate = Join-Path $registeredDir "unins000.exe"
+      if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+        return [System.IO.Path]::GetFullPath($candidate)
       }
-      $runtime = [System.IO.Path]::GetFullPath((Join-Path $InstallDir $relative.Replace("/", "\")))
-      $runtimeParent = [System.IO.Path]::GetFullPath((Join-Path $InstallDir "runtime")).TrimEnd("\")
-      if (-not $runtime.StartsWith($runtimeParent + "\", [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw "Active runtime pointer escapes the installation."
-      }
-      $entry = Join-Path $runtime "scripts\lifecycle_v3\Uninstall.ps1"
     }
   }
-  if (-not (Test-Path -LiteralPath $entry -PathType Leaf)) {
-    $entry = Join-Path $sourceRoot "scripts\lifecycle_v3\Uninstall.ps1"
+  return ""
+}
+
+function Resolve-OfficialUninstaller {
+  param([string]$RequestedInstallDir)
+
+  if (-not [string]::IsNullOrWhiteSpace($RequestedInstallDir)) {
+    return [System.IO.Path]::GetFullPath((Join-Path $RequestedInstallDir "unins000.exe"))
   }
-  if (-not (Test-Path -LiteralPath $entry -PathType Leaf)) {
-    throw "Lifecycle V3 uninstall entry is missing. Use Insta360_HW_Setup.exe or Windows Settings."
+
+  $registered = Find-RegisteredUninstaller
+  if (-not [string]::IsNullOrWhiteSpace($registered)) { return $registered }
+
+  if (-not [string]::IsNullOrWhiteSpace($env:ProgramFiles)) {
+    return [System.IO.Path]::GetFullPath((Join-Path $env:ProgramFiles "Insta360\HWAgent\unins000.exe"))
   }
-  & $entry -InstallRoot $InstallDir -StateRoot $StateRoot -Mode $mappedMode `
-    -NoStop:$NoStop -SkipCadence:$SkipCadence -SkipRecoveryRegistration:$SkipRecoveryRegistration
-  if (-not $?) { throw "Lifecycle V3 uninstaller failed." }
+  return ""
+}
+
+$mappedMode = $Mode
+if ($Mode -eq "Detach") {
+  $mappedMode = "PreserveData"
+  Write-Host "兼容模式 Detach 已映射为 PreserveData（保留用户数据）。"
+} elseif ($Mode -eq "Full") {
+  $mappedMode = "PurgeData"
+  Write-Host "兼容模式 Full 已映射为 PurgeData（清除用户数据）。"
+}
+
+try {
+  $uninstaller = Resolve-OfficialUninstaller -RequestedInstallDir $InstallDir
+  if ([string]::IsNullOrWhiteSpace($uninstaller) -or
+      -not (Test-Path -LiteralPath $uninstaller -PathType Leaf)) {
+    throw "未找到平台官方卸载器 unins000.exe。请通过 Windows 设置中的已安装应用卸载平台；若条目损坏，请重新运行 Insta360_HW_Setup.exe 修复后再卸载。"
+  }
+
+  $dataArgument = if ($mappedMode -eq "PreserveData") { "/PRESERVEDATA" } else { "/PURGEDATA" }
+  $arguments = @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", $dataArgument)
+  $displayCommand = '& "{0}" {1}' -f $uninstaller, ($arguments -join " ")
+
+  if ($DryRun) {
+    Write-Host "将执行官方卸载命令："
+    Write-Host $displayCommand
+    exit 0
+  }
+
+  $process = Start-Process -FilePath $uninstaller -ArgumentList $arguments -Wait -PassThru -WindowStyle Hidden
+  if ($process.ExitCode -ne 0) {
+    throw "官方卸载器执行失败，退出码：$($process.ExitCode)。"
+  }
   exit 0
 } catch {
-  Write-Error $_
+  Write-Error $_.Exception.Message
   exit 1
 }
