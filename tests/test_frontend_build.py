@@ -300,6 +300,23 @@ class FrontendBuildTests(unittest.TestCase):
             consumer = (ROOT / relative_path).read_text(encoding="utf-8")
             self.assertIn("utils/outputHref", consumer, relative_path)
 
+    def test_frontend_build_reaches_shared_error_status_and_output_utilities(self) -> None:
+        sources = {
+            "api/errors": (ROOT / "frontend/src/api/errors.ts").read_text(encoding="utf-8"),
+            "utils/statusText": (ROOT / "frontend/src/utils/statusText.ts").read_text(encoding="utf-8"),
+            "utils/outputHref": (ROOT / "frontend/src/utils/outputHref.ts").read_text(encoding="utf-8"),
+        }
+        frontend_sources = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in (ROOT / "frontend/src").rglob("*.ts*")
+        )
+
+        self.assertIn("export function toUserMessage", sources["api/errors"])
+        self.assertIn("export function riskStatusText", sources["utils/statusText"])
+        self.assertIn("export function outputHref", sources["utils/outputHref"])
+        for module in sources:
+            self.assertIn(f'from "../{module}"', frontend_sources, module)
+
     def test_frontend_marks_backend_offline_when_health_check_fails(self) -> None:
         app = (ROOT / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
         client = (ROOT / "frontend" / "src" / "api" / "client.ts").read_text(encoding="utf-8")

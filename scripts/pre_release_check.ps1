@@ -71,14 +71,17 @@ Get-ChildItem -LiteralPath $Root -Recurse -Filter *.ps1 -File | Where-Object { $
 if (-not $ParseFailed) { Write-Host "[OK] PowerShell scripts parse" -ForegroundColor Green }
 
 if (-not $SkipTests) {
-  & python -m pytest -q
-  if ($LASTEXITCODE -ne 0) { Add-Failure "pytest failed." } else { Write-Host "[OK] pytest" -ForegroundColor Green }
-  Push-Location (Join-Path $Root "frontend")
+  Push-Location $Root
   try {
-    & npm run test:unit
-    if ($LASTEXITCODE -ne 0) { Add-Failure "frontend unit tests failed." }
-    & npm run build
-    if ($LASTEXITCODE -ne 0) { Add-Failure "frontend build failed." } else { Write-Host "[OK] frontend build" -ForegroundColor Green }
+    & python -m pytest tests -q
+    if ($LASTEXITCODE -ne 0) { Add-Failure "pytest failed." } else { Write-Host "[OK] pytest" -ForegroundColor Green }
+    Push-Location "frontend"
+    try {
+      & npm run test:unit
+      if ($LASTEXITCODE -ne 0) { Add-Failure "frontend unit tests failed." }
+      & npm run build
+      if ($LASTEXITCODE -ne 0) { Add-Failure "frontend build failed." } else { Write-Host "[OK] frontend build" -ForegroundColor Green }
+    } finally { Pop-Location }
   } finally { Pop-Location }
 }
 

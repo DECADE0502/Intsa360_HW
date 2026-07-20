@@ -89,6 +89,15 @@ class ReleaseDocsTests(unittest.TestCase):
         self.assertIn("npm run build", text)
         self.assertIn("English UI text found", text)
 
+    def test_pre_release_tests_are_anchored_to_the_repository_root(self) -> None:
+        text = (ROOT / "scripts" / "pre_release_check.ps1").read_text(encoding="utf-8")
+        test_gate = text.split("if (-not $SkipTests)", 1)[1].split("$releaseTool", 1)[0]
+
+        self.assertIn("Push-Location $Root", test_gate)
+        self.assertIn("-m pytest tests -q", test_gate)
+        self.assertIn("npm run test:unit", test_gate)
+        self.assertIn("npm run build", test_gate)
+
     def test_verify_all_uses_a_short_windows_safe_test_temp_root_and_restores_environment(self) -> None:
         text = (ROOT / "scripts" / "verify_all.ps1").read_text(encoding="utf-8")
 
