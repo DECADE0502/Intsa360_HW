@@ -420,6 +420,7 @@ internal static class Program
             {
                 var serializer = new DataContractJsonSerializer(typeof(HealthIdentity));
                 var health = (HealthIdentity)serializer.ReadObject(stream);
+                // Health status means the process can serve requests; component integrity is reported separately.
                 if (health == null || health.Status != "ok" || health.Product != "Insta360_HW") return false;
                 if (health.Pid != identity.Pid || health.InstanceToken != identity.InstanceToken) return false;
                 if (health.Version != identity.Version) return false;

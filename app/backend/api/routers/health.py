@@ -15,12 +15,12 @@ legacy_router = APIRouter(tags=["health"])
 
 
 @router.get("/health")
-def health(context: AppContext = Depends(get_context)) -> dict[str, object]:
+async def health(context: AppContext = Depends(get_context)) -> dict[str, object]:
     return collect_health(context)
 
 
 @legacy_router.get("/health", include_in_schema=False)
-def legacy_health(context: AppContext = Depends(get_context)) -> dict[str, object]:
+async def legacy_health(context: AppContext = Depends(get_context)) -> dict[str, object]:
     payload = collect_health(context)
     return {
         **payload,

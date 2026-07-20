@@ -4,6 +4,7 @@ import json
 import os
 import sqlite3
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -15,6 +16,8 @@ if TYPE_CHECKING:
 CADENCE_LOADER = "iac_bom_tool.tcl"
 CADENCE_MARKER = "# Insta360_HW Cadence Loader | schema=2 | managed=true"
 CADENCE_OWNERSHIP_SCHEMA = 1
+DATABASE_CHECK_TTL_SECONDS = 600.0
+_CACHE_CREATION_LOCK = threading.Lock()
 
 
 def _read_text(path: Path) -> str:
@@ -24,18 +27,7 @@ def _read_text(path: Path) -> str:
         return ""
 
 
-def _database_health(context: "AppContext") -> dict[str, object]:
-    path = context.paths.platform_database_path
-    result: dict[str, object] = {
-        "status": "not_initialized",
-        "path": str(path),
-        "exists": path.is_file(),
-        "size": path.stat().st_size if path.is_file() else 0,
-        "quick_check": "not_run",
-        "migrations": [],
-    }
-    if not path.is_file():
-        return result
+def _check_database(path: Path) -> dict[str, object]:
     connection: sqlite3.Connection | None = None
     try:
         connection = sqlite3.connect(str(path), timeout=1.0)
@@ -45,17 +37,86 @@ def _database_health(context: "AppContext") -> dict[str, object]:
             int(row[0])
             for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()
         ]
-        result.update(
-            status="ok" if quick_check.casefold() == "ok" else "degraded",
-            quick_check=quick_check,
-            migrations=migrations,
-        )
+        return {
+            "status": "ok" if quick_check.casefold() == "ok" else "degraded",
+            "quick_check": quick_check,
+            "migrations": migrations,
+        }
     except (OSError, sqlite3.Error, TypeError, ValueError) as exc:
-        result.update(status="error", quick_check="failed", error=str(exc))
+        return {"status": "error", "quick_check": "failed", "migrations": [], "error": str(exc)}
     finally:
         if connection is not None:
             connection.close()
-    return result
+
+
+def _database_cache(context: "AppContext") -> dict[str, object]:
+    cache = getattr(context, "_database_health_cache", None)
+    if isinstance(cache, dict):
+        return cache
+    with _CACHE_CREATION_LOCK:
+        cache = getattr(context, "_database_health_cache", None)
+        if not isinstance(cache, dict):
+            cache = {
+                "lock": threading.Lock(),
+                "result": None,
+                "checked_at": 0.0,
+                "in_flight": False,
+            }
+            setattr(context, "_database_health_cache", cache)
+        return cache
+
+
+def _refresh_database_cache(path: Path, cache: dict[str, object]) -> None:
+    result = _check_database(path)
+    lock = cache["lock"]
+    with lock:  # type: ignore[union-attr]
+        cache["result"] = result
+        cache["checked_at"] = time.monotonic()
+        cache["in_flight"] = False
+
+
+def _database_health(context: "AppContext", *, immediate: bool = False) -> dict[str, object]:
+    path = context.paths.platform_database_path
+    try:
+        exists = path.is_file()
+        size = path.stat().st_size if exists else 0
+    except OSError:
+        exists = False
+        size = 0
+    result: dict[str, object] = {
+        "status": "not_initialized",
+        "path": str(path),
+        "exists": exists,
+        "size": size,
+        "quick_check": "not_run",
+        "migrations": [],
+    }
+    if not exists:
+        return result
+    if immediate:
+        return {**result, **_check_database(path)}
+
+    cache = _database_cache(context)
+    lock = cache["lock"]
+    start_refresh = False
+    with lock:  # type: ignore[union-attr]
+        cached = cache["result"]
+        checked_at = float(cache["checked_at"])
+        stale = cached is None or time.monotonic() - checked_at >= DATABASE_CHECK_TTL_SECONDS
+        if stale and not cache["in_flight"]:
+            cache["in_flight"] = True
+            start_refresh = True
+        snapshot = dict(cached) if isinstance(cached, dict) else None
+    if start_refresh:
+        threading.Thread(
+            target=_refresh_database_cache,
+            args=(path, cache),
+            name="Insta360-HW-Database-Health",
+            daemon=True,
+        ).start()
+    if snapshot is None:
+        return {**result, "status": "checking", "quick_check": "pending"}
+    return {**result, **snapshot}
 
 
 def _cadence_health(context: "AppContext") -> dict[str, object]:
@@ -147,13 +208,12 @@ def _cadence_health(context: "AppContext") -> dict[str, object]:
     }
 
 
-def collect_health(context: "AppContext") -> dict[str, object]:
+def collect_health(context: "AppContext", *, immediate_database_check: bool = False) -> dict[str, object]:
     uptime = max(0.0, time.monotonic() - context.started_monotonic)
-    database = _database_health(context)
+    database = _database_health(context, immediate=immediate_database_check)
     cadence = _cadence_health(context)
-    status = "ok" if database["status"] not in {"error", "degraded"} else "degraded"
     return {
-        "status": status,
+        "status": "ok",
         "service": "Insta360_HW",
         "schema_version": "v1",
         "pid": os.getpid(),
@@ -166,4 +226,5 @@ def collect_health(context: "AppContext") -> dict[str, object]:
         "uptime_seconds": round(uptime, 3),
         "database": database,
         "cadence": cadence,
+        "components": {"database": database, "cadence": cadence},
     }

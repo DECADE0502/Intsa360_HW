@@ -115,7 +115,7 @@ def build_diagnostic_package(
     runtime_root = Path(root).resolve()
     secret_values = tuple(str(secret) for secret in secrets if str(secret))
     context = build_context(runtime_root)
-    health = collect_health(context)
+    health = collect_health(context, immediate_database_check=True)
     report = redact_text(update_api.collect_diagnostic_report(runtime_root), secret_values)
     selected_files, selected_metadata = _selected_asset_files(runtime_root, selected_asset_ids) if selected_asset_ids else ([], [])
 

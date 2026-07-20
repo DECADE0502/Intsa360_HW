@@ -148,6 +148,7 @@ function Test-HwLifecycleService {
     $expectedState = [System.IO.Path]::GetFullPath($StateRoot).TrimEnd("\\")
     $actualRoot = [System.IO.Path]::GetFullPath([string]$health.root).TrimEnd("\\")
     $actualState = [System.IO.Path]::GetFullPath([string]$health.state_root).TrimEnd("\\")
+    # Health status means the process can serve requests; component integrity is reported separately.
     return $health.product -eq "Insta360_HW" -and $health.status -eq "ok" -and
       $actualRoot -ieq $expectedRoot -and
       $actualState -ieq $expectedState -and
