@@ -7,6 +7,7 @@ from pathlib import Path
 from openpyxl import Workbook
 
 from app.backend.tools.analysis_tools import run_bom_risk_check
+from app.backend.tools.bom_rules import evaluate_bom_risks
 
 
 def _write_bom(path: Path, rows: list[list[object]]) -> None:
@@ -18,7 +19,33 @@ def _write_bom(path: Path, rows: list[list[object]]) -> None:
     wb.save(path)
 
 
+def _quantity_finding(quantity: object, refs: list[str]) -> dict[str, str]:
+    findings = evaluate_bom_risks([{"part_number": "P1", "quantity": quantity, "refs": refs}])
+    return next(item for item in findings if item["name"] == "数量=位号数")
+
+
 class BomRiskCheckTests(unittest.TestCase):
+    def test_float_quantity_equal_to_reference_count_is_ok(self) -> None:
+        finding = _quantity_finding(3.0, ["R1", "R2", "R3"])
+
+        self.assertEqual(finding["status"], "ok")
+
+    def test_float_quantity_mismatch_is_still_reported(self) -> None:
+        finding = _quantity_finding(3.0, ["R1", "R2"])
+
+        self.assertEqual(finding["status"], "warn")
+
+    def test_blank_quantity_remains_non_blocking(self) -> None:
+        for quantity in (None, ""):
+            with self.subTest(quantity=quantity):
+                finding = _quantity_finding(quantity, ["R1", "R2", "R3"])
+                self.assertEqual(finding["status"], "ok")
+
+    def test_integer_quantity_equal_to_reference_count_is_ok(self) -> None:
+        finding = _quantity_finding(3, ["R1", "R2", "R3"])
+
+        self.assertEqual(finding["status"], "ok")
+
     def test_confirmed_sh_bracket_satisfies_shield_bracket_check(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

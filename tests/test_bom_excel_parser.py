@@ -8,9 +8,35 @@ from unittest.mock import patch
 from openpyxl import Workbook
 
 from app.backend.parsers.bom_excel import read_bom_rows
+from app.backend.tools import bom_process
+from app.backend.tools.common import _read_bom_rows
 
 
 class BomExcelParserTests(unittest.TestCase):
+    def test_vertical_merged_part_number_is_inherited_by_all_bom_readers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "merged-bom.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["Reference", "Part Number", "Description", "Quantity"])
+            ws.append(["R1", "P1", "Chip resistor", 1])
+            ws.append(["R2", None, "Chip resistor", 1])
+            ws.merge_cells("B2:B3")
+            wb.save(path)
+
+            process_rows, _ = bom_process.load_source(path)
+            parser_rows = read_bom_rows(path)
+            common_rows = _read_bom_rows(path)
+
+        for label, rows in (
+            ("bom_process", process_rows),
+            ("bom_excel", parser_rows),
+            ("common", common_rows),
+        ):
+            with self.subTest(reader=label):
+                self.assertEqual(len(rows), 2)
+                self.assertEqual([row["part_number"] for row in rows], ["P1", "P1"])
+
     def test_read_bom_rows_prefers_child_columns_after_part_number(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "bom.xlsx"

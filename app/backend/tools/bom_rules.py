@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from collections import Counter
 
+from app.backend.tools.common import _to_qty
+
 
 _NC_RE = re.compile(r"(^|[,/\s（(])NC([,/\s）)]|$)", re.IGNORECASE)
 _MECH_KW = ["螺丝", "螺钉", "螺母", "垫片", "华司", "铜柱", "支柱", "定位孔", "安装孔", "MOUNTINGHOLE", "散热片", "导热垫"]
@@ -11,6 +13,13 @@ _TP_KW = ["测试点", "跳线", "FIDUCIAL", "基准", "拼板", "工艺边", "M
 _VERSION_SENSITIVE_RE = re.compile(r"\b(E?MMC|LP?DDR\d*[A-Z0-9]*)\b|DDR", re.IGNORECASE)
 _PREFIX_EXPECT = {"C": "电容", "R": "电阻", "L": "电感"}
 _CODE_PREFIX_TYPE = {"L": "电感", "C": "电容", "R": "电阻"}
+
+
+def _quantity_mismatch(row: dict[str, object]) -> bool:
+    raw_quantity = row.get("quantity")
+    if raw_quantity is None or str(raw_quantity).strip() == "":
+        return False
+    return _to_qty(raw_quantity) != len(row.get("refs") or [])
 
 
 def _looks_like_pcb(row: dict[str, object]) -> bool:
@@ -105,7 +114,7 @@ def evaluate_bom_risks(rows: list[dict[str, object]]) -> list[dict[str, str]]:
     empty_codes = [row for row in rows if (row.get("refs") or []) and not str(row.get("part_number") or "").strip()]
     findings.append({"name": "空编号行", "status": "warn" if empty_codes else "ok", "message": f"{len(empty_codes)} 行有位号但料号为空" if empty_codes else "无"})
 
-    quantity_mismatches = [row for row in rows if (row.get("refs") or []) and str(row.get("quantity")).strip() not in ("", str(len(row["refs"])))]
+    quantity_mismatches = [row for row in rows if (row.get("refs") or []) and _quantity_mismatch(row)]
     findings.append({"name": "数量=位号数", "status": "warn" if quantity_mismatches else "ok", "message": f"{len(quantity_mismatches)} 行不符，例 {quantity_mismatches[0]['part_number']}：数量{quantity_mismatches[0]['quantity']}≠位号{len(quantity_mismatches[0]['refs'])}" if quantity_mismatches else "全部一致"})
 
     type_mismatches = find_type_mismatches(rows)

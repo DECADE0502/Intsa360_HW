@@ -237,6 +237,8 @@ def run_uninstall(root: Path, mode: str = "cadence_only") -> dict[str, object]:
         cwd=str(root),
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=90,
     )
     if completed.returncode != 0:

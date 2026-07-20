@@ -5,7 +5,7 @@ from collections import Counter, OrderedDict
 from pathlib import Path
 
 from app.backend.capture_fields import BOM_OPTIONAL_FIELDS, FIELD_DEFAULTS, PLM_TEMPLATE_HEADERS
-from app.backend.parsers._workbook import open_bom_workbook
+from app.backend.parsers._workbook import build_merged_cell_lookup, open_bom_workbook
 from app.backend.parsers.refs import natural_key
 
 # BOM 处理工具：把 Capture 导出的原始 BOM 处理成可导入的 PLM / OA 成品。
@@ -51,6 +51,16 @@ OA_HEADERS = [
 ]
 NC_HEADERS = ["原始行号", "位号", "子项编码", "物料名称", "型号", "描述", "Value", "过滤原因"]
 CONFLICT_FIELDS = ("name", "model", "desc", "grade", "unit")
+_NUMERIC_VALUE_RE = re.compile(
+    r"^(?:\d+(?:\.\d+)?(?:\s*[RrKkMmGgUuNnPp])?|\d+[RrKkMm]\d+)"
+    r"\s*(?:Ω|ohms?|%|℃|°C|[VvAaWwFfHh])?$",
+    re.IGNORECASE,
+)
+
+
+def _looks_numeric(value: str) -> bool:
+    """Return whether a value is a numeric component specification."""
+    return bool(_NUMERIC_VALUE_RE.fullmatch(value.strip()))
 GRADE_RANK = {"优选": 5, "正常": 4, "限选": 3, "验证中": 2, "": 0}
 
 
@@ -92,9 +102,20 @@ def detect_header(ws) -> tuple[int, dict[str, int]]:
     return best_row, best_map
 
 
-def _cell(ws, row: int, mapping: dict[str, int], key: str) -> str:
+def _cell(
+    ws,
+    row: int,
+    mapping: dict[str, int],
+    key: str,
+    merged_lookup: dict[tuple[int, int], object] | None = None,
+) -> str:
     col = mapping.get(key)
-    return str(ws.cell(row, col).value or "").strip() if col else ""
+    if not col:
+        return ""
+    raw_value = ws.cell(row, col).value
+    if raw_value is None and merged_lookup is not None:
+        raw_value = merged_lookup.get((row, col))
+    return str(raw_value or "").strip()
 
 
 def has_shield_refs(refs: list[str]) -> bool:
@@ -139,11 +160,12 @@ def exclusion_reason(row: dict[str, str], refs: list[str], include_shields: bool
 def load_source(path: Path, include_shields: bool = False) -> tuple[list[dict[str, str]], list[list[object]]]:
     with open_bom_workbook(path, data_only=True) as wb:
         ws = wb.active
+        merged_lookup = build_merged_cell_lookup(ws)
         header_row, mapping = detect_header(ws)
         rows: list[dict[str, str]] = []
         excluded: list[list[object]] = []
         for row_num in range(header_row + 1, ws.max_row + 1):
-            row = {key: _cell(ws, row_num, mapping, key) for key in SRC_ALIASES}
+            row = {key: _cell(ws, row_num, mapping, key, merged_lookup) for key in SRC_ALIASES}
             if not row.get("name"):
                 row["name"] = row.get("part_type") or ""
             if not row.get("model"):
@@ -280,6 +302,7 @@ def _conflict_recommendation(variants: list[dict[str, object]]) -> dict[str, obj
         return _fallback_recommendation(variants, signatures, "complementary_incomplete_candidates")
 
     dominant: list[int] = []
+    has_numeric_conflict = False
     for candidate_index, candidate in enumerate(signatures):
         dominates_all = True
         has_strict_prefix = False
@@ -289,7 +312,14 @@ def _conflict_recommendation(variants: list[dict[str, object]]) -> dict[str, obj
             for candidate_value, other_value in zip(candidate, other):
                 if candidate_value == other_value:
                     continue
-                if not candidate_value or not other_value or not candidate_value.startswith(other_value):
+                if not candidate_value or not other_value:
+                    dominates_all = False
+                    break
+                if _looks_numeric(candidate_value) and _looks_numeric(other_value):
+                    has_numeric_conflict = True
+                    dominates_all = False
+                    break
+                if not candidate_value.startswith(other_value):
                     dominates_all = False
                     break
                 has_strict_prefix = True
@@ -312,7 +342,7 @@ def _conflict_recommendation(variants: list[dict[str, object]]) -> dict[str, obj
     return _fallback_recommendation(
         variants,
         signatures,
-        "multiple_complete_candidates" if all_complete else "conflicting_candidate_values",
+        "multiple_complete_candidates" if all_complete and not has_numeric_conflict else "conflicting_candidate_values",
     )
 
 

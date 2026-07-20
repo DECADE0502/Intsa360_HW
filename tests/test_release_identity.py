@@ -129,6 +129,7 @@ class ReleaseIdentityTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
+                errors="replace",
                 env={**base_env, "FAKE_GIT_STATUS": " M app/backend/release_manifest.py", "FAKE_GIT_TAG": ""},
                 timeout=30,
             )
@@ -140,6 +141,7 @@ class ReleaseIdentityTests(unittest.TestCase):
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
+                errors="replace",
                 env={
                     **base_env,
                     "FAKE_GIT_STATUS": "",

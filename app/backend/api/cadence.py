@@ -37,6 +37,8 @@ def redeploy_cadence_loader(root: Path) -> tuple[bool, list[str], str]:
         cwd=str(root),
         text=True,
         capture_output=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=30,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )

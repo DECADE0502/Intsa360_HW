@@ -36,6 +36,47 @@ def make_source(path: Path) -> None:
 
 
 class BomProcessConflictTests(unittest.TestCase):
+    def test_numeric_prefix_conflicts_require_manual_choice(self) -> None:
+        def variants(first: str, second: str) -> list[dict[str, object]]:
+            return [
+                {
+                    "name": "Resistor",
+                    "model": model,
+                    "desc": "Chip resistor",
+                    "grade": "Preferred",
+                    "unit": "ea",
+                    "count": 1,
+                }
+                for model in (first, second)
+            ]
+
+        for first, second in (("100", "1000"), ("1K", "1K2")):
+            with self.subTest(first=first, second=second):
+                recommendation = bom_process._conflict_recommendation(variants(first, second))
+
+                self.assertEqual(recommendation["reason"], "conflicting_candidate_values")
+                self.assertFalse(recommendation["high_confidence"])
+                self.assertTrue(recommendation["manual_choice_required"])
+
+    def test_text_prefix_completion_remains_high_confidence(self) -> None:
+        variants = [
+            {
+                "name": "Resistor",
+                "model": "R0402",
+                "desc": description,
+                "grade": "Preferred",
+                "unit": "ea",
+                "count": 1,
+            }
+            for description in ("10K resistor 0402 5%", "10K resistor 0402 5% RoHS compliant")
+        ]
+
+        recommendation = bom_process._conflict_recommendation(variants)
+
+        self.assertEqual(recommendation["reason"], "truncation_prefix_completion")
+        self.assertTrue(recommendation["high_confidence"])
+        self.assertFalse(recommendation["manual_choice_required"])
+
     def test_load_source_prefers_new_description_over_content_column(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "source.xlsx"

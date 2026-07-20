@@ -4,6 +4,8 @@ import re
 from pathlib import Path
 from typing import Iterable
 
+from app.backend.parsers._workbook import build_merged_cell_lookup
+
 
 REF_SPLIT_RE = re.compile(r"[,;\s]+")
 
@@ -100,12 +102,18 @@ def read_bom_rows(path: Path, require_refs: bool = True) -> list[dict[str, objec
     wb = load_workbook(path, data_only=True)
     try:
         ws = wb.active
+        merged_lookup = build_merged_cell_lookup(ws)
+
+        def _resolve_cell(row: int, col: int) -> object:
+            value = ws.cell(row, col).value
+            return merged_lookup.get((row, col)) if value is None else value
+
         header_row, mapping = find_header(ws, ["reference", "part_number", "description", "quantity"])
         mapping = refine_bom_mapping(ws, header_row, mapping)
         rows: list[dict[str, object]] = []
         for row in range(header_row + 1, ws.max_row + 1):
-            refs = split_refs(ws.cell(row, mapping["reference"]).value)
-            part_number = str(ws.cell(row, mapping["part_number"]).value or "").strip()
+            refs = split_refs(_resolve_cell(row, mapping["reference"]))
+            part_number = str(_resolve_cell(row, mapping["part_number"]) or "").strip()
             if require_refs and not refs:
                 continue
             if not refs and not part_number:
@@ -116,13 +124,13 @@ def read_bom_rows(path: Path, require_refs: bool = True) -> list[dict[str, objec
                     "reference": ",".join(refs),
                     "refs": refs,
                     "part_number": part_number,
-                    "model": str(ws.cell(row, mapping["model"]).value or "").strip() if "model" in mapping else "",
-                    "grade": str(ws.cell(row, mapping["grade"]).value or "").strip() if "grade" in mapping else "",
-                    "description": str(ws.cell(row, mapping["description"]).value or "").strip(),
-                    "quantity": ws.cell(row, mapping["quantity"]).value,
-                    "name": str(ws.cell(row, mapping.get("name", mapping["description"])).value or "").strip(),
-                    "package": str(ws.cell(row, mapping.get("package", mapping["description"])).value or "").strip(),
-                    "value": str(ws.cell(row, mapping.get("value", mapping["description"])).value or "").strip(),
+                    "model": str(_resolve_cell(row, mapping["model"]) or "").strip() if "model" in mapping else "",
+                    "grade": str(_resolve_cell(row, mapping["grade"]) or "").strip() if "grade" in mapping else "",
+                    "description": str(_resolve_cell(row, mapping["description"]) or "").strip(),
+                    "quantity": _resolve_cell(row, mapping["quantity"]),
+                    "name": str(_resolve_cell(row, mapping.get("name", mapping["description"])) or "").strip(),
+                    "package": str(_resolve_cell(row, mapping.get("package", mapping["description"])) or "").strip(),
+                    "value": str(_resolve_cell(row, mapping.get("value", mapping["description"])) or "").strip(),
                 }
             )
         return rows
