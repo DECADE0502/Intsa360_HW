@@ -36,11 +36,23 @@ def _output_dir(params: dict[str, object], root: Path, subdir: str) -> Path:
     return out
 
 
-def _to_qty(value: object) -> int:
+def to_qty(value: object) -> int:
     try:
         return int(float(str(value).strip()))
     except (ValueError, TypeError):
         return 0
+
+
+_to_qty = to_qty
+
+
+def qty_matches(value: object, expected: int) -> bool:
+    if value is None or str(value).strip() == "":
+        return True
+    try:
+        return float(str(value).strip()) == expected
+    except (ValueError, TypeError):
+        return False
 
 
 def _read_bom_rows(path: Path, require_refs: bool = True) -> list[dict[str, object]]:

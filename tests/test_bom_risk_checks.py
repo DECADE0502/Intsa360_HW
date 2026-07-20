@@ -7,6 +7,7 @@ from pathlib import Path
 from openpyxl import Workbook
 
 from app.backend.tools.analysis_tools import run_bom_risk_check
+from app.backend.tools import common
 from app.backend.tools.bom_rules import evaluate_bom_risks
 from app.backend.tools.common import _read_bom_rows
 
@@ -26,6 +27,21 @@ def _quantity_finding(quantity: object, refs: list[str]) -> dict[str, str]:
 
 
 class BomRiskCheckTests(unittest.TestCase):
+    def test_fractional_quantity_mismatch_is_reported(self) -> None:
+        finding = _quantity_finding(3.9, ["R1", "R2", "R3"])
+
+        self.assertEqual(finding["status"], "warn")
+
+    def test_quantity_helpers_are_public_and_bom_rules_avoids_private_imports(self) -> None:
+        self.assertTrue(hasattr(common, "to_qty"))
+        self.assertTrue(hasattr(common, "qty_matches"))
+        self.assertEqual(common.to_qty("3.9"), 3)
+        self.assertFalse(common.qty_matches("3.9", 3))
+        self.assertTrue(common.qty_matches("", 3))
+
+        source = (Path(__file__).parents[1] / "app" / "backend" / "tools" / "bom_rules.py").read_text(encoding="utf-8")
+        self.assertNotIn("common import _to_qty", source)
+
     def test_merged_quantity_does_not_create_a_false_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "merged-quantity.xlsx"

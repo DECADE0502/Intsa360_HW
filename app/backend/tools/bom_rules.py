@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 
-from app.backend.tools.common import _to_qty
+from app.backend.tools.common import qty_matches
 
 
 _NC_RE = re.compile(r"(^|[,/\s（(])NC([,/\s）)]|$)", re.IGNORECASE)
@@ -16,10 +16,7 @@ _CODE_PREFIX_TYPE = {"L": "电感", "C": "电容", "R": "电阻"}
 
 
 def _quantity_mismatch(row: dict[str, object]) -> bool:
-    raw_quantity = row.get("quantity")
-    if raw_quantity is None or str(raw_quantity).strip() == "":
-        return False
-    return _to_qty(raw_quantity) != len(row.get("refs") or [])
+    return not qty_matches(row.get("quantity"), len(row.get("refs") or []))
 
 
 def _looks_like_pcb(row: dict[str, object]) -> bool:
