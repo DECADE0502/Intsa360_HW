@@ -4,6 +4,7 @@ import hashlib
 import json
 import sqlite3
 from pathlib import Path
+from unittest.mock import patch
 from uuid import UUID
 
 from fastapi.testclient import TestClient
@@ -13,6 +14,7 @@ from app.backend.main import create_app
 from app.backend.paths import AppPaths
 from app.backend.repositories.assets_repository import AssetsRepository
 from app.backend.repositories.database import PlatformDatabase
+from app.backend.repositories.runs_repository import RunsRepository
 
 
 BASE_URL = "http://127.0.0.1:8765"
@@ -121,6 +123,26 @@ def test_legacy_json_history_migration_is_idempotent_and_keeps_subdirectories(tm
     with sqlite3.connect(AppPaths(root).platform_database_path) as connection:
         assert connection.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 2
         assert connection.execute("SELECT COUNT(*) FROM assets").fetchone()[0] == 2
+
+
+def test_completed_legacy_migration_skips_scans_after_new_records(tmp_path: Path) -> None:
+    root = _runtime(tmp_path)
+    output = root / "data" / "outputs" / "bom" / "BOARD_PLM_BOM.xlsx"
+    output.parent.mkdir(parents=True)
+    output.write_bytes(b"bom")
+    for index in range(2):
+        history.record(
+            root,
+            "bom_process",
+            "BOM 处理",
+            {},
+            {"status": "ok", "outputs": [str(output)], "summary": {"index": index}},
+        )
+
+    with patch.object(RunsRepository, "_legacy_entries", side_effect=AssertionError("legacy scan repeated")) as scan:
+        RunsRepository(root)
+
+    scan.assert_not_called()
 
 
 def test_asset_metadata_rebuild_rehashes_files_and_marks_missing_assets(tmp_path: Path) -> None:

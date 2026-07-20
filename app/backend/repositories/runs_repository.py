@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import sqlite3
 import threading
@@ -160,25 +159,14 @@ class RunsRepository:
         history_dir = self.paths.history_dir
         index_path = history_dir / "index.json"
         runs_dir = history_dir / "runs"
-        if not index_path.exists() and not runs_dir.exists():
-            return ""
-        digest = hashlib.sha256()
-        for label, path in (("index", index_path), ("runs", runs_dir)):
-            try:
-                stat = path.stat()
-            except OSError:
-                continue
-            digest.update(label.encode("ascii"))
-            digest.update(str(stat.st_size).encode("ascii"))
-            digest.update(str(stat.st_mtime_ns).encode("ascii"))
-        return digest.hexdigest()
+        return f"index_file={int(index_path.is_file())};runs_dir={int(runs_dir.is_dir())}"
 
-    def _stored_legacy_fingerprint(self) -> str:
+    def _legacy_migration_done(self) -> bool:
         with self.database.connect() as connection:
             row = connection.execute(
-                "SELECT value FROM repository_state WHERE key = 'legacy_history_fingerprint'"
+                "SELECT value FROM repository_state WHERE key = 'legacy_history_migration_done'"
             ).fetchone()
-        return str(row[0]) if row is not None else ""
+        return row is not None and str(row[0]) == "1"
 
     def _legacy_output(self, value: object) -> Optional[tuple[str, Path]]:
         relative = output_relative_path(self.root, value)
@@ -196,13 +184,12 @@ class RunsRepository:
         return matched.relative_to(self.paths.outputs_dir).as_posix(), matched
 
     def _migrate_legacy_history(self) -> None:
-        fingerprint = self._legacy_source_fingerprint()
-        if not fingerprint or fingerprint == self._stored_legacy_fingerprint():
+        if self._legacy_migration_done():
             return
         with _MIGRATION_LOCK:
-            fingerprint = self._legacy_source_fingerprint()
-            if not fingerprint or fingerprint == self._stored_legacy_fingerprint():
+            if self._legacy_migration_done():
                 return
+            fingerprint = self._legacy_source_fingerprint()
             entries = self._legacy_entries()
             with self.database.transaction() as connection:
                 for entry in entries:
@@ -283,6 +270,13 @@ class RunsRepository:
                     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
                     """,
                     (fingerprint,),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO repository_state(key, value, updated_at)
+                    VALUES ('legacy_history_migration_done', '1', CURRENT_TIMESTAMP)
+                    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
+                    """
                 )
 
     def record_success(
