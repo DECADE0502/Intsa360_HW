@@ -1,4 +1,6 @@
 $script:HwAgentSupportedCadenceVersions = @("16.6", "17.4")
+try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
+$OutputEncoding = [System.Text.Encoding]::UTF8
 
 function ConvertTo-HwAgentUniqueFullPaths {
   param([AllowEmptyCollection()][string[]]$Paths = @())

@@ -120,7 +120,12 @@ class CadenceIntegrationTests(unittest.TestCase):
                 "-ExecutionPolicy",
                 "Bypass",
                 "-Command",
-                f". '{library}'; Install-CadenceLoader -ToolRoot '{root}' -PythonPath '{python}' -AutoLoadDirs @()",
+                (
+                    "$OutputEncoding = [System.Text.Encoding]::ASCII; "
+                    "[Console]::OutputEncoding = [System.Text.Encoding]::GetEncoding(936); "
+                    f". '{library}'; Install-CadenceLoader -ToolRoot '{root}' "
+                    f"-PythonPath '{python}' -AutoLoadDirs @()"
+                ),
             ],
             capture_output=True,
             text=True,

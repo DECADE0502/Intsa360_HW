@@ -1,5 +1,8 @@
 ﻿$ErrorActionPreference = "Stop"
 
+try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
+$OutputEncoding = [System.Text.Encoding]::UTF8
+
 $script:HwAgentCadenceLoaderMarker = "# Insta360_HW Cadence Loader | schema=2 | managed=true"
 
 function Get-HwAgentText {

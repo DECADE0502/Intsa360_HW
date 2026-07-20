@@ -1,5 +1,7 @@
 $script:HwAgentCadenceLoaderName = "iac_bom_tool.tcl"
 $script:HwAgentCadenceLoaderMarker = "# Insta360_HW Cadence Loader | schema=2 | managed=true"
+try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
+$OutputEncoding = [System.Text.Encoding]::UTF8
 
 function Test-HwAgentOwnedCadenceLoader {
   param([Parameter(Mandatory=$true)][string]$LoaderPath)

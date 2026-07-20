@@ -14,6 +14,11 @@ ENTRY_SCRIPTS = (
     ROOT / "scripts" / "redeploy_cadence_loader.ps1",
     ROOT / "scripts" / "remove_cadence_loader.ps1",
 )
+LIBRARY_SCRIPTS = (
+    ROOT / "scripts" / "lib" / "Cadence.ps1",
+    ROOT / "scripts" / "lib" / "CadenceDiscovery.ps1",
+    ROOT / "scripts" / "lib" / "TclScripts.ps1",
+)
 
 
 class SubprocessEncodingTests(unittest.TestCase):
@@ -26,6 +31,14 @@ class SubprocessEncodingTests(unittest.TestCase):
 
                 self.assertIn(header, "\n".join(text.splitlines()[:30]))
                 self.assertLess(text.index(header), min(output_positions))
+
+    def test_cadence_libraries_normalize_output_when_dot_sourced(self) -> None:
+        header = "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8"
+        for script in LIBRARY_SCRIPTS:
+            with self.subTest(script=script.name):
+                text = script.read_text(encoding="utf-8-sig")
+                self.assertIn(header, "\n".join(text.splitlines()[:20]))
+                self.assertIn("$OutputEncoding = [System.Text.Encoding]::UTF8", "\n".join(text.splitlines()[:20]))
 
     @unittest.skipIf(shutil.which("powershell") is None, "Windows PowerShell is unavailable")
     def test_powershell_chinese_path_roundtrips_under_utf8_decode(self) -> None:
