@@ -493,11 +493,6 @@ internal static class Program
             if (arg == null || arg.StartsWith(ReconnectProtocolUrl, StringComparison.OrdinalIgnoreCase)) continue;
             values.Add(Quote(arg));
         }
-        if (reconnect)
-        {
-            values.Add("-Restart");
-            values.Add("-NoOpen");
-        }
         values.Add("-StateRoot");
         values.Add(Quote(stateRoot));
         return string.Join(" ", values.ToArray());
@@ -515,11 +510,6 @@ internal static class Program
     private static string Quote(string value)
     {
         return "\"" + (value ?? "").Replace("\"", "`\"") + "\"";
-    }
-
-    private static void OpenPlatformUrl(string url)
-    {
-        Process.Start(new ProcessStartInfo { FileName = url, UseShellExecute = true });
     }
 
     private static string LogPath(string stateRoot)

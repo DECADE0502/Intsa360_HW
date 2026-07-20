@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import shutil
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -8,6 +11,73 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class LaunchAndPackageTests(unittest.TestCase):
+    def _run_runtime_probe(self, body: str) -> str:
+        powershell = shutil.which("powershell.exe") or shutil.which("powershell")
+        self.assertIsNotNone(powershell, "PowerShell is required for lifecycle behavior tests")
+        runtime = ROOT / "scripts" / "lifecycle" / "Runtime.ps1"
+        with tempfile.TemporaryDirectory() as tmp:
+            script = Path(tmp) / "probe.ps1"
+            script.write_text(
+                "$ErrorActionPreference = 'Stop'\n"
+                f". '{runtime.as_posix()}'\n"
+                + body,
+                encoding="utf-8-sig",
+            )
+            completed = subprocess.run(
+                [str(powershell), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script)],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=30,
+                check=False,
+            )
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        return completed.stdout.strip()
+
+    def test_probe_retries_before_declaring_dead(self) -> None:
+        output = self._run_runtime_probe(
+            r'''
+$runtimeRoot = [System.IO.Path]::GetFullPath("C:\runtime")
+$stateRoot = [System.IO.Path]::GetFullPath("C:\state")
+$script:calls = 0
+function Get-HwLifecycleServiceProcessState { param($RuntimeRoot, $StateRoot) return "Alive" }
+function Read-HwLifecycleJson {
+  return [pscustomobject]@{ pid=42; port=8765; root=$runtimeRoot; state_root=$stateRoot; version="0.4.0"; instance_token=("a" * 32) }
+}
+function Get-HwLifecycleHealth {
+  param($Port, $TimeoutMs)
+  $script:calls += 1
+  if ($script:calls -lt 3) { return $null }
+  return [pscustomobject]@{ product="Insta360_HW"; status="ok"; pid=42; root=$runtimeRoot; state_root=$stateRoot; version="0.4.0"; instance_token=("a" * 32) }
+}
+$state = Get-HwLifecycleServiceState -RuntimeRoot $runtimeRoot -StateRoot $stateRoot -ProbeTimeouts @(1, 1, 1, 1)
+Write-Output "$state|$script:calls"
+'''
+        )
+        self.assertEqual(output, "Alive|3")
+
+    def test_busy_service_is_not_stopped(self) -> None:
+        runtime = (ROOT / "scripts" / "lifecycle" / "Runtime.ps1").read_text(encoding="utf-8-sig")
+        launcher = (ROOT / "launch_tool_suite.ps1").read_text(encoding="utf-8-sig")
+
+        self.assertIn('return "Busy"', runtime)
+        self.assertIn('$serviceState -eq "Busy"', launcher)
+        busy_branch = launcher.index('$serviceState -eq "Busy"')
+        stop_call = launcher.index("Stop-HwLifecycleService", busy_branch)
+        self.assertIn('$serviceState -in @("Dead", "Foreign")', launcher[busy_branch:stop_call])
+
+    def test_reconnect_arguments_have_no_restart(self) -> None:
+        text = (ROOT / "launcher" / "Insta360_HW.cs").read_text(encoding="utf-8")
+        start = text.index("private static string BuildLaunchArgs")
+        end = text.index("private static bool IsReconnectRequest", start)
+        reconnect_branch = text[start:end]
+
+        self.assertNotIn('values.Add("-Restart")', reconnect_branch)
+        self.assertNotIn('values.Add("-NoOpen")', reconnect_branch)
+        self.assertNotIn("OpenPlatformUrl", text)
+
     def test_cadence_jump_uses_hidden_powershell_window(self) -> None:
         text = (ROOT / "iac_jump.bat").read_text(encoding="utf-8")
 

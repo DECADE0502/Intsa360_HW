@@ -128,14 +128,27 @@ try {
 
   Write-LauncherLog "Launch requested Source='$Source' Name='$Name' Restart='$Restart' NoOpen='$NoOpen' state='$StateRoot'"
 
-  if (-not $Restart -and (Test-HwLifecycleService -RuntimeRoot $Root -StateRoot $StateRoot)) {
-    $existing = Read-HwLifecycleJson -Path $ServiceStatePath
-    Write-LauncherLog ("Reusing exact service PID {0} on port {1}" -f $existing.pid, $existing.port)
-    if (-not $NoOpen) { Open-Suite -Port ([int]$existing.port) }
-    return
+  $serviceState = Get-HwLifecycleServiceState -RuntimeRoot $Root -StateRoot $StateRoot
+  if (-not $Restart) {
+    if ($serviceState -eq "Alive") {
+      $existing = Read-HwLifecycleJson -Path $ServiceStatePath
+      Write-LauncherLog ("Reusing exact service PID {0} on port {1}" -f $existing.pid, $existing.port)
+      if (-not $NoOpen) { Open-Suite -Port ([int]$existing.port) }
+      return
+    }
+    if ($serviceState -eq "Busy") {
+      $existing = Read-HwLifecycleJson -Path $ServiceStatePath
+      Write-LauncherLog ("Service PID {0} on port {1} is busy; preserving it and opening the existing endpoint" -f $existing.pid, $existing.port)
+      if (-not $NoOpen) { Open-Suite -Port ([int]$existing.port) }
+      return
+    }
   }
 
-  Stop-HwLifecycleService -RuntimeRoot $Root -StateRoot $StateRoot -AllowLegacyIdentity
+  if ($Restart -or $serviceState -in @("Dead", "Foreign")) {
+    Stop-HwLifecycleService -RuntimeRoot $Root -StateRoot $StateRoot -AllowLegacyIdentity
+  } else {
+    throw "Unsupported lifecycle service state: $serviceState"
+  }
 
 $Port = $null
 if ($PreferredPort -ge 1 -and $PreferredPort -le 65535 -and -not (Test-PortOpen -Port $PreferredPort)) {
@@ -187,7 +200,7 @@ $ready = $false
 foreach ($attempt in 1..75) {
   $process.Refresh()
   if ($process.HasExited) { break }
-  if ((Test-HwLifecycleService -RuntimeRoot $Root -StateRoot $StateRoot) -and (Test-ToolsReady -Port $Port)) {
+  if ((Test-HwLifecycleService -RuntimeRoot $Root -StateRoot $StateRoot -ProbeTimeouts @(200)) -and (Test-ToolsReady -Port $Port)) {
     $ready = $true
     break
   }

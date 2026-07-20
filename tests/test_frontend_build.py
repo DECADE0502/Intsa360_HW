@@ -317,7 +317,8 @@ class FrontendBuildTests(unittest.TestCase):
         # navigation to unknown schemes without a user gesture.
         self.assertIn("window.location.href = RECONNECT_PROTOCOL_URL", app)
         self.assertNotIn('document.createElement("iframe")', app)
-        self.assertIn("正在唤起本地服务", app)
+        self.assertIn("正在重新连接平台", app)
+        self.assertIn("浏览器新标签页", app)
         self.assertIn("await refreshPlatformCatalog()", handler)
 
     def test_platform_page_removes_full_uninstall_flow(self) -> None:

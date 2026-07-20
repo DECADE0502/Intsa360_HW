@@ -194,7 +194,7 @@ export default function App() {
     if (serviceReconnecting) return;
     setServiceReconnecting(true);
     setServiceOnline(false);
-    setServiceError("正在唤起本地服务，请稍候（若浏览器询问是否打开 Insta360_HW，请点“打开”）…");
+    setServiceError("正在重新连接平台…如新窗口未自动打开，请查看任务栏或浏览器新标签页。");
     triggerReconnectProtocol();
     try {
       const ready = await pollBackendUntilReady();
@@ -316,7 +316,7 @@ export default function App() {
               description={serviceError || "当前页面仍在浏览器中，但本地服务不可用，工具操作会失败。请重新启动平台或点击重新连接。"}
               action={
                 <Button size="small" danger loading={serviceReconnecting} onClick={restartBackendAndReconnect}>
-                  {serviceReconnecting ? "正在重启服务" : "重新连接"}
+                  {serviceReconnecting ? "正在重新连接" : "重新连接"}
                 </Button>
               }
             />

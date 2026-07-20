@@ -135,14 +135,23 @@ function Get-HwLifecycleHealth {
   } catch { return $null }
 }
 
-function Test-HwLifecycleService {
+function Get-HwLifecycleServiceProcessState {
   param([Parameter(Mandatory=$true)][string]$RuntimeRoot, [Parameter(Mandatory=$true)][string]$StateRoot)
   $identity = Read-HwLifecycleJson -Path (Get-HwLifecycleServiceStatePath -StateRoot $StateRoot)
-  if ($null -eq $identity -or -not (Test-HwLifecycleServiceIdentity -Identity $identity -RuntimeRoot $RuntimeRoot -StateRoot $StateRoot)) { return $false }
-  if ($null -eq (Get-Process -Id ([int]$identity.pid) -ErrorAction SilentlyContinue)) { return $false }
-  if (-not (Test-HwLifecycleProcessIdentity -Identity $identity -RuntimeRoot $RuntimeRoot)) { return $false }
-  $health = Get-HwLifecycleHealth -Port ([int]$identity.port)
-  if ($null -eq $health) { return $false }
+  if ($null -eq $identity) { return "Dead" }
+  if (-not (Test-HwLifecycleServiceIdentity -Identity $identity -RuntimeRoot $RuntimeRoot -StateRoot $StateRoot)) { return "Foreign" }
+  if ($null -eq (Get-Process -Id ([int]$identity.pid) -ErrorAction SilentlyContinue)) { return "Dead" }
+  if (-not (Test-HwLifecycleProcessIdentity -Identity $identity -RuntimeRoot $RuntimeRoot)) { return "Foreign" }
+  return "Alive"
+}
+
+function Test-HwLifecycleHealthIdentity {
+  param(
+    [Parameter(Mandatory=$true)]$Health,
+    [Parameter(Mandatory=$true)]$Identity,
+    [Parameter(Mandatory=$true)][string]$RuntimeRoot,
+    [Parameter(Mandatory=$true)][string]$StateRoot
+  )
   try {
     $expectedRoot = [System.IO.Path]::GetFullPath($RuntimeRoot).TrimEnd("\\")
     $expectedState = [System.IO.Path]::GetFullPath($StateRoot).TrimEnd("\\")
@@ -156,6 +165,33 @@ function Test-HwLifecycleService {
       [string]$health.instance_token -eq [string]$identity.instance_token -and
       [int]$health.pid -eq [int]$identity.pid
   } catch { return $false }
+}
+
+function Get-HwLifecycleServiceState {
+  param(
+    [Parameter(Mandatory=$true)][string]$RuntimeRoot,
+    [Parameter(Mandatory=$true)][string]$StateRoot,
+    [int[]]$ProbeTimeouts = @(1500, 2000, 3000, 4000)
+  )
+  $processState = Get-HwLifecycleServiceProcessState -RuntimeRoot $RuntimeRoot -StateRoot $StateRoot
+  if ($processState -ne "Alive") { return $processState }
+  $identity = Read-HwLifecycleJson -Path (Get-HwLifecycleServiceStatePath -StateRoot $StateRoot)
+  foreach ($timeout in $ProbeTimeouts) {
+    $health = Get-HwLifecycleHealth -Port ([int]$identity.port) -TimeoutMs $timeout
+    if ($null -ne $health -and (Test-HwLifecycleHealthIdentity -Health $health -Identity $identity -RuntimeRoot $RuntimeRoot -StateRoot $StateRoot)) {
+      return "Alive"
+    }
+  }
+  return "Busy"
+}
+
+function Test-HwLifecycleService {
+  param(
+    [Parameter(Mandatory=$true)][string]$RuntimeRoot,
+    [Parameter(Mandatory=$true)][string]$StateRoot,
+    [int[]]$ProbeTimeouts = @(1500, 2000, 3000, 4000)
+  )
+  return (Get-HwLifecycleServiceState -RuntimeRoot $RuntimeRoot -StateRoot $StateRoot -ProbeTimeouts $ProbeTimeouts) -eq "Alive"
 }
 
 function Stop-HwLifecycleService {
