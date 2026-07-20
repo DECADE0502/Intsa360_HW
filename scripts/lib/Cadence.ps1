@@ -357,12 +357,33 @@ function Install-CadenceLoader {
   param(
     [Parameter(Mandatory=$true)][string]$ToolRoot,
     [Parameter(Mandatory=$true)][string]$PythonPath,
-    [Parameter(Mandatory=$true)][string[]]$AutoLoadDirs,
+    [Parameter(Mandatory=$true)][AllowEmptyCollection()][string[]]$AutoLoadDirs,
     [string]$PluginStatePath
   )
+  $deploymentDirs = New-Object System.Collections.Generic.List[string]
+  $seen = @{}
+  foreach ($candidate in $AutoLoadDirs) {
+    if ([string]::IsNullOrWhiteSpace([string]$candidate)) { continue }
+    try { $full = [System.IO.Path]::GetFullPath([string]$candidate).TrimEnd("\") }
+    catch { continue }
+    $captureRoot = Split-Path -Parent (Split-Path -Parent $full)
+    $cdsSetupRoot = Split-Path -Parent $captureRoot
+    if ((Split-Path -Leaf $captureRoot) -ine "OrCAD_Capture" -or
+        (Split-Path -Leaf $cdsSetupRoot) -ine "cdssetup" -or
+        -not (Test-Path -LiteralPath $captureRoot -PathType Container) -or
+        $seen.ContainsKey($full)) { continue }
+    $seen[$full] = $true
+    $deploymentDirs.Add($full) | Out-Null
+  }
+
+  if ($deploymentDirs.Count -eq 0) {
+    $message = Get-HwAgentText "5pyq5qOA5rWL5YiwIENhZGVuY2Ug546v5aKD77yM5bey6Lez6L+H6I+c5Y2V6YOo572y"
+    Write-Host ("__HWAGENT_CADENCE_NONE__ " + $message)
+    return @()
+  }
+
   $installed = @()
-  foreach ($dir in $AutoLoadDirs) {
-    if (-not $dir) { continue }
+  foreach ($dir in $deploymentDirs.ToArray()) {
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
     $target = Join-Path $dir "iac_bom_tool.tcl"
     if (Test-Path -LiteralPath $target -PathType Leaf) {

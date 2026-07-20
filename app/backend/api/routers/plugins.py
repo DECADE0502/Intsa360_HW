@@ -3,7 +3,11 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
-from app.backend.api.cadence import cadence_hot_reload_command, redeploy_cadence_loader
+from app.backend.api.cadence import (
+    cadence_hot_reload_command,
+    cadence_redeploy_message,
+    redeploy_cadence_loader,
+)
 from app.backend.api.common import error_payload, is_user_input_error
 from app.backend.api.context import AppContext, get_context
 from app.backend.capabilities import load_capabilities, set_cadence_menu_visibility
@@ -73,7 +77,6 @@ def install_cadence(context: AppContext = Depends(get_context)):
         "redeployed": redeployed,
         "installed": installed,
         "output": output,
-        "message": "Cadence 集成已重新安装",
+        "message": cadence_redeploy_message(output),
         "hot_reload_command": cadence_hot_reload_command(installed),
     }
-

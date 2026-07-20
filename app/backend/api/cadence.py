@@ -5,6 +5,7 @@ from pathlib import Path
 
 
 CADENCE_LOADER_MARKER = "__HWAGENT_CADENCE_LOADER__ "
+CADENCE_NONE_MARKER = "__HWAGENT_CADENCE_NONE__"
 
 
 def parse_cadence_loader_paths(output: str) -> list[str]:
@@ -26,6 +27,16 @@ def cadence_hot_reload_command(installed: list[str]) -> str:
         return ""
     path = installed[0].replace("\\", "/").replace("{", r"\{").replace("}", r"\}")
     return f"source {{{path}}}"
+
+
+def cadence_redeploy_message(output: str) -> str:
+    for line in output.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith(CADENCE_NONE_MARKER):
+            continue
+        message = stripped[len(CADENCE_NONE_MARKER) :].strip()
+        return message or "未检测到 Cadence 环境，已跳过菜单部署"
+    return "Cadence 集成已重新安装"
 
 
 def redeploy_cadence_loader(root: Path) -> tuple[bool, list[str], str]:

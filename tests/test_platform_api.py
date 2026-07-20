@@ -55,6 +55,34 @@ class PlatformApiTests(unittest.TestCase):
         )
         self.assertNotIn("$env(HOME)", command)
 
+    def test_cadence_install_endpoint_reports_missing_environment_as_skipped(self) -> None:
+        server = create_server(ROOT, port=0)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            host, port = server.server_address
+            request = Request(
+                f"http://{host}:{port}/api/cadence/install",
+                data=b"{}",
+                headers=_mutation_headers(server, "application/json"),
+                method="POST",
+            )
+            output = "__HWAGENT_CADENCE_NONE__ 未检测到 Cadence 环境，已跳过菜单部署\n"
+            with patch(
+                "app.backend.api.routers.plugins.redeploy_cadence_loader",
+                return_value=(True, [], output),
+            ):
+                with urlopen(request, timeout=5) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+        finally:
+            server.shutdown()
+            server.server_close()
+
+        self.assertEqual(payload["installed"], [])
+        self.assertEqual(payload["hot_reload_command"], "")
+        self.assertIn("未检测到 Cadence", payload["message"])
+        self.assertIn("已跳过", payload["message"])
+
     def test_capabilities_endpoint_returns_platform_and_scripts(self) -> None:
         server = create_server(ROOT, port=0)
         thread = threading.Thread(target=server.serve_forever, daemon=True)

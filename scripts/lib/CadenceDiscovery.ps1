@@ -20,25 +20,20 @@ function ConvertTo-HwAgentUniqueFullPaths {
 }
 
 function Get-HwAgentDefaultCadenceDriveRoots {
-  $roots = @()
-  foreach ($drive in @("C:\", "D:\")) {
-    if (Test-Path -LiteralPath $drive -PathType Container) { $roots += $drive }
-  }
-  return @(ConvertTo-HwAgentUniqueFullPaths -Paths $roots)
+  return @()
 }
 
 function Get-HwAgentDefaultCadenceUserRoots {
-  $known = @(
-    "D:\CADENCE\Cadence\SPB_Data",
-    "C:\Cadence\Cadence\SPB_Data",
-    "C:\Cadence\SPB_Data",
-    "D:\Cadence\SPB_Data"
-  )
+  $homeProfile = ""
+  if (-not [string]::IsNullOrWhiteSpace($env:HOMEDRIVE) -and
+      -not [string]::IsNullOrWhiteSpace($env:HOMEPATH)) {
+    $homeProfile = $env:HOMEDRIVE + $env:HOMEPATH
+  }
   return @(ConvertTo-HwAgentUniqueFullPaths -Paths @(
     $env:SPB_DATA,
     $env:CDS_DATA,
     $env:HOME,
-    $known,
+    $homeProfile,
     $env:USERPROFILE
   ))
 }
@@ -109,16 +104,13 @@ function Get-HwAgentCadenceDiscovery {
   }
   $userCandidates = @(ConvertTo-HwAgentUniqueFullPaths -Paths $userCandidates.ToArray())
   $existingUserDirs = @($userCandidates | Where-Object {
-    (Test-Path -LiteralPath $_ -PathType Container) -or
-    (Test-Path -LiteralPath (Split-Path -Parent (Split-Path -Parent $_)) -PathType Container)
+    $captureRoot = Split-Path -Parent (Split-Path -Parent $_)
+    $cdsSetupRoot = Split-Path -Parent $captureRoot
+    ((Split-Path -Leaf $captureRoot) -ieq "OrCAD_Capture") -and
+    ((Split-Path -Leaf $cdsSetupRoot) -ieq "cdssetup") -and
+    (Test-Path -LiteralPath $captureRoot -PathType Container)
   })
-  $userDirs = if ($existingUserDirs.Count -gt 0) {
-    @(ConvertTo-HwAgentUniqueFullPaths -Paths $existingUserDirs)
-  } elseif ($userCandidates.Count -gt 0) {
-    @($userCandidates[0])
-  } else {
-    @()
-  }
+  $userDirs = @(ConvertTo-HwAgentUniqueFullPaths -Paths $existingUserDirs)
 
   $vendorInstallations = New-Object System.Collections.Generic.List[object]
   $seenVendor = @{}

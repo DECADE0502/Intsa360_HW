@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -9,14 +10,106 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
+from app.backend.api import cadence as cadence_api
+
 
 ROOT = Path(__file__).resolve().parents[1]
 CONVERTER = ROOT / "tools" / "bom" / "convert_cadence_bom.py"
 TCL_TEMPLATE = ROOT / "cadence" / "iac_bom_tool.tcl"
 CADENCE_EXPORT = ROOT / "cadence" / "cadence_export.ps1"
+CADENCE_DISCOVERY = ROOT / "scripts" / "lib" / "CadenceDiscovery.ps1"
+CADENCE_LIBRARY = ROOT / "scripts" / "lib" / "Cadence.ps1"
 
 
 class CadenceIntegrationTests(unittest.TestCase):
+    def test_discovery_returns_empty_without_cadence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            home = base / "home"
+            profile = base / "profile"
+            appdata = base / "appdata"
+            localappdata = base / "localappdata"
+            home.mkdir()
+            profile.mkdir()
+            (profile / "AppData" / "Roaming").mkdir(parents=True)
+            appdata.mkdir()
+            localappdata.mkdir()
+            before = sorted(path.relative_to(base).as_posix() for path in base.rglob("*"))
+            env = {
+                **os.environ,
+                "HOME": str(home),
+                "USERPROFILE": str(profile),
+                "APPDATA": str(appdata),
+                "LOCALAPPDATA": str(localappdata),
+                "HOMEDRIVE": "",
+                "HOMEPATH": "",
+                "SPB_DATA": "",
+                "CDS_DATA": "",
+                "CDSROOT": "",
+                "CDS_ROOT": "",
+                "CADENCE_ROOT": "",
+            }
+            script = str(CADENCE_DISCOVERY).replace("'", "''")
+            completed = subprocess.run(
+                [
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-Command",
+                    f". '{script}'; Get-HwAgentCadenceDiscovery | ConvertTo-Json -Depth 6 -Compress",
+                ],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=30,
+                env=env,
+            )
+            after = sorted(path.relative_to(base).as_posix() for path in base.rglob("*"))
+
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        payload = json.loads(completed.stdout.strip())
+        self.assertEqual(payload["user_autoload_dirs"], [])
+        self.assertEqual(payload["vendor_installations"], [])
+        self.assertEqual(after, before)
+
+    def test_no_hardcoded_cadence_drive_paths(self) -> None:
+        production_sources = [
+            *sorted((ROOT / "scripts").rglob("*.ps1")),
+            *sorted((ROOT / "app").rglob("*.py")),
+        ]
+
+        for source in production_sources:
+            text = source.read_text(encoding="utf-8-sig").casefold()
+            self.assertNotIn(r"d:\cadence", text, source)
+            self.assertNotIn(r"c:\cadence", text, source)
+
+    def test_empty_cadence_deployment_emits_none_marker(self) -> None:
+        library = str(CADENCE_LIBRARY).replace("'", "''")
+        root = str(ROOT).replace("'", "''")
+        python = str(Path(sys.executable)).replace("'", "''")
+        completed = subprocess.run(
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                f". '{library}'; Install-CadenceLoader -ToolRoot '{root}' -PythonPath '{python}' -AutoLoadDirs @()",
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        self.assertIn("__HWAGENT_CADENCE_NONE__", completed.stdout)
+        self.assertEqual(cadence_api.parse_cadence_loader_paths(completed.stdout), [])
+        self.assertIn("未检测到 Cadence", cadence_api.cadence_redeploy_message(completed.stdout))
+
     def test_cadence_converter_preserves_all_extra_properties(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

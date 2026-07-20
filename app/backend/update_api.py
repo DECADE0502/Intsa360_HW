@@ -66,15 +66,22 @@ def version_payload(root: Path) -> dict[str, object]:
 
 def _find_cadence_autoload_dirs() -> list[Path]:
     candidates: list[Path] = []
-    for base in (os.environ.get("HOME"), os.environ.get("USERPROFILE"), str(Path.home())):
+    home_profile = ""
+    if os.environ.get("HOMEDRIVE") and os.environ.get("HOMEPATH"):
+        home_profile = os.environ["HOMEDRIVE"] + os.environ["HOMEPATH"]
+    for base in (
+        os.environ.get("SPB_DATA"),
+        os.environ.get("CDS_DATA"),
+        os.environ.get("HOME"),
+        home_profile,
+        os.environ.get("USERPROFILE"),
+    ):
         if not base:
             continue
         path = Path(base) / "cdssetup" / "OrCAD_Capture" / "tclscripts" / "capAutoLoad"
-        if path not in candidates:
+        capture_root = path.parents[1]
+        if capture_root.is_dir() and path not in candidates:
             candidates.append(path)
-    known = Path(r"D:\CADENCE\Cadence\SPB_Data\cdssetup\OrCAD_Capture\tclscripts\capAutoLoad")
-    if known not in candidates:
-        candidates.append(known)
     return candidates
 
 

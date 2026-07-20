@@ -14,17 +14,40 @@ $ProbeLog = Join-Path $Root "data\reports\runtime\cadence_loader_probe.log"
 $StartedProcess = $null
 
 function Find-CaptureExe {
-  if ($CaptureExe -and (Test-Path -LiteralPath $CaptureExe)) { return $CaptureExe }
-  $known = @(
-    "D:\CADENCE\Cadence\SPB_17.4\tools\bin\Capture.exe",
-    "C:\Cadence\SPB_17.4\tools\bin\Capture.exe"
-  )
-  foreach ($candidate in $known) {
-    if (Test-Path -LiteralPath $candidate) { return $candidate }
+  if ($CaptureExe -and (Test-Path -LiteralPath $CaptureExe -PathType Leaf)) {
+    return [System.IO.Path]::GetFullPath($CaptureExe)
   }
-  $found = Get-ChildItem -Path "D:\CADENCE", "C:\Cadence" -Recurse -Filter "Capture.exe" -ErrorAction SilentlyContinue |
-    Select-Object -First 1
-  if ($found) { return $found.FullName }
+
+  $command = Get-Command Capture.exe -ErrorAction SilentlyContinue
+  if ($command -and (Test-Path -LiteralPath $command.Source -PathType Leaf)) { return $command.Source }
+
+  $candidates = New-Object System.Collections.Generic.List[string]
+  foreach ($installation in @((Get-HwAgentCadenceDiscovery).vendor_installations)) {
+    $candidates.Add((Join-Path ([string]$installation.root) "tools\bin\Capture.exe")) | Out-Null
+  }
+
+  foreach ($registryRoot in @(
+      "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+      "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+    )) {
+    if (-not (Test-Path -LiteralPath $registryRoot)) { continue }
+    foreach ($entry in Get-ChildItem -LiteralPath $registryRoot -ErrorAction SilentlyContinue) {
+      $properties = Get-ItemProperty -LiteralPath $entry.PSPath -ErrorAction SilentlyContinue
+      if ($null -eq $properties -or [string]$properties.DisplayName -notmatch "Cadence|OrCAD|SPB") { continue }
+      $location = [string]$properties.InstallLocation
+      if ([string]::IsNullOrWhiteSpace($location)) { continue }
+      $candidates.Add((Join-Path $location "tools\bin\Capture.exe")) | Out-Null
+      $candidates.Add((Join-Path $location "Capture.exe")) | Out-Null
+    }
+  }
+
+  $seen = @{}
+  foreach ($candidate in $candidates) {
+    try { $full = [System.IO.Path]::GetFullPath($candidate) } catch { continue }
+    if ($seen.ContainsKey($full)) { continue }
+    $seen[$full] = $true
+    if (Test-Path -LiteralPath $full -PathType Leaf) { return $full }
+  }
   throw "Capture.exe not found"
 }
 
