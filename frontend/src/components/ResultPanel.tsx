@@ -1,13 +1,6 @@
 import { Alert, Button, Space, Table, Typography } from "antd";
 import { uiText } from "../i18n/zhCN";
-
-function outputHref(path: string) {
-  const normalized = path.replaceAll("\\", "/");
-  const marker = "/data/outputs/";
-  const index = normalized.indexOf(marker);
-  const rel = index >= 0 ? normalized.slice(index + marker.length) : normalized.replace(/^data\/outputs\//, "");
-  return `/outputs/${encodeURI(rel)}`;
-}
+import { outputHref } from "../utils/outputHref";
 
 export function ResultPanel({ result }: { result: any }) {
   if (!result) return <Alert type="info" message={uiText.noResult} />;

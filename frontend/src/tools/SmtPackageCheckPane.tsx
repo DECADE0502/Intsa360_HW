@@ -22,6 +22,7 @@ import {
 } from "@ant-design/icons";
 import { runTool, uploadFiles, type ToolInfo } from "../api/client";
 import { toUserMessage } from "../api/errors";
+import { outputHref } from "../utils/outputHref";
 import { HistoryBomPicker } from "../components/HistoryBomPicker";
 import { useToolWorkspace } from "../state/toolWorkspace";
 
@@ -41,14 +42,6 @@ type SmtReviewItem = {
   note?: string;
   refs?: string[];
 };
-
-function outputHref(path: string) {
-  const normalized = path.replaceAll("\\", "/");
-  const marker = "/data/outputs/";
-  const index = normalized.indexOf(marker);
-  const rel = index >= 0 ? normalized.slice(index + marker.length) : normalized.replace(/^data\/outputs\//, "");
-  return `/outputs/${encodeURI(rel)}`;
-}
 
 function textOf(value: unknown) {
   return String(value ?? "");

@@ -238,9 +238,9 @@ class FrontendBuildTests(unittest.TestCase):
         progress_open = update.index("setProgressOpen(true);", update_start)
         self.assertLess(notice_close, progress_open)
 
-        self.assertIn("function outputHref", history)
+        self.assertIn('import { outputHref } from "../utils/outputHref"', history)
         self.assertIn("href={outputHref(name)}", history)
-        self.assertIn("function outputHref", wizard)
+        self.assertIn('import { outputHref } from "../utils/outputHref"', wizard)
         self.assertIn("href={outputHref(p)}", wizard)
 
         self.assertIn('HISTORY_UPDATED_EVENT = "insta360_hw:history-updated"', client)
@@ -261,36 +261,44 @@ class FrontendBuildTests(unittest.TestCase):
     def test_output_download_urls_encode_each_relative_path_segment(self) -> None:
         cases = [
             [r"C:\workspace\data\outputs\子目录 A\嵌套#层\报告 100%?.xlsx", "子目录 A/嵌套#层/报告 100%?.xlsx"],
-            ["data/outputs/项目 #1/版本 50%/检查?.csv", "项目 #1/版本 50%/检查?.csv"],
+            ["data/outputs/项目 #1/版本+50%/检查&确认?.csv", "项目 #1/版本+50%/检查&确认?.csv"],
         ]
+        helper_path = ROOT / "frontend/src/utils/outputHref.ts"
+        source = helper_path.read_text(encoding="utf-8")
+        helper = re.search(r"export function outputHref\(path: string\): string \{(?P<body>[\s\S]+?)\n\}", source)
+        self.assertIsNotNone(helper, str(helper_path))
+        script = (
+            f"function outputHref(path) {{{helper.group('body')}\n}}\n"
+            f"const cases = {json.dumps(cases, ensure_ascii=False)};\n"
+            "for (const [input, relative] of cases) {\n"
+            "  const expected = `/outputs/${relative.split('/').map(encodeURIComponent).join('/')}`;\n"
+            "  const actual = outputHref(input);\n"
+            "  if (actual !== expected) {\n"
+            "    console.error(JSON.stringify({ input, expected, actual }));\n"
+            "    process.exit(1);\n"
+            "  }\n"
+            "}\n"
+        )
+        completed = subprocess.run(
+            ["node", "-e", script],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+        )
+        self.assertEqual(0, completed.returncode, completed.stderr or completed.stdout)
         for relative_path in [
+            "frontend/src/components/ResultPanel.tsx",
             "frontend/src/platform/HistoryView.tsx",
+            "frontend/src/tools/BomComparePane.tsx",
             "frontend/src/tools/BomProcessWizard.tsx",
+            "frontend/src/tools/NetlistComparePane.tsx",
+            "frontend/src/tools/SingleNetworkCheckPane.tsx",
+            "frontend/src/tools/SmtPackageCheckPane.tsx",
         ]:
-            source = (ROOT / relative_path).read_text(encoding="utf-8")
-            helper = re.search(r"function outputHref\(path: string\) \{(?P<body>[\s\S]+?)\n\}", source)
-            self.assertIsNotNone(helper, relative_path)
-            script = (
-                f"function outputHref(path) {{{helper.group('body')}\n}}\n"
-                f"const cases = {json.dumps(cases, ensure_ascii=False)};\n"
-                "for (const [input, relative] of cases) {\n"
-                "  const expected = `/outputs/${relative.split('/').map(encodeURIComponent).join('/')}`;\n"
-                "  const actual = outputHref(input);\n"
-                "  if (actual !== expected) {\n"
-                "    console.error(JSON.stringify({ input, expected, actual }));\n"
-                "    process.exit(1);\n"
-                "  }\n"
-                "}\n"
-            )
-            completed = subprocess.run(
-                ["node", "-e", script],
-                cwd=ROOT,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                check=False,
-            )
-            self.assertEqual(0, completed.returncode, f"{relative_path}: {completed.stderr or completed.stdout}")
+            consumer = (ROOT / relative_path).read_text(encoding="utf-8")
+            self.assertIn("utils/outputHref", consumer, relative_path)
 
     def test_frontend_marks_backend_offline_when_health_check_fails(self) -> None:
         app = (ROOT / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")

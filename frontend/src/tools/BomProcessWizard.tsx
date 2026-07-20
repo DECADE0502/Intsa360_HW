@@ -32,6 +32,7 @@ import { runTool, secureFetch, uploadFiles } from "../api/client";
 import { ApiError, toUserMessage } from "../api/errors";
 import { useToolWorkspace } from "../state/toolWorkspace";
 import { packageDownloadName } from "../utils/downloadName";
+import { outputHref } from "../utils/outputHref";
 import { riskStatusText } from "../utils/statusText";
 import { buildRecommendedConflictChoices } from "./bomConflictChoices";
 
@@ -49,15 +50,6 @@ type Extra = { code: string; model: string; desc: string; qty: string; refs: str
 
 function fname(p: string) {
   return p.split(/[\\/]/).pop() || p;
-}
-
-function outputHref(path: string) {
-  const normalized = path.replaceAll("\\", "/");
-  const marker = "/data/outputs/";
-  const index = normalized.indexOf(marker);
-  const rel = index >= 0 ? normalized.slice(index + marker.length) : normalized.replace(/^data\/outputs\//, "");
-  const encoded = rel.split("/").map((segment) => encodeURIComponent(segment)).join("/");
-  return `/outputs/${encoded}`;
 }
 
 function bname(p: string) {

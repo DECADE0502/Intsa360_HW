@@ -2,15 +2,7 @@ import { App, Button, Descriptions, Drawer, Empty, Popconfirm, Space, Table, Tag
 import { useState } from "react";
 import { clearHistory, deleteHistoryRun, fetchHistoryRun, type HistoryRun } from "../api/client";
 import { toUserMessage } from "../api/errors";
-
-function outputHref(path: string) {
-  const normalized = path.replaceAll("\\", "/");
-  const marker = "/data/outputs/";
-  const index = normalized.indexOf(marker);
-  const rel = index >= 0 ? normalized.slice(index + marker.length) : normalized.replace(/^data\/outputs\//, "");
-  const encoded = rel.split("/").map((segment) => encodeURIComponent(segment)).join("/");
-  return `/outputs/${encoded}`;
-}
+import { outputHref } from "../utils/outputHref";
 
 function compactSummary(summary: unknown) {
   if (!summary || typeof summary !== "object") return "-";

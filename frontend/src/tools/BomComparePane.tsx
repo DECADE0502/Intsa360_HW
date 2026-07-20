@@ -24,6 +24,7 @@ import { runTool, uploadFiles, type ToolInfo } from "../api/client";
 import { toUserMessage } from "../api/errors";
 import { HistoryBomPicker } from "../components/HistoryBomPicker";
 import { useToolWorkspace } from "../state/toolWorkspace";
+import { outputHref } from "../utils/outputHref";
 import { riskStatusText } from "../utils/statusText";
 
 type CompareItem = {
@@ -37,14 +38,6 @@ type CompareItem = {
 };
 
 type TablePayload = { headers?: string[]; rows?: unknown[][]; total_rows?: number };
-
-function outputHref(path: string) {
-  const normalized = path.replaceAll("\\", "/");
-  const marker = "/data/outputs/";
-  const index = normalized.indexOf(marker);
-  const rel = index >= 0 ? normalized.slice(index + marker.length) : normalized.replace(/^data\/outputs\//, "");
-  return `/outputs/${encodeURI(rel)}`;
-}
 
 const statusMeta: Record<string, { label: string; color: string; tone: string; filter: string }> = {
   same: { label: "一致", color: "green", tone: "ok", filter: "same" },
