@@ -6,6 +6,7 @@ from pathlib import Path
 
 from app.backend.capture_fields import BOM_OPTIONAL_FIELDS, FIELD_DEFAULTS, PLM_TEMPLATE_HEADERS
 from app.backend.parsers._workbook import build_merged_cell_lookup, open_bom_workbook
+from app.backend.parsers.bom_table import INHERIT_FIELDS, normalize_header, split_refs
 from app.backend.parsers.refs import natural_key
 
 # BOM 处理工具：把 Capture 导出的原始 BOM 处理成可导入的 PLM / OA 成品。
@@ -64,27 +65,17 @@ def _looks_numeric(value: str) -> bool:
 GRADE_RANK = {"优选": 5, "正常": 4, "限选": 3, "验证中": 2, "": 0}
 
 
-def split_refs(value: object) -> list[str]:
-    return [p for p in re.split(r"[,;\s]+", str(value or "").strip()) if p]
-
-
 def normalize_ref(ref: str) -> str:
     match = re.fullmatch(r"(U\d+)[A-Z]", ref)
     return match.group(1) if match else ref
 
 
-def _norm_header(value: object) -> str:
-    # 去掉花括号占位符（{Reference} -> Reference）和空白，统一比对
-    text = str(value or "").strip().replace("{", "").replace("}", "")
-    return re.sub(r"\s+", "", text)
-
-
 def detect_header(ws) -> tuple[int, dict[str, int]]:
     """扫描前若干行，定位含 Reference + Part Number 的表头行，返回行号与字段列映射。"""
-    alias_norm = {key: [_norm_header(a) for a in names] for key, names in SRC_ALIASES.items()}
+    alias_norm = {key: [normalize_header(a) for a in names] for key, names in SRC_ALIASES.items()}
     best_row, best_map, best_score = 1, {}, -1
     for row in range(1, min(ws.max_row, 40) + 1):
-        values = [_norm_header(ws.cell(row, col).value) for col in range(1, ws.max_column + 1)]
+        values = [normalize_header(ws.cell(row, col).value) for col in range(1, ws.max_column + 1)]
         mapping: dict[str, int] = {}
         for key, names in alias_norm.items():
             for alias in names:
@@ -113,7 +104,14 @@ def _cell(
     if not col:
         return ""
     raw_value = ws.cell(row, col).value
-    if raw_value is None and merged_lookup is not None:
+    source_field = {
+        "desc": "description",
+        "part_type": "name",
+        "pcb_footprint": "package",
+        "pcb_package": "package",
+        "source_package": "package",
+    }.get(key, key)
+    if raw_value is None and merged_lookup is not None and source_field in INHERIT_FIELDS:
         raw_value = merged_lookup.get((row, col))
     return str(raw_value or "").strip()
 

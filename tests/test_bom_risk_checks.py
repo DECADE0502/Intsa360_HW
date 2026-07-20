@@ -8,6 +8,7 @@ from openpyxl import Workbook
 
 from app.backend.tools.analysis_tools import run_bom_risk_check
 from app.backend.tools.bom_rules import evaluate_bom_risks
+from app.backend.tools.common import _read_bom_rows
 
 
 def _write_bom(path: Path, rows: list[list[object]]) -> None:
@@ -25,6 +26,22 @@ def _quantity_finding(quantity: object, refs: list[str]) -> dict[str, str]:
 
 
 class BomRiskCheckTests(unittest.TestCase):
+    def test_merged_quantity_does_not_create_a_false_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "merged-quantity.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["Reference", "Part Number", "Description", "Quantity"])
+            ws.append(["R1,R2,R3", "P1", "First group", 3])
+            ws.append(["R4,R5", "P2", "Second group", None])
+            ws.merge_cells("D2:D3")
+            wb.save(path)
+
+            rows = _read_bom_rows(path)
+            finding = next(item for item in evaluate_bom_risks(rows) if item["name"] == "数量=位号数")
+
+        self.assertEqual(finding["status"], "ok")
+
     def test_float_quantity_equal_to_reference_count_is_ok(self) -> None:
         finding = _quantity_finding(3.0, ["R1", "R2", "R3"])
 

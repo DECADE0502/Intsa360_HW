@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,12 +8,63 @@ from unittest.mock import patch
 
 from openpyxl import Workbook
 
-from app.backend.parsers.bom_excel import read_bom_rows
+from app.backend.parsers.bom_table import read_bom_rows
 from app.backend.tools import bom_process
 from app.backend.tools.common import _read_bom_rows
 
 
 class BomExcelParserTests(unittest.TestCase):
+    def test_merged_quantity_cell_is_not_inherited(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "merged-quantity.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["Reference", "Part Number", "Description", "Quantity"])
+            ws.append(["R1,R2,R3", "P1", "First group", 3])
+            ws.append(["R4,R5", "P2", "Second group", None])
+            ws.merge_cells("D2:D3")
+            wb.save(path)
+
+            rows = read_bom_rows(path)
+
+        self.assertEqual([row["quantity"] for row in rows], [3, None])
+
+    def test_merged_reference_cell_is_not_inherited(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "merged-reference.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["Reference", "Part Number", "Description", "Quantity"])
+            ws.append(["R1,R2", "P1", "First group", 2])
+            ws.append([None, "P2", "Second group", None])
+            ws.merge_cells("A2:A3")
+            wb.save(path)
+
+            rows = read_bom_rows(path, require_refs=False)
+
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["refs"], ["R1", "R2"])
+        self.assertEqual(rows[1]["refs"], [])
+
+    def test_all_readers_share_one_header_normalization(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "normalized-headers.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["{Reference}", "Part Number*", "描述##ms", "数量"])
+            ws.append(["R1", "P1", "Chip resistor", 1])
+            wb.save(path)
+
+            parser_rows = read_bom_rows(path)
+            process_rows, _ = bom_process.load_source(path)
+
+        self.assertEqual(parser_rows[0]["part_number"], "P1")
+        self.assertEqual(process_rows[0]["part_number"], "P1")
+        self.assertEqual(parser_rows[0]["description"], process_rows[0]["desc"])
+
+    def test_bom_excel_module_is_removed(self) -> None:
+        self.assertIsNone(importlib.util.find_spec("app.backend.parsers.bom_excel"))
+
     def test_vertical_merged_part_number_is_inherited_by_all_bom_readers(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "merged-bom.xlsx"
@@ -30,7 +82,7 @@ class BomExcelParserTests(unittest.TestCase):
 
         for label, rows in (
             ("bom_process", process_rows),
-            ("bom_excel", parser_rows),
+            ("bom_table", parser_rows),
             ("common", common_rows),
         ):
             with self.subTest(reader=label):
@@ -82,7 +134,7 @@ class BomExcelParserTests(unittest.TestCase):
         source.active.append(["unexpected header"])
         workbook = TrackingWorkbook(source.active)
 
-        with patch("openpyxl.load_workbook", return_value=workbook):
+        with patch("app.backend.parsers._workbook.load_workbook", return_value=workbook):
             with self.assertRaises(ValueError):
                 read_bom_rows(Path("missing.xlsx"))
 
