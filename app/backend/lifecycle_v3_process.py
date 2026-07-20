@@ -7,19 +7,7 @@ from pathlib import Path
 import subprocess
 
 from app.backend.contracts.releases import ReleaseManifestV3
-
-
-def _system_powershell() -> str:
-    if os.name != "nt":
-        raise RuntimeError("Windows PowerShell is available only on Windows")
-    buffer = ctypes.create_unicode_buffer(32768)
-    length = ctypes.windll.kernel32.GetWindowsDirectoryW(buffer, len(buffer))
-    if length <= 0 or length >= len(buffer):
-        raise OSError(ctypes.get_last_error(), "cannot resolve the Windows system directory")
-    executable = Path(buffer.value) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
-    if not executable.is_file():
-        raise RuntimeError(f"system Windows PowerShell is missing: {executable}")
-    return str(executable)
+from app.backend.windows_process import system_powershell
 
 
 def _is_admin() -> bool:
@@ -134,7 +122,7 @@ def launch_worker(
         "-ExpectedRevision", manifest.revision.lower(),
         "-ExpectedTreeSha256", tree_sha256,
     ]
-    powershell = _system_powershell()
+    powershell = system_powershell()
     if os.environ.get("INSTA360_HW_NO_ELEVATION") == "1" or _is_admin():
         process = subprocess.Popen(
             [powershell, *arguments],

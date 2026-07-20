@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from openpyxl import load_workbook
 
@@ -22,6 +23,29 @@ CADENCE_LIBRARY = ROOT / "scripts" / "lib" / "Cadence.ps1"
 
 
 class CadenceIntegrationTests(unittest.TestCase):
+    def test_redeploy_timeout_becomes_chinese_runtime_error_without_console(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            script = root / "scripts" / "redeploy_cadence_loader.ps1"
+            script.parent.mkdir(parents=True)
+            script.write_text("# test\n", encoding="ascii")
+            powershell = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+            timeout = subprocess.TimeoutExpired([powershell], 30)
+            with patch("app.backend.api.cadence.system_powershell", return_value=powershell, create=True), patch.object(
+                cadence_api.subprocess,
+                "run",
+                side_effect=timeout,
+            ) as runner:
+                with self.assertRaisesRegex(RuntimeError, "超时"):
+                    cadence_api.redeploy_cadence_loader(root)
+
+        command = runner.call_args.args[0]
+        self.assertEqual(command[0], powershell)
+        self.assertEqual(
+            runner.call_args.kwargs["creationflags"],
+            getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+
     def test_discovery_returns_empty_without_cadence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)

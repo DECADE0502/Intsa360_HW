@@ -118,6 +118,30 @@ class _Response:
 
 
 class UpdateApiV2Tests(unittest.TestCase):
+    def test_cadence_only_uninstall_timeout_returns_chinese_error_without_console(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            script = root / "scripts" / "remove_cadence_loader.ps1"
+            script.parent.mkdir(parents=True)
+            script.write_text("# test\n", encoding="ascii")
+            powershell = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+            timeout = subprocess.TimeoutExpired([powershell], 90)
+            with patch("app.backend.update_api.system_powershell", return_value=powershell, create=True), patch.object(
+                update_api.subprocess,
+                "run",
+                side_effect=timeout,
+            ) as runner:
+                result = update_api.run_uninstall(root, "cadence_only")
+
+        self.assertEqual(result["status"], "error")
+        self.assertIn("超时", result["error"])
+        command = runner.call_args.args[0]
+        self.assertEqual(command[0], powershell)
+        self.assertEqual(
+            runner.call_args.kwargs["creationflags"],
+            getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+
     def test_public_lifecycle_fallback_messages_remain_chinese(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

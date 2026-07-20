@@ -13,6 +13,7 @@ from typing import Any
 
 from app.backend import lifecycle_update, lifecycle_v3
 from app.backend.paths import AppPaths
+from app.backend.windows_process import system_powershell
 
 
 LIFECYCLE_JOB_PHASES = (
@@ -239,15 +240,19 @@ def run_uninstall(root: Path, mode: str = "cadence_only") -> dict[str, object]:
     script = root / "scripts" / "remove_cadence_loader.ps1"
     if not script.exists():
         return {"status": "error", "error": f"缺少 Cadence 集成移除脚本：{script}"}
-    completed = subprocess.run(
-        ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script), "-InstallDir", str(root)],
-        cwd=str(root),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=90,
-    )
+    try:
+        completed = subprocess.run(
+            [system_powershell(), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script), "-InstallDir", str(root)],
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=90,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except subprocess.TimeoutExpired:
+        return {"status": "error", "error": "移除 Cadence 集成超时，请关闭 OrCAD Capture 后重试。"}
     if completed.returncode != 0:
         return {"status": "error", "error": completed.stderr.strip() or completed.stdout.strip() or "Cadence 集成移除失败。"}
     return {"status": "ok", "message": "Cadence 集成已移除。", "output": completed.stdout}
