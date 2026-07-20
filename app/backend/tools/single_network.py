@@ -6,6 +6,7 @@ from pathlib import Path
 from app.backend.parsers.refs import natural_key
 from app.backend.tools.common import (
     USER_INPUT_EXCEPTIONS,
+    _NC_NET_RE,
     _error,
     _is_critical_net,
     _natural_join,
@@ -19,7 +20,6 @@ from app.backend.tools.common import (
     _write_table,
 )
 _TP_PREFIX = ("TP", "JP", "Z_TP", "FID", "MK", "MH")
-_NC_NET_RE = re.compile(r"(^|[^A-Z0-9])(NC|NOCONNECT|NO_CONNECT|DNP)([^A-Z0-9]|$)", re.IGNORECASE)
 _POWER_NET_RE = re.compile(r"(^|[^A-Z0-9])(GND|AGND|DGND|PGND|VSS|VDD|VCC|VBAT|VSYS|SYS|POWER|BUCK|LDO|3V3|1V8|5V)([^A-Z0-9]|$)", re.IGNORECASE)
 _TEST_NET_RE = re.compile(r"(TP|TEST|PROBE|FID|MARK|JTAG|SWD|UART_DBG|DEBUG)", re.IGNORECASE)
 _MECHANICAL_NET_RE = re.compile(r"(HOLE|MOUNT|MTG|SCREW|SHIELD|CHASSIS|GASKET)", re.IGNORECASE)
@@ -29,7 +29,7 @@ def _single_network_item(name: str, data: dict[str, list[str]]) -> dict[str, obj
     pins = data.get("pins", [])
     nodes = data.get("nodes", [])
     blob = " ".join([name, *refs, *pins, *nodes]).upper()
-    is_nc = bool(_NC_NET_RE.search(blob)) or name.upper().startswith("NC")
+    is_nc = bool(_NC_NET_RE.search(name) or _NC_NET_RE.search(blob))
     is_single_ref = len(refs) == 1
     is_testpoint = any(str(ref).upper().startswith(_TP_PREFIX) for ref in refs) or bool(_TEST_NET_RE.search(blob))
     is_mechanical = any(str(ref).upper().startswith(("H", "MH", "MTG")) for ref in refs) or bool(_MECHANICAL_NET_RE.search(blob))

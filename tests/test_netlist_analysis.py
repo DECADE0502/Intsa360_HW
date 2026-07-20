@@ -19,6 +19,48 @@ def write_netlist(folder: Path, nets: str = "", parts: str = "") -> None:
 
 
 class NetlistAnalysisTests(unittest.TestCase):
+    def test_ncs_chip_select_net_is_not_nc(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = root / "net"
+            write_netlist(
+                folder,
+                nets="""NET_NAME
+'NCS_FLASH'
+NODE_NAME U1 A1
+NODE_NAME U2 B2
+""",
+            )
+
+            result = analysis_tools.run_single_network_check(ROOT, {"netlist": str(folder), "output_dir": str(root)})
+
+        self.assertEqual(result["status"], "ok")
+        self.assertFalse(any(item["net"] == "NCS_FLASH" for item in result["single_network_review"]["items"]))
+
+    def test_nc_net_with_separator_is_still_detected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = root / "net"
+            write_netlist(
+                folder,
+                nets="""NET_NAME
+'NC_1'
+NODE_NAME U1 A1
+NODE_NAME U2 B2
+NET_NAME
+'U5_NC'
+NODE_NAME U5 A1
+NODE_NAME U6 B2
+""",
+            )
+
+            result = analysis_tools.run_single_network_check(ROOT, {"netlist": str(folder), "output_dir": str(root)})
+
+        self.assertEqual(result["status"], "ok")
+        by_net = {item["net"]: item for item in result["single_network_review"]["items"]}
+        self.assertEqual(by_net["NC_1"]["category"], "NC 网络")
+        self.assertEqual(by_net["U5_NC"]["category"], "NC 网络")
+
     def test_parse_real_pstxnet_keeps_ref_pin_nodes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp)
