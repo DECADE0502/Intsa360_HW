@@ -46,6 +46,9 @@ describe("App startup", () => {
         }),
       ),
       http.get("/api/history", () => HttpResponse.json({ runs: [] })),
+      http.get("/api/assets", () =>
+        HttpResponse.json({ status: "ok", groups: { processed_bom: [] }, summary: {} }),
+      ),
       http.get("/api/platform/status", () => HttpResponse.json({ status: "ok" })),
       http.get("/api/health", () =>
         HttpResponse.json({ status: "ok", service: "Insta360_HW", version: "0.4.0", revision: "test" }),
@@ -183,6 +186,18 @@ describe("App startup", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("warns when a tool result is too large to persist", async () => {
+    renderWithProviders(<App />);
+    expect(await screen.findByText(/v0\.4\.0 · 运行中/)).toBeInTheDocument();
+
+    window.dispatchEvent(
+      new CustomEvent("insta360_hw:workspace-truncated", { detail: { key: "bom_compare" } }),
+    );
+
+    expect(await screen.findByText("结果过大未持久化")).toBeInTheDocument();
+    expect(await screen.findByText("刷新页面会丢失该结果，请重新运行工具或直接下载生成的文件。")).toBeInTheDocument();
   });
 });
 

@@ -1,4 +1,6 @@
 import { act, renderHook } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useToolWorkspace } from "../state/toolWorkspace";
 
@@ -15,12 +17,22 @@ describe("useToolWorkspace v2", () => {
     vi.restoreAllMocks();
   });
 
-  it("discards unversioned v1 data", () => {
+  it("migrates safe v1 fields into a v2 envelope", () => {
     window.localStorage.setItem(`${PREFIX}legacy`, JSON.stringify({ query: "旧数据", result: { stale: true } }));
 
-    const { result } = renderHook(() => useToolWorkspace("legacy", { query: "", result: null as any }));
+    const { result } = renderHook(() =>
+      useToolWorkspace(
+        "legacy",
+        { query: "", result: null as any },
+        { heavyKeys: ["result"] },
+      ),
+    );
 
-    expect(result.current[0]).toEqual({ query: "", result: null });
+    expect(result.current[0]).toEqual({ query: "旧数据", result: null });
+    expect(JSON.parse(window.localStorage.getItem(`${PREFIX}legacy`) || "{}")).toMatchObject({
+      __v: 2,
+      data: { query: "旧数据" },
+    });
   });
 
   it("discards a v2 envelope whose data is not an object", () => {
@@ -74,7 +86,27 @@ describe("useToolWorkspace v2", () => {
     expect(saved.__v).toBe(2);
     expect(saved.data.query).toBe("保留输入");
     expect(saved.data).not.toHaveProperty("result");
+    expect(saved.__truncated).toBe(true);
     expect(warning).toHaveBeenCalled();
+  });
+
+  it("emits a UI event when workspace results are truncated", () => {
+    const listener = vi.fn();
+    window.addEventListener("insta360_hw:workspace-truncated", listener);
+    const { result } = renderHook(() =>
+      useToolWorkspace(
+        "large-event",
+        { query: "", result: null as any },
+        { heavyKeys: ["result"], maxBytes: 128 },
+      ),
+    );
+
+    act(() => result.current[1]({ query: "保留输入", result: "x".repeat(1024) }));
+    act(() => vi.advanceTimersByTime(500));
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect((listener.mock.calls[0][0] as CustomEvent).detail).toEqual({ key: "large-event" });
+    window.removeEventListener("insta360_hw:workspace-truncated", listener);
   });
 
   it("reset cancels a pending write and keeps storage empty", () => {
@@ -112,5 +144,23 @@ describe("useToolWorkspace v2", () => {
     expect(saved.data).toEqual({ query: "保留输入" });
     expect(writes).toBe(2);
     expect(warning).toHaveBeenCalled();
+  });
+
+  it("declares heavy result keys in every result pane", () => {
+    for (const pane of [
+      "BomComparePane.tsx",
+      "NetlistComparePane.tsx",
+      "SmtPackageCheckPane.tsx",
+      "SingleNetworkCheckPane.tsx",
+    ]) {
+      const source = readFileSync(resolve(process.cwd(), "src", "tools", pane), "utf-8");
+      expect(source).toContain('{ heavyKeys: ["result"] }');
+    }
+  });
+
+  it("uses reconnect copy that matches the current-tab polling behavior", () => {
+    const source = readFileSync(resolve(process.cwd(), "src", "App.tsx"), "utf-8");
+    expect(source).toContain("正在重新连接本地服务，请稍候…");
+    expect(source).not.toContain("如新窗口未自动打开");
   });
 });

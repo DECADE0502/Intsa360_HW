@@ -28,9 +28,28 @@ type PluginGroups = { system: PluginInfo[]; platform: PluginInfo[]; user: Plugin
 const BomProcessWizard = lazy(() => import("./tools/BomProcessWizard").then((module) => ({ default: module.BomProcessWizard })));
 const LegacyToolPane = lazy(() => import("./tools/LegacyToolPane").then((module) => ({ default: module.LegacyToolPane })));
 const RECONNECT_PROTOCOL_URL = "insta360-hw://reconnect";
+const WORKSPACE_TRUNCATED_EVENT = "insta360_hw:workspace-truncated";
 
 function sleep(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function WorkspacePersistenceNotice() {
+  const { notification } = AntdApp.useApp();
+
+  useEffect(() => {
+    const onTruncated = () => {
+      notification.warning({
+        message: "结果过大未持久化",
+        description: "刷新页面会丢失该结果，请重新运行工具或直接下载生成的文件。",
+        key: "workspace-truncated",
+      });
+    };
+    window.addEventListener(WORKSPACE_TRUNCATED_EVENT, onTruncated);
+    return () => window.removeEventListener(WORKSPACE_TRUNCATED_EVENT, onTruncated);
+  }, [notification]);
+
+  return null;
 }
 
 export default function App() {
@@ -191,7 +210,7 @@ export default function App() {
     if (serviceReconnecting) return;
     setServiceReconnecting(true);
     setServiceOnline(false);
-    setServiceError("正在重新连接平台…如新窗口未自动打开，请查看任务栏或浏览器新标签页。");
+    setServiceError("正在重新连接本地服务，请稍候…");
     triggerReconnectProtocol();
     try {
       const ready = await pollBackendUntilReady();
@@ -271,6 +290,7 @@ export default function App() {
   return (
     <ConfigProvider locale={zhCN}>
       <AntdApp>
+        <WorkspacePersistenceNotice />
         <Layout className="app-shell">
         <Sider width={232} className="app-sider">
           <div className="app-brand">

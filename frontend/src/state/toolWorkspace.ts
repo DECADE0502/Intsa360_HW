@@ -15,21 +15,49 @@ type WorkspaceEnvelope<T> = {
   __v: 2;
   saved_at: number;
   data: T;
+  __truncated?: true;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function readWorkspace<T extends Record<string, unknown>>(key: string, initial: T): T {
+function pickLightFields<T extends Record<string, unknown>>(
+  candidate: Record<string, unknown>,
+  initial: T,
+  heavyKeys: readonly string[],
+): Partial<T> {
+  const heavy = new Set(heavyKeys);
+  const safe: Record<string, unknown> = {};
+  Object.keys(initial).forEach((field) => {
+    if (!heavy.has(field) && Object.prototype.hasOwnProperty.call(candidate, field)) {
+      safe[field] = candidate[field];
+    }
+  });
+  return safe as Partial<T>;
+}
+
+function readWorkspace<T extends Record<string, unknown>>(
+  key: string,
+  initial: T,
+  heavyKeys: readonly string[],
+): T {
   if (typeof window === "undefined") return initial;
   try {
     const raw = window.localStorage.getItem(PREFIX + key);
     if (!raw) return initial;
     const parsed: unknown = JSON.parse(raw);
-    // v1 workspaces intentionally expire once; accepting them would bypass the v2 validation contract.
-    if (!isRecord(parsed) || parsed.__v !== WORKSPACE_VERSION || !isRecord(parsed.data)) return initial;
-    return { ...initial, ...parsed.data } as T;
+    if (!isRecord(parsed)) return initial;
+    if (parsed.__v === WORKSPACE_VERSION && isRecord(parsed.data)) {
+      return { ...initial, ...parsed.data } as T;
+    }
+    if (parsed.__v === undefined || parsed.__v === 1) {
+      const legacy = parsed.__v === 1 && isRecord(parsed.data) ? parsed.data : parsed;
+      const migrated = pickLightFields(legacy, initial, heavyKeys);
+      window.localStorage.setItem(PREFIX + key, serializeEnvelope(migrated));
+      return { ...initial, ...migrated } as T;
+    }
+    return initial;
   } catch {
     return initial;
   }
@@ -41,12 +69,16 @@ function withoutHeavyKeys<T extends Record<string, unknown>>(data: T, heavyKeys:
   return reduced as Partial<T>;
 }
 
-function serializeEnvelope<T extends Record<string, unknown>>(data: T | Partial<T>): string {
+function serializeEnvelope<T extends Record<string, unknown>>(
+  data: T | Partial<T>,
+  truncated = false,
+): string {
   const envelope: WorkspaceEnvelope<T | Partial<T>> = {
     __v: WORKSPACE_VERSION,
     saved_at: Date.now(),
     data,
   };
+  if (truncated) envelope.__truncated = true;
   return JSON.stringify(envelope);
 }
 
@@ -76,12 +108,22 @@ function persistWorkspace<T extends Record<string, unknown>>(
       maxBytes,
     });
   }
-  const attempts: Array<T | Partial<T>> = useFallback ? [inputOnly] : [workspace, inputOnly];
+  const attempts: Array<{ data: T | Partial<T>; truncated: boolean }> = useFallback
+    ? [{ data: inputOnly, truncated: true }]
+    : [
+        { data: workspace, truncated: false },
+        { data: inputOnly, truncated: true },
+      ];
   for (let index = 0; index < attempts.length; index += 1) {
     if (index > 0 && !heavyKeys.length) break;
     try {
-      window.localStorage.setItem(storageKey, serializeEnvelope(attempts[index]));
+      const attempt = attempts[index];
+      window.localStorage.setItem(storageKey, serializeEnvelope(attempt.data, attempt.truncated));
       if (index > 0) console.warn("[Insta360_HW] 工作区存储空间不足，已降级为仅保存输入状态。", { storageKey });
+      if (attempt.truncated) {
+        const key = storageKey.startsWith(PREFIX) ? storageKey.slice(PREFIX.length) : storageKey;
+        window.dispatchEvent(new CustomEvent("insta360_hw:workspace-truncated", { detail: { key } }));
+      }
       return;
     } catch (error) {
       console.warn("[Insta360_HW] 工作区写入失败。", error);
@@ -95,11 +137,11 @@ export function useToolWorkspace<T extends Record<string, unknown>>(
   options: WorkspaceOptions<T> = {},
 ): [T, Dispatch<SetStateAction<T>>, () => void] {
   const stableInitial = useMemo(() => initial, []);
-  const [workspace, setWorkspace] = useState<T>(() => readWorkspace(key, stableInitial));
-  const timerRef = useRef<number | null>(null);
-  const suppressNextWriteRef = useRef(false);
   const heavyKeySignature = (options.heavyKeys || []).map(String).join("\u0000");
   const heavyKeys = useMemo(() => heavyKeySignature ? heavyKeySignature.split("\u0000") : [], [heavyKeySignature]);
+  const [workspace, setWorkspace] = useState<T>(() => readWorkspace(key, stableInitial, heavyKeys));
+  const timerRef = useRef<number | null>(null);
+  const suppressNextWriteRef = useRef(false);
   const debounceMs = options.debounceMs ?? DEFAULT_DEBOUNCE_MS;
   const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
 
