@@ -2,6 +2,7 @@ import { App, Button, Collapse, Empty, Popconfirm, Space, Switch, Table, Tabs, T
 import { RefreshCw } from "lucide-react";
 import { useMemo, useState } from "react";
 import { setPluginCadenceMenuVisibility, type PluginInfo } from "../api/client";
+import { toUserMessage } from "../api/errors";
 
 const dangerText: Record<string, string> = {
   low: "低风险",
@@ -53,7 +54,7 @@ export function ScriptManager({
       await onRefresh();
       if (showToast) message.success("插件状态已刷新");
     } catch (err: any) {
-      message.error(err.message || "插件状态刷新失败");
+      message.error(toUserMessage(err));
     } finally {
       setRefreshing(false);
     }
@@ -80,7 +81,7 @@ export function ScriptManager({
         message.success(checked ? "已挂载，请执行下方热更新指令" : "已移除，请执行下方热更新指令");
       }
     } catch (err: any) {
-      message.error(err.message || "菜单状态更新失败");
+      message.error(toUserMessage(err));
     } finally {
       setUpdating((prev) => ({ ...prev, [item.id]: false }));
     }

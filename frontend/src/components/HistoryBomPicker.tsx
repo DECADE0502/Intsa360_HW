@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { App, Button, Empty, Modal, Select, Space, Tag, Typography } from "antd";
 import { DatabaseOutlined, ReloadOutlined } from "@ant-design/icons";
 import { fetchAssets, type AssetItem } from "../api/client";
+import { toUserMessage } from "../api/errors";
 
 type Props = {
   value?: string;
@@ -35,7 +36,7 @@ export function HistoryBomPicker({ value, onChange, placeholder = "从历史记�
     } catch (error) {
       message.error({
         key: "insta360_hw:history-bom-picker-load",
-        content: (error as Error).message || "历史资产加载失败",
+        content: toUserMessage(error),
       });
     } finally {
       setLoading(false);

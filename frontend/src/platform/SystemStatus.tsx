@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Alert, App, Badge, Button, Card, Descriptions, List, Space, Typography } from "antd";
 import { DownloadOutlined } from "@ant-design/icons";
 import { fetchDiagnosticReport, fetchLifecycleCheck, fetchServiceHealth, type LifecyclePayload } from "../api/client";
+import { toUserMessage } from "../api/errors";
 
 const statusMap = {
   ok: { status: "success" as const, text: "正常" },
@@ -44,7 +45,7 @@ export function SystemStatus({ status }: { status: any }) {
       }, 4000);
       message.success("诊断包已下载");
     } catch (err: any) {
-      message.error(`诊断包生成失败: ${err?.userMessage || err?.message || err}`);
+      message.error(toUserMessage(err));
     } finally {
       setDiagnosticLoading(false);
     }
@@ -57,7 +58,7 @@ export function SystemStatus({ status }: { status: any }) {
         if (!cancelled) setLifecycle(payload);
       })
       .catch((err) => {
-        if (!cancelled) setError((err as Error).message || "安装自检加载失败");
+        if (!cancelled) setError(toUserMessage(err));
       });
     return () => {
       cancelled = true;

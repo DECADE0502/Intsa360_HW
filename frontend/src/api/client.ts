@@ -9,6 +9,15 @@ const SESSION_HEADER = "X-Insta360-Session";
 const MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 let sessionTokenRequest: Promise<string> | null = null;
 
+function apiPayloadError(payload: any, fallback: string, httpStatus = 200): ApiError {
+  return new ApiError(
+    payload?.error_kind ?? "ApiError",
+    payload?.user_message ?? payload?.error ?? fallback,
+    httpStatus,
+    payload,
+  );
+}
+
 function isAbortError(error: unknown): boolean {
   return Boolean(
     error &&
@@ -36,7 +45,7 @@ async function fetchSessionToken(forceRefresh = false): Promise<string> {
       .then(async (response) => {
         const payload = await response.json().catch(() => ({}));
         if (!response.ok || typeof payload.token !== "string" || !payload.token) {
-          throw new Error(payload.error || "无法建立平台安全会话");
+          throw apiPayloadError(payload, "无法建立平台安全会话", response.status);
         }
         return payload.token as string;
       })
@@ -114,7 +123,7 @@ export async function apiCall<T = unknown>(
     if (!res.ok || (payload && payload.status === "error")) {
       throw new ApiError(
         payload?.error_kind ?? "HttpError",
-        payload?.user_message ?? payload?.error ?? res.statusText ?? "Request failed",
+        payload?.user_message ?? payload?.error ?? `请求失败（HTTP ${res.status}）`,
         res.status,
         payload,
       );
@@ -251,23 +260,7 @@ export const HISTORY_UPDATED_EVENT = "insta360_hw:history-updated";
 async function requestJson<T = any>(input: RequestInfo | URL, init: RequestInit = {}, opts: ApiOpts = {}): Promise<T> {
   const { signal: initSignal, ...requestInit } = init;
   const signal = opts.signal ?? initSignal ?? undefined;
-  try {
-    return await apiCall<T>(
-      input,
-      requestInit,
-      { ...opts, signal, timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT },
-    );
-  } catch (error) {
-    const err = error as Error;
-    if (err.name === "AbortError") {
-      if (signal?.aborted) throw err;
-      throw new Error("请求超时，请检查本地服务后重试。");
-    }
-    if (err.name === "TypeError" || /fetch/i.test(err.message || "")) {
-      throw new Error("后端服务已断开，请重新启动平台或点击重新连接。");
-    }
-    throw err;
-  }
+  return apiCall<T>(input, requestInit, { ...opts, signal, timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT });
 }
 
 export async function fetchTools(): Promise<ToolInfo[]> {
@@ -277,7 +270,7 @@ export async function fetchTools(): Promise<ToolInfo[]> {
 
 export async function installCadenceIntegration() {
   const payload = await requestJson<any>("/api/cadence/install", { method: "POST" });
-  if (payload.status !== "ok") throw new Error(payload.error || "Cadence 集成安装失败");
+  if (payload.status !== "ok") throw apiPayloadError(payload, "Cadence 集成安装失败");
   return payload as { status: "ok"; redeployed: boolean; message: string; hot_reload_command: string };
 }
 
@@ -297,7 +290,7 @@ export async function fetchHistory(): Promise<HistoryRun[]> {
 
 export async function fetchAssets(): Promise<AssetsPayload> {
   const payload = await requestJson<AssetsPayload>("/api/assets");
-  if (payload.status !== "ok") throw new Error(payload.error || "历史资产加载失败");
+  if (payload.status !== "ok") throw apiPayloadError(payload, "历史资产加载失败");
   return payload;
 }
 
@@ -308,13 +301,13 @@ export async function fetchHistoryRun(id: string): Promise<Record<string, unknow
 
 export async function deleteHistoryRun(id: string) {
   const payload = await requestJson<any>(`/api/history/${encodeURIComponent(id)}`, { method: "DELETE" });
-  if (payload.status !== "ok") throw new Error(payload.error || "删除记录失败");
+  if (payload.status !== "ok") throw apiPayloadError(payload, "删除记录失败");
   return payload;
 }
 
 export async function clearHistory() {
   const payload = await requestJson<any>("/api/history", { method: "DELETE" });
-  if (payload.status !== "ok") throw new Error(payload.error || "清空历史失败");
+  if (payload.status !== "ok") throw apiPayloadError(payload, "清空历史失败");
   return payload;
 }
 
@@ -345,7 +338,7 @@ export async function fetchServiceHealth(opts?: ApiOpts): Promise<ServiceHealth>
 
 export async function fetchLifecycleCheck(): Promise<LifecyclePayload> {
   const payload = await requestJson<LifecyclePayload>("/api/lifecycle/check");
-  if (payload.status !== "ok") throw new Error(payload.error || "安装自检加载失败");
+  if (payload.status !== "ok") throw apiPayloadError(payload, "安装自检加载失败");
   return payload;
 }
 
@@ -355,7 +348,7 @@ export async function setCadenceMenuVisibility(id: string, showInCadence: boolea
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ show_in_cadence: showInCadence, redeploy: true }),
   });
-  if (payload.status !== "ok") throw new Error(payload.error || "菜单状态更新失败");
+  if (payload.status !== "ok") throw apiPayloadError(payload, "菜单状态更新失败");
   return payload.capability as Capability;
 }
 
@@ -365,7 +358,7 @@ export async function setPluginCadenceMenuVisibility(id: string, showInCadence: 
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ show_in_cadence: showInCadence, redeploy: true }),
   });
-  if (payload.status !== "ok") throw new Error(payload.error || "插件菜单状态更新失败");
+  if (payload.status !== "ok") throw apiPayloadError(payload, "插件菜单状态更新失败");
   return payload.plugin as PluginInfo;
 }
 
@@ -373,7 +366,7 @@ export async function uploadFiles(files: File[]): Promise<{ files: Array<{ path:
   const form = new FormData();
   files.forEach((file) => form.append("files", file));
   const payload = await requestJson<any>("/api/upload", { method: "POST", body: form }, { timeoutMs: 300_000 });
-  if (payload.status !== "ok") throw new Error(payload.error || "上传失败");
+  if (payload.status !== "ok") throw apiPayloadError(payload, "上传失败");
   return payload;
 }
 
@@ -398,7 +391,7 @@ export async function fetchVersion(opts?: ApiOpts): Promise<string> {
     {},
     { ...opts, timeoutMs: opts?.timeoutMs ?? HEALTH_PROBE_TIMEOUT_MS },
   );
-  if (payload.status !== "ok") throw new Error(payload.error || "版本获取失败");
+  if (payload.status !== "ok") throw apiPayloadError(payload, "版本获取失败");
   return payload.version;
 }
 
@@ -437,7 +430,7 @@ export type UpdateCancelResponse = {
 
 export async function startUpdate(): Promise<UpdateStartResponse> {
   const payload = await requestJson<UpdateStartResponse>("/api/update/run", { method: "POST" });
-  if (payload.status !== "ok") throw new Error(payload.error || "更新启动失败");
+  if (payload.status !== "ok") throw apiPayloadError(payload, "更新启动失败");
   return payload;
 }
 
@@ -447,7 +440,7 @@ export async function cancelUpdate(jobId?: string): Promise<UpdateCancelResponse
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ job_id: jobId || "" }),
   });
-  if (payload.status !== "ok") throw new Error(payload.error || "取消更新失败");
+  if (payload.status !== "ok") throw apiPayloadError(payload, "取消更新失败");
   return payload;
 }
 
@@ -538,7 +531,7 @@ export type UninstallCheck = {
 
 export async function checkUninstall(): Promise<UninstallCheck> {
   const payload = await requestJson<any>("/api/uninstall/check");
-  if (payload.status !== "ok") throw new Error(payload.error || "卸载检查失败");
+  if (payload.status !== "ok") throw apiPayloadError(payload, "卸载检查失败");
   return payload;
 }
 
@@ -562,6 +555,6 @@ export async function runUninstall(mode: "cadence_only" | "detach") {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ mode }),
   });
-  if (payload.status !== "ok") throw new Error(payload.error || "卸载启动失败");
+  if (payload.status !== "ok") throw apiPayloadError(payload, "卸载启动失败");
   return payload;
 }

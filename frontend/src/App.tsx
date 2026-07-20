@@ -15,6 +15,7 @@ import {
   type PluginInfo,
   type ToolInfo,
 } from "./api/client";
+import { toUserMessage } from "./api/errors";
 import { HistoryView } from "./platform/HistoryView";
 import { PlatformHome } from "./platform/PlatformHome";
 import { ScriptManager } from "./platform/ScriptManager";
@@ -137,11 +138,7 @@ export default function App() {
       if (healthProbeFailures.current >= 2) {
         setServiceOnline(false);
         if (!options.preserveReconnectMessage) {
-          setServiceError(
-            err?.kind === "TimeoutError"
-              ? "后端服务连续两次健康检查超时，请重新启动平台或点击重新连接。"
-              : err?.message || "后端服务已断开，请重新启动平台或点击重新连接。",
-          );
+          setServiceError(toUserMessage(err));
         }
       }
       return false;

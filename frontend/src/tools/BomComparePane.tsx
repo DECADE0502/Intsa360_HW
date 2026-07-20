@@ -21,8 +21,10 @@ import {
   SearchOutlined,
 } from "@ant-design/icons";
 import { runTool, uploadFiles, type ToolInfo } from "../api/client";
+import { toUserMessage } from "../api/errors";
 import { HistoryBomPicker } from "../components/HistoryBomPicker";
 import { useToolWorkspace } from "../state/toolWorkspace";
+import { riskStatusText } from "../utils/statusText";
 
 type CompareItem = {
   key: string;
@@ -139,7 +141,7 @@ function RiskList({ findings }: { findings?: Array<{ name: string; status: strin
       {findings.map((item) => (
         <div className="compare-risk-item" key={item.name}>
           <Tag color={item.status === "warn" ? "orange" : item.status === "ok" ? "green" : "blue"}>
-            {item.status === "warn" ? "警告" : item.status === "ok" ? "通过" : "提示"}
+            {riskStatusText(item.status)}
           </Tag>
           <div>
             <Typography.Text strong>{item.name}</Typography.Text>
@@ -254,7 +256,7 @@ export function BomComparePane({ tool }: { tool: ToolInfo }) {
       setFilter("diff");
       setQuery("");
     } catch (err: any) {
-      setResult({ status: "error", error: err.message || "运行失败" });
+      setResult({ status: "error", error: toUserMessage(err) });
     } finally {
       setRunning(false);
     }

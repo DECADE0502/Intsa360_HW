@@ -29,8 +29,10 @@ import {
   WarningOutlined,
 } from "@ant-design/icons";
 import { runTool, secureFetch, uploadFiles } from "../api/client";
+import { ApiError, toUserMessage } from "../api/errors";
 import { useToolWorkspace } from "../state/toolWorkspace";
 import { packageDownloadName } from "../utils/downloadName";
+import { riskStatusText } from "../utils/statusText";
 import { buildRecommendedConflictChoices } from "./bomConflictChoices";
 
 const { Dragger } = Upload;
@@ -135,7 +137,7 @@ export function BomProcessWizard() {
       message.success("已接收文件");
       setStage("review");
     } catch (e: any) {
-      message.error(String(e?.message ?? e));
+      message.error(toUserMessage(e));
     }
     return false;
   }
@@ -157,7 +159,7 @@ export function BomProcessWizard() {
         if (r.status === "ok") notifyAssetsUpdated();
         if (r.status === "ok" && !hasBomConflicts(r)) setStage("risk");
       })
-      .catch((e) => setPres({ status: "error", error: e.message }))
+      .catch((e) => setPres({ status: "error", error: toUserMessage(e) }))
       .finally(() => setRunning(false));
   }, [stage]);
 
@@ -171,7 +173,7 @@ export function BomProcessWizard() {
     setRrun(true);
     runTool("bom_risk_check", { bom: pf })
       .then(setRres)
-      .catch((e) => setRres({ status: "error", error: e.message }))
+      .catch((e) => setRres({ status: "error", error: toUserMessage(e) }))
       .finally(() => setRrun(false));
   }, [stage]);
 
@@ -196,7 +198,7 @@ export function BomProcessWizard() {
         setStage("risk");
       }
     } catch (e: any) {
-      setPres({ status: "error", error: e.message });
+      setPres({ status: "error", error: toUserMessage(e) });
     } finally {
       setRunning(false);
     }
@@ -234,7 +236,7 @@ export function BomProcessWizard() {
         setStage("risk");
       }
     } catch (e: any) {
-      setPres({ status: "error", error: e.message });
+      setPres({ status: "error", error: toUserMessage(e) });
     } finally {
       setRunning(false);
     }
@@ -257,7 +259,7 @@ export function BomProcessWizard() {
       if (r.status === "ok") notifyAssetsUpdated();
       if (r.status === "ok" && !hasBomConflicts(r) && !hasShieldCandidates(r)) setStage("risk");
     } catch (e: any) {
-      setPres({ status: "error", error: e.message });
+      setPres({ status: "error", error: toUserMessage(e) });
     } finally {
       setRunning(false);
     }
@@ -277,7 +279,12 @@ export function BomProcessWizard() {
       });
       if (!r.ok) {
         const payload = await r.json().catch(() => ({}));
-        throw new Error(payload?.user_message || payload?.error || `打包失败（HTTP ${r.status}）`);
+        throw new ApiError(
+          payload?.error_kind || "PackageError",
+          payload?.user_message || payload?.error || `打包失败（HTTP ${r.status}）`,
+          r.status,
+          payload,
+        );
       }
       const b = await r.blob();
       const u = URL.createObjectURL(b);
@@ -291,7 +298,7 @@ export function BomProcessWizard() {
         a.remove();
       }, 4000);
     } catch (e: any) {
-      message.error(e.message);
+      message.error(toUserMessage(e));
     }
   }
 
@@ -627,7 +634,7 @@ function RiskView({ rrun, rres, pres, onNext, onBack }: any) {
   const outputs = rres.outputs || [];
   const findingColumns = [
     { title: "检查项", dataIndex: "name", ellipsis: true },
-    { title: "状态", dataIndex: "status", width: 90, render: (v: string) => <Tag color={v === "warn" ? "orange" : v === "ok" ? "green" : "blue"}>{v}</Tag> },
+    { title: "状态", dataIndex: "status", width: 90, render: (v: string) => <Tag color={v === "warn" ? "orange" : v === "ok" ? "green" : "blue"}>{riskStatusText(v)}</Tag> },
     { title: "说明", dataIndex: "message", ellipsis: true },
   ];
   const gradeColumns = [

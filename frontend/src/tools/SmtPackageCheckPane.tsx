@@ -21,6 +21,7 @@ import {
   SearchOutlined,
 } from "@ant-design/icons";
 import { runTool, uploadFiles, type ToolInfo } from "../api/client";
+import { toUserMessage } from "../api/errors";
 import { HistoryBomPicker } from "../components/HistoryBomPicker";
 import { useToolWorkspace } from "../state/toolWorkspace";
 
@@ -246,7 +247,7 @@ export function SmtPackageCheckPane({ tool }: { tool: ToolInfo }) {
       setFilter("focus");
       setQuery("");
     } catch (err: any) {
-      setResult({ status: "error", error: err.message || "运行失败" });
+      setResult({ status: "error", error: toUserMessage(err) });
     } finally {
       setRunning(false);
     }

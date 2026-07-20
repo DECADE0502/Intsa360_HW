@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { Button, Card, Space, Typography, Upload } from "antd";
 import { PlayCircleOutlined, DeleteOutlined } from "@ant-design/icons";
 import { runTool, uploadFiles, type ToolInfo } from "../api/client";
+import { toUserMessage } from "../api/errors";
 import { toolInputs } from "./toolConfig";
 import { ResultPanel } from "../components/ResultPanel";
 import { HistoryBomPicker } from "../components/HistoryBomPicker";
@@ -47,7 +48,7 @@ export function LegacyToolPane({ tool }: { tool: ToolInfo }) {
         params[input.key] = input.multiple ? uploaded.files.map((f) => f.path) : uploaded.files[0]?.path;
       }
       setResult(await runTool(tool.id, params));
-    } catch (err: any) { setResult({ status: "error", error: err.message }); }
+    } catch (err: any) { setResult({ status: "error", error: toUserMessage(err) }); }
     finally { setRunning(false); }
   }
 

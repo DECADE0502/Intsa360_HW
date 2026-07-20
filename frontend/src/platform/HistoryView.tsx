@@ -1,6 +1,7 @@
 import { App, Button, Descriptions, Drawer, Empty, Popconfirm, Space, Table, Tag, Typography } from "antd";
 import { useState } from "react";
 import { clearHistory, deleteHistoryRun, fetchHistoryRun, type HistoryRun } from "../api/client";
+import { toUserMessage } from "../api/errors";
 
 function outputHref(path: string) {
   const normalized = path.replaceAll("\\", "/");
@@ -36,7 +37,7 @@ export function HistoryView({
       setDetail(await fetchHistoryRun(id));
       setDetailOpen(true);
     } catch (err: any) {
-      message.error(err.message || "历史详情加载失败");
+      message.error(toUserMessage(err));
     } finally {
       setLoadingDetail(false);
     }
@@ -48,7 +49,7 @@ export function HistoryView({
       onChange(runs.filter((run) => run.id !== id));
       message.success("已删除记录");
     } catch (err: any) {
-      message.error(err.message || "删除记录失败");
+      message.error(toUserMessage(err));
     }
   }
 
@@ -58,7 +59,7 @@ export function HistoryView({
       onChange([]);
       message.success("已清空历史");
     } catch (err: any) {
-      message.error(err.message || "清空历史失败");
+      message.error(toUserMessage(err));
     }
   }
 

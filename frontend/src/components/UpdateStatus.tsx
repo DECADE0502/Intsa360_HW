@@ -17,6 +17,7 @@ import {
   startUpdate,
   type UpdateNotice,
 } from "../api/client";
+import { toUserMessage } from "../api/errors";
 
 const { Text, Paragraph } = Typography;
 const UPDATE_ACK_KEY = "insta360_hw:update-acknowledged-job";
@@ -88,7 +89,7 @@ export function UpdateStatus({ version }: { version: string }) {
       else {
         setCheckedUpdate(true);
         setRemoteStatus("error");
-        setCheckMessage(checkResult.reason instanceof Error ? checkResult.reason.message : "更新检查失败");
+        setCheckMessage(toUserMessage(checkResult.reason));
       }
       if (statusResult.status === "fulfilled") {
         const status = statusResult.value;
@@ -166,7 +167,7 @@ export function UpdateStatus({ version }: { version: string }) {
         });
       }
     } catch (e) {
-      message.error({ key: UPDATE_CHECK_MESSAGE_KEY, content: (e as Error).message || "更新检查失败" });
+      message.error({ key: UPDATE_CHECK_MESSAGE_KEY, content: toUserMessage(e) });
     } finally {
       setChecking(false);
     }
@@ -209,7 +210,7 @@ export function UpdateStatus({ version }: { version: string }) {
       });
       setProgressOpen(true);
     } catch (e) {
-      message.error((e as Error).message || "更新启动失败");
+      message.error(toUserMessage(e));
       setProgressOpen(false);
     } finally {
       setStartingUpdate(false);
@@ -221,7 +222,7 @@ export function UpdateStatus({ version }: { version: string }) {
       await cancelUpdate(updateStatus?.job_id);
       message.info("正在安全取消提交前的更新，请稍候。");
     } catch (e) {
-      message.error((e as Error).message || "取消更新失败");
+      message.error(toUserMessage(e));
     }
   }
 
@@ -250,7 +251,7 @@ export function UpdateStatus({ version }: { version: string }) {
       await runUninstall("cadence_only");
       message.success("已开始移除 Cadence 集成");
     } catch (e) {
-      message.error((e as Error).message || "移除失败");
+      message.error(toUserMessage(e));
     } finally {
       setDetaching(false);
     }
@@ -265,7 +266,7 @@ export function UpdateStatus({ version }: { version: string }) {
         message.info("Capture 已打开时，请执行热更新指令或重启 Capture。");
       }
     } catch (e) {
-      message.error((e as Error).message || "Cadence 集成安装失败");
+      message.error(toUserMessage(e));
     } finally {
       setInstallingCadence(false);
     }

@@ -2,7 +2,7 @@ import { App as AntdApp, Button } from "antd";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../App";
 import { renderWithProviders } from "./render";
 import { server } from "./server";
@@ -160,6 +160,29 @@ describe("App startup", () => {
 
     expect(await screen.findByRole("menuitem", { name: "BOM 对比" })).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText("平台数据加载不完整")).not.toBeInTheDocument());
+  });
+
+  it("shows a Chinese warning after two health fetch failures", async () => {
+    let healthRequests = 0;
+    server.use(
+      http.get("/api/health", () => {
+        healthRequests += 1;
+        return HttpResponse.error();
+      }),
+    );
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      renderWithProviders(<App />);
+      await vi.advanceTimersByTimeAsync(5_500);
+
+      expect(healthRequests).toBeGreaterThanOrEqual(2);
+      expect(await screen.findByText("后端服务已断开")).toBeInTheDocument();
+      const alert = screen.getByRole("alert");
+      expect(alert).toHaveTextContent("后端服务已断开，请重新启动平台或点击重新连接。");
+      expect(alert).not.toHaveTextContent(/Failed/i);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

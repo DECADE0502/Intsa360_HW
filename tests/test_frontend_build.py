@@ -149,7 +149,8 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn("URL.revokeObjectURL(u)", wizard)
         self.assertIn("a.remove()", wizard)
         self.assertIn("Upload.LIST_IGNORE", wizard)
-        self.assertIn("String(e?.message ?? e)", wizard)
+        self.assertIn("toUserMessage(e)", wizard)
+        self.assertNotIn("String(e?.message ?? e)", wizard)
         for pane in panes:
             text = pane.read_text(encoding="utf-8")
             self.assertIn("setSelectedKey((prev)", text, pane.name)
@@ -294,13 +295,15 @@ class FrontendBuildTests(unittest.TestCase):
     def test_frontend_marks_backend_offline_when_health_check_fails(self) -> None:
         app = (ROOT / "frontend" / "src" / "App.tsx").read_text(encoding="utf-8")
         client = (ROOT / "frontend" / "src" / "api" / "client.ts").read_text(encoding="utf-8")
+        errors = (ROOT / "frontend" / "src" / "api" / "errors.ts").read_text(encoding="utf-8")
 
         self.assertIn("serviceOnline", app)
         self.assertIn("refreshRuntimeStatus", app)
         self.assertIn("window.setInterval", app)
         self.assertIn("服务离线", app)
         self.assertIn("重新连接", app)
-        self.assertIn("后端服务已断开", client)
+        self.assertIn("toUserMessage", app)
+        self.assertIn("后端服务已断开", errors)
         self.assertIn("requestJson", client)
 
     def test_reconnect_button_restarts_backend_via_local_protocol(self) -> None:
