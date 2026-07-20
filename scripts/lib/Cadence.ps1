@@ -296,6 +296,7 @@ function Get-EnabledCadenceShortcutItems {
       $shortcutCommand = [string]$item.shortcut_command
     }
     $shortcutCommand = Escape-TclMenuText $shortcutCommand
+    $lines += 'if {[catch {'
     $lines += ('    ::IAC::SetShortcut "' + $itemId + '" ' + $enabled + ' "' + $shortcutCommand + '" "' + $module + '"')
 
     if ($item.show_in_cadence -eq $true) {
@@ -303,6 +304,9 @@ function Get-EnabledCadenceShortcutItems {
       if ($sourceLine) { $lines += $sourceLine }
       $lines += @(Get-HwAgentCadenceLifecycleLines -Object $item -Indent "    ")
     }
+    $lines += '} err]} {'
+    $lines += ('    ::IAC::log "IAC: shortcut item ' + $itemId + ' failed: $err"')
+    $lines += '}'
     $actionId = Escape-TclMenuText (Get-HwAgentShortcutActionId -Object $item)
     $shortcut = Escape-TclMenuText ([string]$item.shortcut)
     $shortcutContext = ""
@@ -310,11 +314,11 @@ function Get-EnabledCadenceShortcutItems {
       $shortcutContext = [string]$item.shortcut_context
     }
     $shortcutContext = Escape-TclMenuText $shortcutContext
-    $lines += ('    if {[catch {RegisterAction "' + $actionId + '" "::IAC::ShortcutEnabled ' + $itemId + '" "' + $shortcut + '" "::IAC::RunShortcut ' + $itemId + '" "' + $shortcutContext + '"} err]} {')
-    $lines += ('        ::IAC::log "IAC: shortcut registration failed: ' + $actionId + ' $err"')
-    $lines += ('    } else {')
-    $lines += ('        ::IAC::log "IAC: shortcut registered: ' + $actionId + ' ' + $shortcut + '"')
-    $lines += ('    }')
+    $lines += ('if {[catch {RegisterAction "' + $actionId + '" "::IAC::ShortcutEnabled ' + $itemId + '" "' + $shortcut + '" "::IAC::RunShortcut ' + $itemId + '" "' + $shortcutContext + '"} err]} {')
+    $lines += ('    ::IAC::log "IAC: shortcut registration failed: ' + $actionId + ' $err"')
+    $lines += ('} else {')
+    $lines += ('    ::IAC::log "IAC: shortcut registered: ' + $actionId + ' ' + $shortcut + '"')
+    $lines += ('}')
   }
 
   return ($lines -join "`r`n")

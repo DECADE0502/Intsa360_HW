@@ -473,17 +473,23 @@ proc iacx {} { ::IAC::ExportAndProcess }
 proc iacdiag {} { ::IAC::Diagnose }
 
 # ---- \u83dc\u5355 ----
-if {[catch {
-    RegisterAction "iacOpen"   "::IAC::shouldProcess" "" "::IAC::OpenTool" ""
-    RegisterAction "iacExport" "::IAC::shouldProcess" "" "::IAC::ExportAndProcess" ""
-    RegisterAction "iacUpd"    "::IAC::shouldProcess" "" "::IAC::updatePro"    ""
-    # {{CADENCE_SCRIPT_SHORTCUT_ITEMS}}
-    InsertXMLMenu [list [list "insta360_HW"] "" "" [list "popup" "insta360_HW" "" "" "" "" ""] ""]
-    InsertXMLMenu [list [list "insta360_HW" "Open"]   "" "" [list "action" "Open Platform" "0" "iacOpen"   "iacUpd" "" "Open Insta360 hardware platform"] ""]
-    InsertXMLMenu [list [list "insta360_HW" "Export"] "" "" [list "action" "Export and Process BOM" "0" "iacExport" "iacUpd" "" "Export Capture BOM and open processing wizard"] ""]
-} err]} {
-    ::IAC::log "IAC: top menu registration failed: $err"
+if {![info exists ::IAC_TOP_MENU_REGISTERED]} {
+    if {[catch {
+        RegisterAction "iacOpen"   "::IAC::shouldProcess" "" "::IAC::OpenTool" ""
+        RegisterAction "iacExport" "::IAC::shouldProcess" "" "::IAC::ExportAndProcess" ""
+        RegisterAction "iacUpd"    "::IAC::shouldProcess" "" "::IAC::updatePro"    ""
+        InsertXMLMenu [list [list "insta360_HW"] "" "" [list "popup" "insta360_HW" "" "" "" "" ""] ""]
+        InsertXMLMenu [list [list "insta360_HW" "Open"]   "" "" [list "action" "Open Platform" "0" "iacOpen"   "iacUpd" "" "Open Insta360 hardware platform"] ""]
+        InsertXMLMenu [list [list "insta360_HW" "Export"] "" "" [list "action" "Export and Process BOM" "0" "iacExport" "iacUpd" "" "Export Capture BOM and open processing wizard"] ""]
+    } err]} {
+        ::IAC::log "IAC: top menu registration failed: $err"
+    } else {
+        set ::IAC_TOP_MENU_REGISTERED 1
+    }
 }
+
+# {{CADENCE_SCRIPT_SHORTCUT_ITEMS}}
+
 if {[catch {
     proc ::IAC::addAccessoryMenu { args } {
         # {{CADENCE_SCRIPT_MENU_ITEMS}}

@@ -10,12 +10,53 @@ import tempfile
 import unittest
 from pathlib import Path
 
+try:
+    import tkinter
+except ImportError:  # pragma: no cover - only minimal Python distributions omit Tcl
+    tkinter = None
+
 
 ROOT = Path(__file__).resolve().parents[1]
 POWERSHELL = "powershell"
 
 
 class CadenceLoaderGenerationTests(unittest.TestCase):
+    def _render_full_loader(
+        self,
+        base: Path,
+        *,
+        extra_capabilities: list[dict[str, object]] | None = None,
+        module_sources: dict[str, str] | None = None,
+    ) -> Path:
+        root = base / "tool"
+        shutil.copytree(ROOT / "config", root / "config")
+        shutil.copytree(ROOT / "cadence", root / "cadence")
+        data = json.loads((root / "config" / "capabilities.json").read_text(encoding="utf-8"))
+        data["capabilities"].extend(extra_capabilities or [])
+        (root / "config" / "capabilities.json").write_text(
+            json.dumps(data, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        for relative, source in (module_sources or {}).items():
+            target = root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(source, encoding="ascii")
+
+        output = base / "iac_bom_tool.tcl"
+        command = (
+            "$ErrorActionPreference='Stop'; "
+            f". '{ROOT / 'scripts' / 'lib' / 'Cadence.ps1'}'; "
+            f"Write-CadenceLoader -ToolRoot '{root}' -PythonPath 'C:/Python/python.exe' "
+            f"-OutputPath '{output}' | Out-Null"
+        )
+        subprocess.run(
+            [POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+            check=True,
+            text=True,
+            capture_output=True,
+        )
+        return output
+
     def test_cadence_loader_and_modules_avoid_tcl85_only_constructs_for_capture_166(self) -> None:
         forbidden_literals = {
             "dict ": "Tcl dict requires Tcl 8.5 and is unsafe for older Capture 16.6 runtimes",
@@ -188,6 +229,100 @@ class CadenceLoaderGenerationTests(unittest.TestCase):
         self.assertNotIn('AddAccessoryMenu "insta360_HW" "Open Platform"', template)
         self.assertNotIn('AddAccessoryMenu "insta360_HW" "Export and Process BOM"', template)
         self.assertNotIn('AddAccessoryMenu "insta360_HW" "选中器件切换NC"', text)
+
+    def test_top_menu_registration_is_guarded(self) -> None:
+        template = (ROOT / "cadence" / "iac_bom_tool.tcl").read_text(encoding="utf-8")
+
+        guard_start = template.index("if {![info exists ::IAC_TOP_MENU_REGISTERED]}")
+        guard_commit = template.index("set ::IAC_TOP_MENU_REGISTERED 1", guard_start)
+        shortcuts_start = template.index("# {{CADENCE_SCRIPT_SHORTCUT_ITEMS}}")
+        self.assertLess(guard_start, guard_commit)
+        self.assertLess(guard_commit, shortcuts_start)
+        for match in re.finditer(r"^\s*InsertXMLMenu\b", template, re.MULTILINE):
+            self.assertGreater(match.start(), guard_start)
+            self.assertLess(match.start(), guard_commit)
+
+    @unittest.skipUnless(sys.platform == "win32" and tkinter is not None, "Windows Tcl runtime required")
+    def test_double_source_does_not_duplicate_top_menu(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = self._render_full_loader(Path(tmp))
+            interpreter = tkinter.Tcl()
+            interpreter.eval("rename puts ::test_original_puts; proc puts {args} {}")
+            interpreter.eval("set ::insert_count 0")
+            interpreter.eval("set ::registered_actions {}")
+            interpreter.eval("proc InsertXMLMenu {args} {incr ::insert_count}")
+            interpreter.eval("proc RegisterAction {id args} {lappend ::registered_actions $id}")
+            interpreter.eval("proc AddAccessoryMenu {args} {}")
+
+            interpreter.call("source", output.as_posix())
+            self.assertEqual(interpreter.eval("set ::insert_count"), "3")
+            interpreter.call("source", output.as_posix())
+
+            self.assertEqual(interpreter.eval("set ::insert_count"), "3")
+            self.assertEqual(
+                interpreter.eval("llength [lsearch -all -exact $::registered_actions iacOpen]"),
+                "1",
+            )
+            self.assertEqual(
+                interpreter.eval("llength [lsearch -all -exact $::registered_actions iacExport]"),
+                "1",
+            )
+
+    @unittest.skipUnless(sys.platform == "win32" and tkinter is not None, "Windows Tcl runtime required")
+    def test_shortcut_failure_does_not_block_platform_menu_or_later_shortcuts(self) -> None:
+        def shortcut(item_id: str, module: str, command: str, action: str, key: str) -> dict[str, object]:
+            return {
+                "id": item_id,
+                "type": "cadence_tcl",
+                "name": item_id,
+                "cadence_name": item_id,
+                "description": "",
+                "category": "Cadence scripts",
+                "status": "available",
+                "command": command,
+                "shortcut_command": command,
+                "shortcut_action": action,
+                "shortcut": key,
+                "shortcut_context": "Schematic",
+                "module": module,
+                "entry_script": module,
+                "show_in_platform": True,
+                "show_in_cadence": True,
+            }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output = self._render_full_loader(
+                Path(tmp),
+                extra_capabilities=[
+                    shortcut("faulty_shortcut", "cadence/modules/faulty_shortcut.tcl", "::Faulty::Run", "faulty_action", "Ctrl+1"),
+                    shortcut("healthy_shortcut", "cadence/modules/healthy_shortcut.tcl", "::Healthy::Run", "healthy_action", "Ctrl+2"),
+                ],
+                module_sources={
+                    "cadence/modules/faulty_shortcut.tcl": 'error "injected shortcut failure"\n',
+                    "cadence/modules/healthy_shortcut.tcl": (
+                        "namespace eval ::Healthy {}\nproc ::Healthy::Run {} {return 1}\n"
+                    ),
+                },
+            )
+            rendered = output.read_bytes().decode("gbk")
+            self.assertIn('IAC: shortcut item faulty_shortcut failed: $err', rendered)
+            self.assertIn('IAC: shortcut item healthy_shortcut failed: $err', rendered)
+
+            interpreter = tkinter.Tcl()
+            interpreter.eval("rename puts ::test_original_puts; proc puts {args} {}")
+            interpreter.eval("set ::insert_count 0")
+            interpreter.eval("set ::registered_actions {}")
+            interpreter.eval("proc InsertXMLMenu {args} {incr ::insert_count}")
+            interpreter.eval("proc RegisterAction {id args} {lappend ::registered_actions $id}")
+            interpreter.eval("proc AddAccessoryMenu {args} {}")
+            interpreter.call("source", output.as_posix())
+
+            self.assertEqual(interpreter.eval("set ::insert_count"), "3")
+            self.assertEqual(interpreter.eval("info commands ::Healthy::Run"), "::Healthy::Run")
+            actions = interpreter.eval("set ::registered_actions").split()
+            self.assertIn("iacOpen", actions)
+            self.assertIn("iacExport", actions)
+            self.assertIn("healthy_action", actions)
 
     def test_root_does_not_keep_stale_insta360_bom_loader_copy(self) -> None:
         stale_loader = ROOT / "iac_bom_tool.tcl"
