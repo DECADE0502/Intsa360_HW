@@ -45,4 +45,20 @@ Setup 会识别已有安装并提供与当前状态匹配的操作：
 Insta360_HW_Setup.exe /VERYSILENT /SUPPRESSMSGBOXES /DIR="D:\Insta360_HW" /LOG="D:\Logs\insta360-hw-setup.log"
 ```
 
-静默安装使用默认安装/升级决策，不弹出维护选项。批量部署前应先在与目标电脑一致的 Cadence 16.6 或 17.4 环境中验证。
+静默模式不显示维护选项，按以下规则确定操作：
+
+| 当前状态 | Setup 与已安装版本关系 | 默认动作 |
+| --- | --- | --- |
+| 未安装 | 不适用 | 全新安装 |
+| 已安装 | Setup 版本更高 | 升级 |
+| 已安装 | 版本相同 | 重新安装 |
+| 已安装 | Setup 版本更低 | 拒绝并返回非零退出码 |
+| 已安装但版本未知 | 无法比较 | 拒绝并返回非零退出码 |
+
+已有安装可以通过 `/ACTION=Upgrade|Repair|Reinstall|Uninstall` 显式指定维护动作。`Upgrade` 只允许更高版本，`Repair` 和 `Reinstall` 只允许相同版本；任何不匹配、未知参数或静默降级都会在写入程序文件前失败。`Uninstall` 调用当前安装登记的标准卸载器，默认执行完整卸载。
+
+```powershell
+Insta360_HW_Setup.exe /VERYSILENT /SUPPRESSMSGBOXES /ACTION=Repair /LOG="D:\Logs\insta360-hw-repair.log"
+```
+
+批量部署前应先在与目标电脑一致的 Cadence 16.6 或 17.4 环境中验证，并保留 `/LOG` 日志。

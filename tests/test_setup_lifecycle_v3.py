@@ -548,6 +548,17 @@ class SetupLifecycleV3Tests(unittest.TestCase):
         launcher = (ROOT / "launcher" / "Insta360_HW.cs").read_text(encoding="utf-8")
         self.assertIn("SetupRecover.ps1", launcher)
 
+    def test_setup_silent_action_resolution_exists(self) -> None:
+        setup = (ROOT / "HWAgent_Setup.iss").read_text(encoding="utf-8-sig")
+
+        self.assertIn("ResolveSilentInstallAction", setup)
+        self.assertIn("{param:ACTION|}", setup)
+        self.assertIn("WizardSilent", setup)
+        self.assertIn("SilentActionResolutionFailed", setup)
+        self.assertIn("SilentUninstallRequested", setup)
+        self.assertIn("SILENT_DOWNGRADE_REJECTED", setup)
+        self.assertIn("RaiseException(SilentActionError)", setup)
+
     def test_uninstall_defaults_to_purge_and_preserve_is_explicit(self) -> None:
         setup = (ROOT / "HWAgent_Setup.iss").read_text(encoding="utf-8-sig")
         uninstaller = (ROOT / "scripts" / "lifecycle_v3" / "Uninstall.ps1").read_text(encoding="utf-8-sig")

@@ -104,6 +104,10 @@ var
   MaintenanceCloseRequested: Boolean;
   MaintenanceUninstallAfterRepair: Boolean;
   SetupLifecycleSucceeded: Boolean;
+  SilentActionResolutionFailed: Boolean;
+  SilentActionError: String;
+  SilentUninstallRequested: Boolean;
+  SilentUninstallStarted: Boolean;
 
 function ReadJsonString(const FileName, Key: String; var Value: String): Boolean;
 var
@@ -338,6 +342,83 @@ begin
   end;
 end;
 
+procedure RejectSilentAction(const AuditCode, MessageText: String);
+begin
+  SilentActionResolutionFailed := True;
+  SilentActionError := MessageText;
+  Log(AuditCode + ': ' + MessageText);
+end;
+
+procedure ResolveSilentInstallAction();
+var
+  RequestedAction: String;
+  NormalizedAction: String;
+  VersionComparison: Integer;
+begin
+  if (not WizardSilent) or (not ExistingInstallDetected) then
+    Exit;
+
+  RequestedAction := Trim(ExpandConstant('{param:ACTION|}'));
+  NormalizedAction := Lowercase(RequestedAction);
+  if ExistingVersion = '未知' then begin
+    RejectSilentAction(
+      'SILENT_VERSION_UNKNOWN',
+      '无法确定已安装版本，不能自动执行静默维护。请先使用交互式 Setup 修复安装。');
+    Exit;
+  end;
+
+  VersionComparison := CompareSemanticVersion('{#MyAppVersion}', ExistingVersion);
+  if NormalizedAction = '' then begin
+    if VersionComparison > 0 then
+      SelectedInstallAction := 'Upgrade'
+    else if VersionComparison = 0 then
+      SelectedInstallAction := 'Reinstall'
+    else begin
+      RejectSilentAction(
+        'SILENT_DOWNGRADE_REJECTED',
+        '隐式降级被拒绝：Setup 版本低于已安装版本。');
+      Exit;
+    end;
+  end else if NormalizedAction = 'upgrade' then begin
+    if VersionComparison <= 0 then begin
+      RejectSilentAction(
+        'SILENT_ACTION_VERSION_MISMATCH',
+        '/ACTION=Upgrade 仅适用于比已安装版本更高的 Setup。');
+      Exit;
+    end;
+    SelectedInstallAction := 'Upgrade';
+  end else if (NormalizedAction = 'repair') or (NormalizedAction = 'reinstall') then begin
+    if VersionComparison <> 0 then begin
+      RejectSilentAction(
+        'SILENT_ACTION_VERSION_MISMATCH',
+        '/ACTION=Repair 或 /ACTION=Reinstall 仅适用于相同版本。');
+      Exit;
+    end;
+    if NormalizedAction = 'repair' then
+      SelectedInstallAction := 'Repair'
+    else
+      SelectedInstallAction := 'Reinstall';
+  end else if NormalizedAction = 'uninstall' then begin
+    if not FileExists(ExistingUninstaller) then begin
+      RejectSilentAction(
+        'SILENT_UNINSTALLER_MISSING',
+        '标准卸载器不存在，无法执行 /ACTION=Uninstall。请先交互式修复安装。');
+      Exit;
+    end;
+    SilentUninstallRequested := True;
+  end else
+    RejectSilentAction(
+      'SILENT_ACTION_INVALID',
+      '无效的 /ACTION 参数。允许值：Upgrade、Repair、Reinstall、Uninstall。');
+
+  if not SilentActionResolutionFailed then begin
+    if SilentUninstallRequested then
+      Log('SILENT_ACTION_RESOLVED: Uninstall')
+    else
+      Log('SILENT_ACTION_RESOLVED: ' + SelectedInstallAction);
+  end;
+end;
+
 procedure AddMaintenanceOption(const Caption: String; var OptionIndex, OptionCount: Integer);
 begin
   OptionIndex := OptionCount;
@@ -352,6 +433,10 @@ var
   VersionComparison: Integer;
 begin
   SelectedInstallAction := 'Install';
+  SilentActionResolutionFailed := False;
+  SilentActionError := '';
+  SilentUninstallRequested := False;
+  SilentUninstallStarted := False;
   UpgradeIndex := -1;
   RepairIndex := -1;
   ReinstallIndex := -1;
@@ -396,6 +481,7 @@ begin
     AddMaintenanceOption('取消，不做任何更改', CancelIndex, OptionCount);
     ExistingInstallPage.SelectedValueIndex := 0;
   end;
+  ResolveSilentInstallAction();
 end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;
@@ -417,6 +503,21 @@ begin
     ExistingInstallDir,
     SW_SHOWNORMAL,
     ewNoWait,
+    ResultCode);
+end;
+
+function StartExistingUninstallerSilent(var ResultCode: Integer): Boolean;
+begin
+  Result := False;
+  ResultCode := -1;
+  if not FileExists(ExistingUninstaller) then
+    Exit;
+  Result := Exec(
+    ExistingUninstaller,
+    '/SILENT /SUPPRESSMSGBOXES /NORESTART /PURGEDATA',
+    ExistingInstallDir,
+    SW_HIDE,
+    ewWaitUntilTerminated,
     ResultCode);
 end;
 
@@ -467,6 +568,25 @@ begin
   if MaintenanceCloseRequested then begin
     Cancel := True;
     Confirm := False;
+  end;
+end;
+
+procedure CurPageChanged(CurPageID: Integer);
+var
+  ResultCode: Integer;
+begin
+  if SilentActionResolutionFailed then begin
+    Log('SILENT_ACTION_ABORT: ' + SilentActionError);
+    RaiseException(SilentActionError);
+  end;
+  if SilentUninstallRequested and (not SilentUninstallStarted) then begin
+    SilentUninstallStarted := True;
+    if not StartExistingUninstallerSilent(ResultCode) then
+      RaiseException('无法启动标准卸载器。')
+    else if ResultCode <> 0 then
+      RaiseException('标准卸载器执行失败，错误码：' + IntToStr(ResultCode));
+    MaintenanceCloseRequested := True;
+    WizardForm.Close;
   end;
 end;
 
