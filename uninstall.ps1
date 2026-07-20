@@ -22,7 +22,9 @@ function Get-ExecutableFromCommand {
 function Find-RegisteredUninstaller {
   foreach ($registryPath in @(
     "Registry::HKEY_LOCAL_MACHINE\$uninstallKey",
-    "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\{B7F3AC9E-2D5E-4A8C-9F6E-1A3D4E5F6B72}_is1"
+    "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\{B7F3AC9E-2D5E-4A8C-9F6E-1A3D4E5F6B72}_is1",
+    "Registry::HKEY_CURRENT_USER\$uninstallKey",
+    "Registry::HKEY_CURRENT_USER\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\{B7F3AC9E-2D5E-4A8C-9F6E-1A3D4E5F6B72}_is1"
   )) {
     $registration = Get-ItemProperty -LiteralPath $registryPath -ErrorAction SilentlyContinue
     if ($null -eq $registration) { continue }
@@ -54,8 +56,26 @@ function Resolve-OfficialUninstaller {
   $registered = Find-RegisteredUninstaller
   if (-not [string]::IsNullOrWhiteSpace($registered)) { return $registered }
 
-  if (-not [string]::IsNullOrWhiteSpace($env:ProgramFiles)) {
-    return [System.IO.Path]::GetFullPath((Join-Path $env:ProgramFiles "Insta360\HWAgent\unins000.exe"))
+  $candidates = New-Object System.Collections.Generic.List[string]
+  foreach ($base in @(
+    $env:ProgramFiles,
+    ${env:ProgramFiles(x86)},
+    $env:ProgramData
+  )) {
+    if (-not [string]::IsNullOrWhiteSpace([string]$base)) {
+      $candidates.Add((Join-Path $base "Insta360\HWAgent\unins000.exe"))
+    }
+  }
+  foreach ($drive in [System.IO.DriveInfo]::GetDrives()) {
+    if ($drive.IsReady -and $drive.DriveType -eq [System.IO.DriveType]::Fixed) {
+      $candidates.Add((Join-Path $drive.RootDirectory.FullName "Insta360\HWAgent\unins000.exe"))
+    }
+  }
+
+  foreach ($candidate in $candidates) {
+    if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+      return [System.IO.Path]::GetFullPath($candidate)
+    }
   }
   return ""
 }

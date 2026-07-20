@@ -37,6 +37,8 @@ class ReleaseDocsTests(unittest.TestCase):
         self.assertIn("Cadence 16.6", text)
         self.assertIn("再次运行 Setup", text)
         self.assertIn("标准卸载", text)
+        self.assertIn("/ACTION=Uninstall", text)
+        self.assertIn("/PRESERVEDATA", text)
 
     def test_update_doc_covers_signature_integrity_bridge_and_downgrade_policy(self) -> None:
         text = (ROOT / "docs" / "UPDATE.md").read_text(encoding="utf-8")
@@ -63,6 +65,8 @@ class ReleaseDocsTests(unittest.TestCase):
         self.assertIn("unins000.exe", text)
         self.assertIn("PreserveData", text)
         self.assertIn("PurgeData", text)
+        self.assertIn("/PRESERVEDATA", text)
+        self.assertIn("/PURGEDATA", text)
         self.assertIn("%LOCALAPPDATA%\\Insta360_HW", text)
         self.assertNotIn("-Force", text)
         self.assertNotIn("keep_data", text)

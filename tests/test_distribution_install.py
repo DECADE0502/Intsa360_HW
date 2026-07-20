@@ -380,6 +380,17 @@ class DistributionLifecycleV2Tests(unittest.TestCase):
         self.assertIn("if PreserveRequested then", setup)
         self.assertNotIn("PreserveRequested or UninstallSilent", setup)
 
+    def test_silent_uninstall_action_forwards_preserve_data_flag(self) -> None:
+        setup = (ROOT / "HWAgent_Setup.iss").read_text(encoding="utf-8-sig")
+        start = setup.index("function StartExistingUninstallerSilent")
+        end = setup.index("function NextButtonClick", start)
+        silent_uninstall = setup[start:end]
+
+        self.assertIn("HasCommandLineParameter('/PRESERVEDATA')", silent_uninstall)
+        self.assertIn("DataPolicy := '/PRESERVEDATA'", silent_uninstall)
+        self.assertIn("DataPolicy := '/PURGEDATA'", silent_uninstall)
+        self.assertIn("SILENT_UNINSTALL_DATA_POLICY_CONFLICT", setup)
+
     def test_setup_never_predeletes_the_previous_runtime_before_install_commits(self) -> None:
         setup = (ROOT / "HWAgent_Setup.iss").read_text(encoding="utf-8-sig")
 
@@ -576,8 +587,57 @@ class DistributionLifecycleV2Tests(unittest.TestCase):
         self.assertIn("/PRESERVEDATA", uninstaller)
         self.assertIn("/PURGEDATA", uninstaller)
         self.assertIn("Start-Process", uninstaller)
+        self.assertIn("[System.IO.DriveInfo]::GetDrives()", uninstaller)
         self.assertNotIn(r"scripts\lifecycle_v3\Uninstall.ps1", uninstaller)
         self.assertNotIn(r"scripts\lifecycle\Uninstall.ps1", uninstaller)
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows PowerShell only")
+    def test_uninstall_ps1_finds_installer_via_multiple_registry_paths(self) -> None:
+        source = (ROOT / "uninstall.ps1").read_text(encoding="utf-8-sig")
+        discovery = source[
+            source.index("$uninstallKey =") : source.index("$mappedMode = $Mode")
+        ]
+        expected = r"D:\Custom Install\Insta360\HWAgent\unins000.exe"
+        registry_paths = (
+            r"Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{B7F3AC9E-2D5E-4A8C-9F6E-1A3D4E5F6B72}_is1",
+            r"Registry::HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\{B7F3AC9E-2D5E-4A8C-9F6E-1A3D4E5F6B72}_is1",
+            r"Registry::HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{B7F3AC9E-2D5E-4A8C-9F6E-1A3D4E5F6B72}_is1",
+            r"Registry::HKEY_CURRENT_USER\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\{B7F3AC9E-2D5E-4A8C-9F6E-1A3D4E5F6B72}_is1",
+        )
+
+        def ps_quote(value: str) -> str:
+            return value.replace("'", "''")
+
+        for registry_path in registry_paths:
+            with self.subTest(registry_path=registry_path), tempfile.TemporaryDirectory() as tmp:
+                probe = Path(tmp) / "probe.ps1"
+                probe.write_text(
+                    "$ErrorActionPreference = 'Stop'\n"
+                    f"$script:expectedRegistry = '{ps_quote(registry_path)}'\n"
+                    f"$script:expectedUninstaller = '{ps_quote(expected)}'\n"
+                    "function Get-ItemProperty {\n"
+                    "  param([string]$LiteralPath, [object]$ErrorAction)\n"
+                    "  if ($LiteralPath -ceq $script:expectedRegistry) {\n"
+                    "    return [pscustomobject]@{ UninstallString = ('\"' + $script:expectedUninstaller + '\"'); InstallLocation = '' }\n"
+                    "  }\n"
+                    "  return $null\n"
+                    "}\n"
+                    "function Test-Path {\n"
+                    "  param([string]$LiteralPath, [object]$PathType)\n"
+                    "  return $LiteralPath -ceq $script:expectedUninstaller\n"
+                    "}\n"
+                    + discovery
+                    + "\n$result = Find-RegisteredUninstaller\n"
+                    + "if ($result -cne $script:expectedUninstaller) { throw ('unexpected result: ' + $result) }\n",
+                    encoding="utf-8-sig",
+                )
+                result = subprocess.run(
+                    ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(probe)],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     @unittest.skipUnless(sys.platform == "win32", "Windows PowerShell only")
     def test_root_uninstall_wrapper_dry_run_prints_official_command(self) -> None:

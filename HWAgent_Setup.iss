@@ -349,6 +349,19 @@ begin
   Log(AuditCode + ': ' + MessageText);
 end;
 
+function HasCommandLineParameter(const Name: String): Boolean;
+var
+  Index: Integer;
+begin
+  Result := False;
+  for Index := 1 to ParamCount do begin
+    if CompareText(ParamStr(Index), Name) = 0 then begin
+      Result := True;
+      Exit;
+    end;
+  end;
+end;
+
 procedure ResolveSilentInstallAction();
 var
   RequestedAction: String;
@@ -399,6 +412,13 @@ begin
     else
       SelectedInstallAction := 'Reinstall';
   end else if NormalizedAction = 'uninstall' then begin
+    if HasCommandLineParameter('/PRESERVEDATA') and
+      HasCommandLineParameter('/PURGEDATA') then begin
+      RejectSilentAction(
+        'SILENT_UNINSTALL_DATA_POLICY_CONFLICT',
+        '卸载参数冲突：/PURGEDATA 与 /PRESERVEDATA 不能同时使用。');
+      Exit;
+    end;
     if not FileExists(ExistingUninstaller) then begin
       RejectSilentAction(
         'SILENT_UNINSTALLER_MISSING',
@@ -507,14 +527,20 @@ begin
 end;
 
 function StartExistingUninstallerSilent(var ResultCode: Integer): Boolean;
+var
+  DataPolicy: String;
 begin
   Result := False;
   ResultCode := -1;
   if not FileExists(ExistingUninstaller) then
     Exit;
+  if HasCommandLineParameter('/PRESERVEDATA') then
+    DataPolicy := '/PRESERVEDATA'
+  else
+    DataPolicy := '/PURGEDATA';
   Result := Exec(
     ExistingUninstaller,
-    '/SILENT /SUPPRESSMSGBOXES /NORESTART /PURGEDATA',
+    '/SILENT /SUPPRESSMSGBOXES /NORESTART ' + DataPolicy,
     ExistingInstallDir,
     SW_HIDE,
     ewWaitUntilTerminated,
@@ -769,16 +795,8 @@ begin
 end;
 
 function HasUninstallParameter(const Name: String): Boolean;
-var
-  Index: Integer;
 begin
-  Result := False;
-  for Index := 1 to ParamCount do begin
-    if CompareText(ParamStr(Index), Name) = 0 then begin
-      Result := True;
-      Exit;
-    end;
-  end;
+  Result := HasCommandLineParameter(Name);
 end;
 
 function InitializeUninstall(): Boolean;

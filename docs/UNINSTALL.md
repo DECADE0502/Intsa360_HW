@@ -34,6 +34,12 @@ powershell -ExecutionPolicy Bypass -File .\uninstall.ps1 -Mode PreserveData -Dry
 
 旧参数 `Detach` 会明确映射为 `PreserveData`，`Full` 会明确映射为 `PurgeData`。新的自动化脚本应直接使用新名称。
 
+直接调用标准卸载器或通过 Setup 执行静默卸载时，数据策略必须明确：`/PURGEDATA` 删除用户数据，`/PRESERVEDATA` 保留用户数据。Setup 的 `/ACTION=Uninstall` 默认传递 `/PURGEDATA`；保留数据的命令如下：
+
+```powershell
+Insta360_HW_Setup.exe /VERYSILENT /SUPPRESSMSGBOXES /ACTION=Uninstall /PRESERVEDATA
+```
+
 ## 仅移除 Cadence 集成
 
 平台中的「移除 Cadence 集成」不是卸载：它只删除平台部署的 Capture Loader 和已挂载自定义脚本，不删除平台程序和 BOM 历史。操作后需重启 Capture；要恢复入口，使用「修复 Cadence 集成」。
