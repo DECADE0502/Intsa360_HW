@@ -8,6 +8,7 @@ import sys
 import time
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -166,6 +167,42 @@ def test_structured_logs_rotate_and_redact_session_secrets(tmp_path: Path) -> No
     for line in combined.splitlines():
         payload = json.loads(line)
         assert {"timestamp", "level", "event", "message"} <= payload.keys()
+
+
+def test_tool_history_failure_is_logged_without_failing_the_tool_response(tmp_path: Path) -> None:
+    class SuccessfulRegistry:
+        def run_tool(self, tool_id: str, params: dict[str, object]) -> dict[str, object]:
+            return {"status": "ok", "tool": tool_id, "summary": {"records": 1}}
+
+        def get_tool(self, tool_id: str) -> dict[str, object]:
+            return {"id": tool_id, "name": "Test Tool"}
+
+        def list_tools(self) -> list[dict[str, object]]:
+            return []
+
+    root = _runtime(tmp_path)
+    app = create_app(root)
+    app.state.context._registry = SuccessfulRegistry()
+    with patch(
+        "app.backend.api.routers.tools.history.record",
+        side_effect=RuntimeError("history database locked"),
+    ), TestClient(app, base_url=BASE_URL) as client:
+        token = client.get("/api/v1/session").json()["token"]
+        response = client.post(
+            "/api/v1/tools/demo/run",
+            json={},
+            headers={"X-Insta360-Session": token, "Origin": BASE_URL},
+        )
+
+    assert response.status_code == 200
+    records = [
+        json.loads(line)
+        for line in (AppPaths(root).runtime_log_dir / "platform.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    failure = next(record for record in records if record["event"] == "history_record_failed")
+    assert failure["level"] == "warning"
+    assert failure["message"] == "history record failed"
+    assert "history database locked" in failure["exception"]
 
 
 def test_diagnostic_package_excludes_user_files_until_assets_are_explicitly_selected(tmp_path: Path) -> None:

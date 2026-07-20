@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
 from app.backend import history
@@ -53,6 +54,7 @@ def platform_status(context: AppContext = Depends(get_context)) -> dict[str, obj
 def run_tool(
     tool_id: str,
     params: dict[str, object],
+    request: Request,
     context: AppContext = Depends(get_context),
 ):
     try:
@@ -68,6 +70,12 @@ def run_tool(
         name = context.registry.get_tool(tool_id).get("name", tool_id)
         history.record(context.root, tool_id, name, params, result)
     except Exception:  # noqa: BLE001
-        pass
+        logger = getattr(request.app.state, "platform_logger", None)
+        if not isinstance(logger, logging.Logger):
+            logger = logging.getLogger(__name__)
+        logger.warning(
+            "history record failed",
+            exc_info=True,
+            extra={"event": "history_record_failed", "context": {"tool_id": tool_id}},
+        )
     return JSONResponse(result, status_code=400 if result.get("status") == "error" else 200)
-
