@@ -7,6 +7,7 @@ from app.backend.tools.common import qty_matches
 
 
 _NC_RE = re.compile(r"(^|[,/\s（(])NC([,/\s）)]|$)", re.IGNORECASE)
+NC_VALUE_RE = re.compile(r"^(?:NC|DNP)(?:[/,（(].*)?$", re.IGNORECASE)
 _MECH_KW = ["螺丝", "螺钉", "螺母", "垫片", "华司", "铜柱", "支柱", "定位孔", "安装孔", "MOUNTINGHOLE", "散热片", "导热垫"]
 _TP_PREFIX = ("TP", "JP", "Z_TP", "FID", "MK", "MH")
 _TP_KW = ["测试点", "跳线", "FIDUCIAL", "基准", "拼板", "工艺边", "MARK点"]
@@ -17,6 +18,17 @@ _CODE_PREFIX_TYPE = {"L": "电感", "C": "电容", "R": "电阻"}
 
 def _quantity_mismatch(row: dict[str, object]) -> bool:
     return not qty_matches(row.get("quantity"), len(row.get("refs") or []))
+
+
+def _nc_row(row: dict[str, object]) -> bool:
+    value = str(row.get("value") or "").strip()
+    if NC_VALUE_RE.fullmatch(value):
+        return True
+    text = " ".join(
+        str(row.get(field) or "")
+        for field in ("part_number", "model", "description", "name")
+    )
+    return any(key in text for key in ("未贴", "不贴", "DNP")) or bool(_NC_RE.search(text))
 
 
 def _looks_like_pcb(row: dict[str, object]) -> bool:
@@ -95,7 +107,7 @@ def evaluate_bom_risks(rows: list[dict[str, object]]) -> list[dict[str, str]]:
     brackets = sorted({row["part_number"] for row in rows if _looks_like_shield_bracket(row)})
     findings.append({"name": "屏蔽支架", "status": "ok" if brackets else "info", "message": "找到 " + ", ".join(brackets) if brackets else "未发现屏蔽支架（如设计需要请确认）"})
 
-    nc_refs = [ref for row in rows if any(key in blob(row) for key in ["未贴", "不贴", "DNP"]) or _NC_RE.search(blob(row)) for ref in (row.get("refs") or [])]
+    nc_refs = [ref for row in rows if _nc_row(row) for ref in (row.get("refs") or [])]
     findings.append({"name": "NC/未贴器件", "status": "warn" if nc_refs else "ok", "message": f"混入 {len(nc_refs)} 个：" + ",".join(nc_refs[:15]) if nc_refs else "无"})
 
     mechanical = sorted({row["part_number"] for row in rows if any(key.upper() in blob(row).upper() for key in _MECH_KW)})

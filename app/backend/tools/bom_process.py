@@ -8,6 +8,7 @@ from app.backend.capture_fields import BOM_OPTIONAL_FIELDS, FIELD_DEFAULTS, PLM_
 from app.backend.parsers._workbook import build_merged_cell_lookup, open_bom_workbook
 from app.backend.parsers.bom_table import INHERIT_FIELDS, normalize_header, split_refs
 from app.backend.parsers.refs import natural_key
+from app.backend.tools.bom_rules import NC_VALUE_RE
 
 # BOM 处理工具：把 Capture 导出的原始 BOM 处理成可导入的 PLM / OA 成品。
 # - 自动定位表头行（Capture 导出前面常有标题块），表头带不带 {} 花括号都能识别
@@ -52,7 +53,6 @@ OA_HEADERS = [
 ]
 NC_HEADERS = ["原始行号", "位号", "子项编码", "物料名称", "型号", "描述", "Value", "过滤原因"]
 CONFLICT_FIELDS = ("name", "model", "desc", "grade", "unit")
-_NC_VALUE_RE = re.compile(r"^(?:NC|DNP)(?:[/,（(].*)?$", re.IGNORECASE)
 _PROCESS_TOKEN_RE = re.compile(
     r"(?:^|[\s,;/()（）])(测试点|跳线|Test\s*Point)(?=$|[\s,;/()（）])",
     re.IGNORECASE,
@@ -143,7 +143,7 @@ def exclusion_reason(row: dict[str, str], refs: list[str], include_shields: bool
             return None
         return "屏蔽支架 SH*"
     value = str(row.get("value", "") or "").strip()
-    if _NC_VALUE_RE.fullmatch(value):
+    if NC_VALUE_RE.fullmatch(value):
         return "NC/未贴"
     if any(r.startswith("JP") for r in upper):
         return "跳线 JP*"

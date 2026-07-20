@@ -28,7 +28,54 @@ def _quantity_finding(quantity: object, refs: list[str]) -> dict[str, str]:
     return next(item for item in findings if item["name"] == "数量=位号数")
 
 
+def _nc_finding(row: dict[str, object]) -> dict[str, str]:
+    findings = evaluate_bom_risks([row])
+    return next(item for item in findings if item["name"] == "NC/未贴器件")
+
+
 class BomRiskCheckTests(unittest.TestCase):
+    def test_nc_in_value_column_is_reported(self) -> None:
+        finding = _nc_finding(
+            {
+                "part_number": "R.001",
+                "model": "R0402",
+                "description": "Chip resistor",
+                "name": "电阻",
+                "value": "NC",
+                "refs": ["R1"],
+            }
+        )
+
+        self.assertEqual(finding["status"], "warn")
+
+    def test_ncp_model_in_value_is_not_reported(self) -> None:
+        finding = _nc_finding(
+            {
+                "part_number": "U.001",
+                "model": "SOT223",
+                "description": "LDO regulator",
+                "name": "电源芯片",
+                "value": "NCP1117",
+                "refs": ["U1"],
+            }
+        )
+
+        self.assertEqual(finding["status"], "ok")
+
+    def test_nc_in_name_field_is_reported(self) -> None:
+        finding = _nc_finding(
+            {
+                "part_number": "R.002",
+                "model": "R0402",
+                "description": "Chip resistor",
+                "name": "NC",
+                "value": "10K",
+                "refs": ["R2"],
+            }
+        )
+
+        self.assertEqual(finding["status"], "warn")
+
     def test_generic_import_keeps_ncp_parts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
