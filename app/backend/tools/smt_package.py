@@ -120,6 +120,20 @@ def _smt_item(
     }
 
 
+def _item_to_row(item: dict[str, object]) -> list[object]:
+    status = str(item.get("status", ""))
+    table_status = "机器初筛通过" if status in {"通过", "近似通过"} else status
+    return [
+        item.get("ref", ""),
+        item.get("net_package", ""),
+        item.get("bom_package", "") or item.get("model", ""),
+        item.get("description", ""),
+        item.get("name", ""),
+        table_status,
+        item.get("note", ""),
+    ]
+
+
 def _is_high_risk_package(*values: object) -> bool:
     return bool(_SMT_HIGH_RISK_RE.search(" ".join(str(value or "") for value in values)))
 
@@ -142,7 +156,6 @@ def _is_non_smt_netlist_part(ref: object, package: object) -> bool:
 def _build_smt_package_review(parts: dict[str, str], bom_rows: list[dict[str, object]]) -> dict[str, object]:
     by_ref = {ref: row for row in bom_rows for ref in row["refs"]}
     items: list[dict[str, object]] = []
-    rows: list[list[object]] = []
     status_counts = {
         "passed": 0,
         "near": 0,
@@ -170,7 +183,6 @@ def _build_smt_package_review(parts: dict[str, str], bom_rows: list[dict[str, ob
                 status = "BOM 缺位号"
                 note = "网表存在该位号，但 BOM 中没有找到。确认是否漏导、未贴或不应进入贴片 BOM。"
                 item = _smt_item(ref, status, package, None, note, "high")
-                rows.append([ref, package, "", "", "", status, note])
         else:
             desc = str(bom_row.get("description", ""))
             name = str(bom_row.get("name", ""))
@@ -187,8 +199,6 @@ def _build_smt_package_review(parts: dict[str, str], bom_rows: list[dict[str, ob
                 status = "需要确认"
                 severity = "medium"
             item = _smt_item(ref, status, package, bom_row, note, severity)
-            table_status = "机器初筛通过" if status in {"通过", "近似通过"} else "请人工判断"
-            rows.append([ref, package, bom_package or model, desc, name, table_status, note])
         status_counts[_smt_status_key(status)] += 1
         items.append(item)
 
@@ -259,7 +269,7 @@ def _build_smt_package_review(parts: dict[str, str], bom_rows: list[dict[str, ob
         "items": items,
         "focus_items": focus_items,
         "status_counts": status_counts,
-        "table_rows": rows,
+        "table_rows": [_item_to_row(item) for item in items],
         "review_guide": {
             "通过": "网表封装和 BOM 封装/型号/描述中存在明确关键词匹配，通常可快速放行。",
             "近似通过": "封装字段存在包含关系，建议抽查命名是否为同一 footprint。",
