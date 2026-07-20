@@ -25,6 +25,15 @@ OLD_VERSION = "0.3.3"
 NEW_VERSION = "0.4.0"
 OLD_REVISION = "a" * 40
 NEW_REVISION = "b" * 40
+TEST_PRIVATE_KEY = Ed25519PrivateKey.from_private_bytes(bytes(range(1, 33)))
+TEST_TRUST_ANCHOR = TEST_PRIVATE_KEY.public_key().public_bytes(
+    encoding=serialization.Encoding.PEM,
+    format=serialization.PublicFormat.SubjectPublicKeyInfo,
+).decode("ascii")
+ATTACKER_TRUST_ANCHOR = Ed25519PrivateKey.from_private_bytes(bytes(range(33, 65))).public_key().public_bytes(
+    encoding=serialization.Encoding.PEM,
+    format=serialization.PublicFormat.SubjectPublicKeyInfo,
+).decode("ascii")
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows process API contract")
@@ -103,7 +112,7 @@ def _write_runtime(root: Path, version: str, revision: str) -> None:
         "scripts/lib/TclScripts.ps1": "fixture\n",
         "cadence/iac_bom_tool.tcl": "fixture\n",
         "config/capabilities.json": "{}\n",
-        "config/update_public_key.pem": "fixture-key\n",
+        "config/update_public_key.pem": TEST_TRUST_ANCHOR,
     }
     for relative, content in files.items():
         target = root / relative
@@ -135,7 +144,7 @@ def _installed_layout(tmp_path: Path) -> tuple[Path, Path, Path]:
     return install_root, runtime, state_root
 
 
-def _runtime_zip(tmp_path: Path, *, trust_anchor: str = "fixture-key\n") -> bytes:
+def _runtime_zip(tmp_path: Path, *, trust_anchor: str = TEST_TRUST_ANCHOR) -> bytes:
     payload = tmp_path / "payload"
     _write_runtime(payload, NEW_VERSION, NEW_REVISION)
     (payload / "config" / "update_public_key.pem").write_text(trust_anchor, encoding="utf-8")
@@ -148,10 +157,9 @@ def _runtime_zip(tmp_path: Path, *, trust_anchor: str = "fixture-key\n") -> byte
 
 
 def _signed_manifest(tmp_path: Path, archive: bytes) -> tuple[dict[str, object], Path]:
-    private_key = Ed25519PrivateKey.generate()
     public_key = tmp_path / "update_public_key.pem"
     public_key.write_bytes(
-        private_key.public_key().public_bytes(
+        TEST_PRIVATE_KEY.public_key().public_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PublicFormat.SubjectPublicKeyInfo,
         )
@@ -175,7 +183,7 @@ def _signed_manifest(tmp_path: Path, archive: bytes) -> tuple[dict[str, object],
         "signature": "pending",
     }
     raw["signature"] = "ed25519:" + base64.b64encode(
-        private_key.sign(lifecycle_v3.canonical_manifest_payload(raw))
+        TEST_PRIVATE_KEY.sign(lifecycle_v3.canonical_manifest_payload(raw))
     ).decode("ascii")
     return raw, public_key
 
@@ -349,7 +357,7 @@ def test_same_size_download_tampering_fails_before_worker(tmp_path: Path) -> Non
 
 def test_candidate_cannot_replace_update_trust_anchor(tmp_path: Path) -> None:
     _, runtime, state_root = _installed_layout(tmp_path)
-    archive = _runtime_zip(tmp_path, trust_anchor="attacker-key\n")
+    archive = _runtime_zip(tmp_path, trust_anchor=ATTACKER_TRUST_ANCHOR)
     raw, public_key = _signed_manifest(tmp_path, archive)
     manifest = lifecycle_v3.verify_signed_manifest(raw, public_key)
     job_id = "7" * 32
