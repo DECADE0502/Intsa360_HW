@@ -49,10 +49,16 @@ _to_qty = to_qty
 def qty_matches(value: object, expected: int) -> bool:
     if value is None or str(value).strip() == "":
         return True
+    normalized = re.sub(
+        r"\s*(?:pcs?|片|个|颗)$",
+        "",
+        str(value).strip(),
+        flags=re.IGNORECASE,
+    ).strip()
     try:
-        return float(str(value).strip()) == expected
+        return float(normalized) == expected
     except (ValueError, TypeError):
-        return False
+        return True
 
 
 def _read_bom_rows(path: Path, require_refs: bool = True) -> list[dict[str, object]]:

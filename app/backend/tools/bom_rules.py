@@ -28,7 +28,8 @@ def _nc_row(row: dict[str, object]) -> bool:
         str(row.get(field) or "")
         for field in ("part_number", "model", "description", "name")
     )
-    return any(key in text for key in ("未贴", "不贴", "DNP")) or bool(_NC_RE.search(text))
+    upper_text = text.upper()
+    return any(key in upper_text for key in ("未贴", "不贴", "DNP")) or bool(_NC_RE.search(text))
 
 
 def _looks_like_pcb(row: dict[str, object]) -> bool:

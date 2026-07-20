@@ -61,6 +61,22 @@ class BomProcessConflictTests(unittest.TestCase):
             self.assertEqual([row["part_number"] for row in with_shields], ["P1", "SH-PN"])
             self.assertEqual(excluded[0][1], "SH1")
 
+    def test_sh_row_keeps_capture_original_fields_in_nc_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["Reference", "Part Number", "Value", "Description", "物料名称"])
+            ws.append(["SH1", "SH-PN", "SHIELD-5S", None, "屏蔽罩 5S-A"])
+            wb.save(source)
+
+            parsed = bom_process.parse_source(source)
+            _, excluded = bom_process.filter_rows(parsed, include_shields=False)
+
+        self.assertEqual(excluded[0][3], "屏蔽罩 5S-A")
+        self.assertEqual(excluded[0][5], "")
+        self.assertEqual(excluded[0][6], "SHIELD-5S")
+
     def test_complete_bom_process_opens_source_workbook_once(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from app.backend.parsers.refs import natural_key
 from app.backend.tools.common import (
     USER_INPUT_EXCEPTIONS,
+    _MECHANICAL_NET_RE,
     _NC_NET_RE,
+    _POWER_NET_RE,
+    _TEST_NET_RE,
     _error,
     _is_critical_net,
     _natural_join,
@@ -20,9 +22,6 @@ from app.backend.tools.common import (
     _write_table,
 )
 _TP_PREFIX = ("TP", "JP", "Z_TP", "FID", "MK", "MH")
-_POWER_NET_RE = re.compile(r"(^|[^A-Z0-9])(GND|AGND|DGND|PGND|VSS|VDD|VCC|VBAT|VSYS|SYS|POWER|BUCK|LDO|3V3|1V8|5V)([^A-Z0-9]|$)", re.IGNORECASE)
-_TEST_NET_RE = re.compile(r"(TP|TEST|PROBE|FID|MARK|JTAG|SWD|UART_DBG|DEBUG)", re.IGNORECASE)
-_MECHANICAL_NET_RE = re.compile(r"(HOLE|MOUNT|MTG|SCREW|SHIELD|CHASSIS|GASKET)", re.IGNORECASE)
 
 def _single_network_item(name: str, data: dict[str, list[str]]) -> dict[str, object]:
     refs = data.get("refs", [])

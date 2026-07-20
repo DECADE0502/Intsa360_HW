@@ -109,6 +109,36 @@ class BomExcelParserTests(unittest.TestCase):
             self.assertEqual(rows[0]["model"], "10K")
             self.assertEqual(rows[0]["grade"], "优选")
 
+    def test_reference_column_prefers_position_after_part_number_anchor(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "reference-anchor.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["位号", "Part Number", "Reference", "Description", "Quantity"])
+            ws.append(["ROW-001", "R.001", "R1,R2", "贴片电阻", 2])
+            wb.save(path)
+
+            rows = read_bom_rows(path)
+
+        self.assertEqual(rows[0]["refs"], ["R1", "R2"])
+
+    def test_part_type_column_is_not_inherited_across_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "part-type-merge.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["Reference", "Part Number", "Part Type", "物料名称", "Value"])
+            ws.append(["R1", "P1", "电阻", "贴片电阻", "10K"])
+            ws.append(["C1", "P2", None, None, "1uF"])
+            ws.merge_cells("C2:C3")
+            wb.save(path)
+
+            rows, _ = bom_process.load_source(path)
+
+        self.assertEqual(rows[0]["name"], "贴片电阻")
+        self.assertEqual(rows[1]["part_type"], "")
+        self.assertEqual(rows[1]["name"], "")
+
     def test_read_bom_rows_can_keep_no_ref_board_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "bom.xlsx"

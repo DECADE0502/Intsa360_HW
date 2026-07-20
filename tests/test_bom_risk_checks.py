@@ -170,10 +170,37 @@ class BomRiskCheckTests(unittest.TestCase):
                 finding = _quantity_finding(quantity, ["R1", "R2", "R3"])
                 self.assertEqual(finding["status"], "ok")
 
+    def test_quantity_with_unit_suffix_is_not_flagged(self) -> None:
+        for quantity in ("3 pc", "3 pcs", "3 PCS", "3 个", "3片", "3颗"):
+            with self.subTest(quantity=quantity):
+                finding = _quantity_finding(quantity, ["R1", "R2", "R3"])
+                self.assertEqual(finding["status"], "ok")
+
+    def test_unparseable_quantity_remains_non_blocking(self) -> None:
+        for quantity in ("N/A", "待定", "三"):
+            with self.subTest(quantity=quantity):
+                finding = _quantity_finding(quantity, ["R1", "R2", "R3"])
+                self.assertEqual(finding["status"], "ok")
+
     def test_integer_quantity_equal_to_reference_count_is_ok(self) -> None:
         finding = _quantity_finding(3, ["R1", "R2", "R3"])
 
         self.assertEqual(finding["status"], "ok")
+
+    def test_nc_detection_is_case_insensitive(self) -> None:
+        for marker in ("dnp", "Dnp", "DNP"):
+            with self.subTest(marker=marker):
+                finding = _nc_finding(
+                    {
+                        "part_number": "R.003",
+                        "model": "R0402",
+                        "description": f"chip resistor {marker}",
+                        "name": "电阻",
+                        "value": "10K",
+                        "refs": ["R3"],
+                    }
+                )
+                self.assertEqual(finding["status"], "warn")
 
     def test_confirmed_sh_bracket_satisfies_shield_bracket_check(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

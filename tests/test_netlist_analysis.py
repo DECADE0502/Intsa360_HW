@@ -6,7 +6,7 @@ from pathlib import Path
 
 from openpyxl import Workbook
 
-from app.backend.tools import analysis_tools, netlist_tools
+from app.backend.tools import analysis_tools, common, netlist_tools, single_network
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,6 +19,15 @@ def write_netlist(folder: Path, nets: str = "", parts: str = "") -> None:
 
 
 class NetlistAnalysisTests(unittest.TestCase):
+    def test_single_network_and_common_share_net_classification_regexes(self) -> None:
+        for name in ("_NC_NET_RE", "_POWER_NET_RE", "_TEST_NET_RE", "_MECHANICAL_NET_RE"):
+            with self.subTest(name=name):
+                self.assertIs(getattr(single_network, name), getattr(common, name))
+        source = (ROOT / "app" / "backend" / "tools" / "single_network.py").read_text(encoding="utf-8")
+        self.assertNotIn("_POWER_NET_RE = re.compile", source)
+        self.assertNotIn("_TEST_NET_RE = re.compile", source)
+        self.assertNotIn("_MECHANICAL_NET_RE = re.compile", source)
+
     def test_ncs_chip_select_net_is_not_nc(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

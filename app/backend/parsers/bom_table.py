@@ -72,6 +72,31 @@ def _choose_best_column(
     return matches[0]
 
 
+def _choose_reference_column(ws, header_row: int, normalized_values: list[str], anchor_col: int | None) -> int | None:
+    aliases = {normalize_header(alias) for alias in FIELD_ALIASES["reference"]}
+    matches = [idx for idx, value in enumerate(normalized_values, start=1) if value in aliases]
+    if not matches:
+        return None
+
+    def score(col: int) -> tuple[int, int, int, int]:
+        ref_like = 0
+        non_empty = 0
+        for row in range(header_row + 1, min(ws.max_row, header_row + 50) + 1):
+            value = ws.cell(row, col).value
+            if value is None or str(value).strip() == "":
+                continue
+            non_empty += 1
+            ref_like += sum(
+                1
+                for token in split_refs(value)
+                if re.fullmatch(r"[A-Za-z_]+\d+[A-Za-z]?", token)
+            )
+        after_anchor = int(anchor_col is not None and col > anchor_col)
+        return ref_like, non_empty, after_anchor, -col
+
+    return max(matches, key=score)
+
+
 def refine_mapping(ws, header_row: int, mapping: dict[str, int]) -> dict[str, int]:
     normalized_values = [normalize_header(ws.cell(header_row, col).value) for col in range(1, ws.max_column + 1)]
     refined = dict(mapping)
@@ -80,7 +105,7 @@ def refine_mapping(ws, header_row: int, mapping: dict[str, int]) -> dict[str, in
     if part_col:
         refined["part_number"] = part_col
 
-    for key in ["description", "quantity", "name", "package", "value", "model", "grade", "unit", "reference"]:
+    for key in ["description", "quantity", "name", "package", "value", "model", "grade", "unit"]:
         col = _choose_best_column(
             normalized_values,
             FIELD_ALIASES[key],
@@ -89,6 +114,14 @@ def refine_mapping(ws, header_row: int, mapping: dict[str, int]) -> dict[str, in
         )
         if col:
             refined[key] = col
+    reference_col = _choose_reference_column(
+        ws,
+        header_row,
+        normalized_values,
+        refined.get("part_number"),
+    )
+    if reference_col:
+        refined["reference"] = reference_col
     return refined
 
 

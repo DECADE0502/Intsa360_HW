@@ -119,7 +119,6 @@ def _cell(
     raw_value = ws.cell(row, col).value
     source_field = {
         "desc": "description",
-        "part_type": "name",
         "pcb_footprint": "package",
         "pcb_package": "package",
         "source_package": "package",
@@ -140,6 +139,23 @@ def _normalize_shield_row(row: dict[str, str], refs: list[str]) -> None:
         row["name"] = "屏蔽支架"
     if not row.get("desc", "").strip():
         row["desc"] = row.get("value", "").strip() or "屏蔽支架"
+
+
+def _processing_row(row: dict[str, str], refs: list[str]) -> dict[str, str]:
+    normalized = dict(row)
+    if not normalized.get("name"):
+        normalized["name"] = normalized.get("part_type") or ""
+    if not normalized.get("model"):
+        normalized["model"] = (
+            normalized.get("value")
+            or normalized.get("pcb_package")
+            or normalized.get("pcb_footprint")
+            or ""
+        )
+    if not normalized.get("desc"):
+        normalized["desc"] = normalized.get("value") or ""
+    _normalize_shield_row(normalized, refs)
+    return normalized
 
 
 def exclusion_reason(row: dict[str, str], refs: list[str], include_shields: bool = False) -> str | None:
@@ -179,16 +195,8 @@ def parse_source(path: Path) -> ParsedSource:
         row_numbers: list[int] = []
         for row_num in range(header_row + 1, ws.max_row + 1):
             row = {key: _cell(ws, row_num, mapping, key, merged_lookup) for key in SRC_ALIASES}
-            if not row.get("name"):
-                row["name"] = row.get("part_type") or ""
-            if not row.get("model"):
-                row["model"] = row.get("value") or row.get("pcb_package") or row.get("pcb_footprint") or ""
-            if not row.get("desc"):
-                row["desc"] = row.get("value") or ""
             if not any(row.values()):
                 continue
-            refs = [normalize_ref(r) for r in split_refs(row.get("reference"))]
-            _normalize_shield_row(row, refs)
             rows.append(row)
             row_numbers.append(row_num)
         return ParsedSource(source_path=Path(path), raw_rows=rows, row_numbers=row_numbers)
@@ -215,7 +223,7 @@ def filter_rows(
                 reason,
             ])
             continue
-        rows.append(row)
+        rows.append(_processing_row(row, refs))
     return rows, excluded
 
 
