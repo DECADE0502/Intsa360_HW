@@ -36,6 +36,39 @@ def make_source(path: Path) -> None:
 
 
 class BomProcessConflictTests(unittest.TestCase):
+    def test_jumper_resistor_description_is_not_excluded(self) -> None:
+        row = {
+            "part_number": "R.001",
+            "value": "0R",
+            "name": "电阻",
+            "desc": "跳线电阻 0402",
+        }
+
+        self.assertIsNone(bom_process.exclusion_reason(row, ["R100"]))
+
+    def test_test_socket_description_is_not_excluded(self) -> None:
+        row = {
+            "part_number": "J.001",
+            "value": "SOCKET",
+            "name": "连接器",
+            "desc": "Test socket 治具配套",
+        }
+
+        self.assertIsNone(bom_process.exclusion_reason(row, ["J1"]))
+
+    def test_jumper_name_on_non_r_ref_is_flagged_for_review(self) -> None:
+        row = {
+            "part_number": "J.002",
+            "value": "",
+            "name": "跳线",
+            "desc": "",
+        }
+
+        reason = bom_process.exclusion_reason(row, ["J5"])
+
+        self.assertIsNotNone(reason)
+        self.assertIn("人工确认", reason)
+
     def test_letter_notation_numeric_pairs_require_manual_choice(self) -> None:
         def variants(first: str, second: str) -> list[dict[str, object]]:
             return [

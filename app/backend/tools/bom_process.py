@@ -52,6 +52,11 @@ OA_HEADERS = [
 ]
 NC_HEADERS = ["原始行号", "位号", "子项编码", "物料名称", "型号", "描述", "Value", "过滤原因"]
 CONFLICT_FIELDS = ("name", "model", "desc", "grade", "unit")
+_NC_VALUE_RE = re.compile(r"^(?:NC|DNP)(?:[/,（(].*)?$", re.IGNORECASE)
+_PROCESS_TOKEN_RE = re.compile(
+    r"(?:^|[\s,;/()（）])(测试点|跳线|Test\s*Point)(?=$|[\s,;/()（）])",
+    re.IGNORECASE,
+)
 _NUMERIC_VALUE_RE = re.compile(
     r"^\d+(?:\.\d+)?(?:\s*[RrKkMmGgTtUuNnPpFfHhVv]\d*)?"
     r"\s*(?:Ω|ohms?|%|℃|°C|[VvAaWwFfHh])?$",
@@ -137,21 +142,23 @@ def exclusion_reason(row: dict[str, str], refs: list[str], include_shields: bool
         if include_shields:
             return None
         return "屏蔽支架 SH*"
-    value = row.get("value", "")
-    upper_value = value.upper()
-    if upper_value == "NC" or upper_value.startswith("NC/") or upper_value == "DNP":
+    value = str(row.get("value", "") or "").strip()
+    if _NC_VALUE_RE.fullmatch(value):
         return "NC/未贴"
-    upper = [r.upper() for r in refs]
     if any(r.startswith("JP") for r in upper):
         return "跳线 JP*"
     if any(r.startswith(("TP", "Z_TP")) for r in upper):
         return "测试点 TP*/Z_TP*"
-    if any(r.startswith("SH") for r in upper) and not include_shields:
-        return "屏蔽/非贴装 SH*"
-    text = " ".join(str(v) for v in row.values())
-    for token in ("Test", "测试点", "跳线"):
-        if token in text:
-            return f"字段包含 {token}"
+    for field in ("name", "value"):
+        match = _PROCESS_TOKEN_RE.search(str(row.get(field, "") or "").strip())
+        if not match:
+            continue
+        token = match.group(1)
+        if token == "跳线":
+            prefixes = [re.match(r"^[A-Z]+", ref) for ref in upper]
+            if any(prefix and prefix.group(0) in {"R", "L", "FB", "C"} for prefix in prefixes):
+                return None
+        return f"字段疑似工艺器件（{token}），请人工确认"
     return None
 
 

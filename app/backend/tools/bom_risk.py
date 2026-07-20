@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from app.backend.tools import bom_process
 from app.backend.tools.bom_rules import evaluate_bom_risks, find_type_mismatches
 from app.backend.tools.common import (
     USER_INPUT_EXCEPTIONS,
@@ -64,7 +65,7 @@ def _run_bom_risk_check_impl(root: Path, params: dict[str, object]) -> dict[str,
     return result
 
 
-def run_generic_bom_import(root: Path, params: dict[str, object]) -> dict[str, object]:
+def _run_generic_bom_import_impl(root: Path, params: dict[str, object]) -> dict[str, object]:
     source, error = _required_file(params, "source_bom", "原始 BOM 文件")
     if error:
         return _error("bom_import", error)
@@ -73,17 +74,14 @@ def run_generic_bom_import(root: Path, params: dict[str, object]) -> dict[str, o
     excluded_rows = []
     for row in rows:
         refs = row["refs"]
-        text = f"{row.get('description', '')} {row.get('name', '')}"
-        value = str(row.get("value", ""))
-        reason = ""
-        if not row.get("part_number"):
-            reason = "子项编码为空"
-        elif value.upper().startswith("NC") or "NC/" in text.upper():
-            reason = "NC/未贴"
-        elif any(ref.upper().startswith(("TP", "Z_TP", "JP", "SH")) for ref in refs):
-            reason = "测试点/跳线/非贴装"
-        elif any(token in text for token in ["测试点", "跳线", "Test"]):
-            reason = "字段包含测试/跳线"
+        mapped_row = {
+            "part_number": str(row.get("part_number") or ""),
+            "value": str(row.get("value") or ""),
+            "name": str(row.get("name") or ""),
+            "desc": str(row.get("description") or ""),
+            "model": str(row.get("model") or ""),
+        }
+        reason = bom_process.exclusion_reason(mapped_row, refs, include_shields=False)
 
         if reason:
             excluded_rows.append(
@@ -123,6 +121,15 @@ def run_generic_bom_import(root: Path, params: dict[str, object]) -> dict[str, o
         [main_output, nc_output],
         {"main_rows": len(main_rows), "excluded_rows": len(excluded_rows)},
     )
+
+
+def run_generic_bom_import(root: Path, params: dict[str, object]) -> dict[str, object]:
+    try:
+        return _run_generic_bom_import_impl(root, params)
+    except USER_INPUT_EXCEPTIONS as exc:
+        return _user_error("bom_import", exc)
+
+
 def run_bom_risk_check(root: Path, params: dict[str, object]) -> dict[str, object]:
     try:
         return _run_bom_risk_check_impl(root, params)

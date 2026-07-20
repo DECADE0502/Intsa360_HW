@@ -3,12 +3,14 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from openpyxl import Workbook
 
 from app.backend.tools.analysis_tools import run_bom_risk_check
-from app.backend.tools import common
+from app.backend.tools import bom_process, common
 from app.backend.tools.bom_rules import evaluate_bom_risks
+from app.backend.tools.bom_risk import run_generic_bom_import
 from app.backend.tools.common import _read_bom_rows
 
 
@@ -27,6 +29,53 @@ def _quantity_finding(quantity: object, refs: list[str]) -> dict[str, str]:
 
 
 class BomRiskCheckTests(unittest.TestCase):
+    def test_generic_import_keeps_ncp_parts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "ncp.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["Reference", "Part Number", "Description", "Quantity", "Name", "Value"])
+            ws.append(["U1", "U.001", "LDO regulator", 1, "LDO", "NCP1117"])
+            wb.save(source)
+
+            result = run_generic_bom_import(root, {"source_bom": str(source)})
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["summary"]["main_rows"], 1)
+        self.assertEqual(result["summary"]["excluded_rows"], 0)
+
+    def test_generic_import_reuses_exclusion_reason_for_every_row(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "rows.xlsx"
+            _write_bom(
+                source,
+                [
+                    ["R1", "R.001", "Resistor", 1, "电阻", "10K", "优选"],
+                    ["C1", "C.001", "Capacitor", 1, "电容", "1uF", "优选"],
+                ],
+            )
+
+            with patch("app.backend.tools.bom_process.exclusion_reason", wraps=bom_process.exclusion_reason) as check:
+                result = run_generic_bom_import(root, {"source_bom": str(source)})
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(check.call_count, 2)
+
+    def test_generic_import_wraps_user_input_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "invalid.xlsx"
+            wb = Workbook()
+            wb.active.append(["unexpected header"])
+            wb.save(source)
+
+            result = run_generic_bom_import(root, {"source_bom": str(source)})
+
+        self.assertEqual(result["status"], "error")
+        self.assertIn("表头", result["message"])
+
     def test_fractional_quantity_mismatch_is_reported(self) -> None:
         finding = _quantity_finding(3.9, ["R1", "R2", "R3"])
 
