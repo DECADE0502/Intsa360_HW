@@ -48,6 +48,12 @@ def test_e2e_smt_layout_full_flow(tmp_path: Path) -> None:
     assert payload["status"] == "ok"
     assert len(payload["components"]) == 20
     assert payload["nc_summary"]["total"] == 2
+    assert payload["nc_summary"]["confirmed_refs"] == ["C5", "R8"]
+    assert payload["nc_summary"]["candidate_refs"] == []
+    assert payload["nc_summary"]["unverified_refs"] == ["TP1"]
+    assert payload["nc_summary"]["conflict_refs"] == []
+    assert payload["nc_summary"]["inference_mode"] == "with_netlist"
+    assert payload["nc_summary"]["explicit_summary_used"] is True
     assert "R99" in {item["ref"] for item in payload["sanity"]["missing_layout"]}
     assert payload["fai_table"]["headers"][0:2] == ["位号", "面"]
     assert len(payload["fai_table"]["rows"]) == 20
@@ -61,6 +67,30 @@ def test_e2e_smt_layout_full_flow(tmp_path: Path) -> None:
         assert workbook.active.cell(1, 1).value == "位号"
     finally:
         workbook.close()
+
+
+def test_e2e_smt_layout_infers_nc_when_uploaded_bom_has_no_companion_summary(tmp_path: Path) -> None:
+    root = _runtime_root(tmp_path)
+    upload_dir = tmp_path / "upload"
+    upload_dir.mkdir()
+    uploaded_bom = upload_dir / "PLM.xlsx"
+    shutil.copy2(FIXTURE / "bom_processed" / "PLM.xlsx", uploaded_bom)
+    params = _full_params()
+    params["processed_bom"] = str(uploaded_bom)
+
+    with TestClient(create_app(root), base_url=BASE_URL) as client:
+        response = client.post("/api/tools/smt_layout/run", json=params, headers=_mutation_headers(client))
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["nc_summary"]["confirmed_refs"] == ["C5", "R8"]
+    assert payload["nc_summary"]["candidate_refs"] == []
+    assert payload["nc_summary"]["unverified_refs"] == ["TP1"]
+    assert payload["nc_summary"]["explicit_summary_used"] is False
+    status_by_ref = {item["ref"]: item["status"] for item in payload["components"]}
+    assert status_by_ref["C5"] == "nc"
+    assert status_by_ref["R8"] == "nc"
+    assert status_by_ref["TP1"] == "unverified"
 
 
 def test_e2e_smt_layout_missing_netlist_marks_sanity_skipped(tmp_path: Path) -> None:

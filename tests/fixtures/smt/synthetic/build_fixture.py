@@ -124,7 +124,7 @@ def _write_netlist() -> None:
 def main() -> None:
     _write_xy()
     _write_outline()
-    all_refs = [ref for ref, *_ in COMPONENTS] + ["R99"]
+    all_refs = [ref for ref, *_ in COMPONENTS if ref not in {"R8", "C5", "TP1"}] + ["R99"]
     processed = ROOT / "bom_processed"
     _write_bom(processed / "PLM.xlsx", all_refs)
     _write_nc_bom(processed / "NC.xlsx")
