@@ -14,7 +14,10 @@ from app.backend.tools.common import (
     _required_folder,
     _user_error,
 )
-from app.backend.tools.smt_package import _is_high_risk_package
+from app.backend.tools.smt_package import _is_high_risk_package, _package_matches
+
+
+_SANITY_SEVERITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 
 
 def _find_xy_file(folder: Path) -> Path:
@@ -73,6 +76,121 @@ def _component_payload(component: object, bom_row: dict[str, object] | None, nc_
     }
 
 
+def _component_value(component: object, field: str) -> object:
+    if isinstance(component, dict):
+        return component.get(field, "")
+    return getattr(component, field, "")
+
+
+def _bom_footprint_text(row: dict[str, object]) -> str:
+    return " ".join(
+        str(row.get(field) or "").strip()
+        for field in ("package", "description", "name", "model")
+        if str(row.get(field) or "").strip()
+    )
+
+
+def _package_compatible(left: str, right: str) -> tuple[bool, str]:
+    normalized_left = "".join(char for char in left.casefold() if char not in "-_")
+    normalized_right = "".join(char for char in right.casefold() if char not in "-_")
+    if normalized_left and normalized_left == normalized_right:
+        return True, "封装规范化后完全一致"
+    return _package_matches(left, right)
+
+
+def _sort_sanity_items(items: list[dict[str, object]]) -> list[dict[str, object]]:
+    return sorted(
+        items,
+        key=lambda item: (
+            _SANITY_SEVERITY_ORDER.get(str(item.get("severity") or "low"), 3),
+            natural_key(str(item.get("ref") or "")),
+        ),
+    )
+
+
+def _compute_sanity(
+    components: list[object],
+    bom_rows: list[dict[str, object]],
+    netlist_parts: dict[str, str],
+) -> dict[str, list[dict[str, object]]]:
+    component_by_ref = {
+        str(_component_value(component, "ref")).strip().upper(): component
+        for component in components
+        if str(_component_value(component, "ref")).strip()
+    }
+    bom_by_ref = {
+        str(ref).strip().upper(): row
+        for row in bom_rows
+        for ref in row.get("refs", [])
+        if str(ref).strip()
+    }
+    netlist_by_ref = {
+        str(ref).strip().upper(): str(package or "").strip()
+        for ref, package in netlist_parts.items()
+        if str(ref).strip()
+    }
+    xy_refs = set(component_by_ref)
+    bom_refs = set(bom_by_ref)
+    netlist_refs = set(netlist_by_ref)
+
+    missing_layout = [
+        {
+            "ref": ref,
+            "note": f"{ref} 在 BOM 或网表中存在，但 XY 布局中没有坐标，可能漏放。",
+            "severity": "high",
+        }
+        for ref in (bom_refs | netlist_refs) - xy_refs
+    ]
+    missing_bom = [
+        {
+            "ref": ref,
+            "note": f"{ref} 在 {'XY 布局' if ref in xy_refs else '网表'}中存在，但处理后 BOM 中没有记录。",
+            "severity": "high" if ref in xy_refs else "medium",
+        }
+        for ref in (xy_refs | netlist_refs) - bom_refs
+    ]
+    missing_netlist = [
+        {
+            "ref": ref,
+            "note": f"{ref} 在 {'XY 布局' if ref in xy_refs else 'BOM'}中存在，但 pstxprt.dat 中没有记录。",
+            "severity": "medium" if ref in xy_refs else "low",
+        }
+        for ref in (xy_refs | bom_refs) - netlist_refs
+    ]
+
+    footprint_conflicts: list[dict[str, object]] = []
+    for ref in sorted(xy_refs & (bom_refs | netlist_refs), key=natural_key):
+        xy_footprint = str(_component_value(component_by_ref[ref], "footprint") or "").strip()
+        netlist_footprint = netlist_by_ref.get(ref, "")
+        bom_footprint = _bom_footprint_text(bom_by_ref[ref]) if ref in bom_by_ref else ""
+        notes: list[str] = []
+        if xy_footprint and netlist_footprint:
+            matches, detail = _package_compatible(xy_footprint, netlist_footprint)
+            if not matches:
+                notes.append(f"XY 与网表封装不一致：{detail}")
+        if xy_footprint and bom_footprint:
+            matches, detail = _package_compatible(xy_footprint, bom_footprint)
+            if not matches:
+                notes.append(f"XY 与 BOM 封装信息不一致：{detail}")
+        if notes:
+            footprint_conflicts.append(
+                {
+                    "ref": ref,
+                    "xy_footprint": xy_footprint,
+                    "netlist_footprint": netlist_footprint,
+                    "bom_footprint": bom_footprint,
+                    "note": "；".join(notes),
+                }
+            )
+
+    return {
+        "missing_layout": _sort_sanity_items(missing_layout),
+        "missing_bom": _sort_sanity_items(missing_bom),
+        "missing_netlist": _sort_sanity_items(missing_netlist),
+        "footprint_conflicts": footprint_conflicts,
+    }
+
+
 def _run_smt_layout_impl(root: Path, params: dict[str, object]) -> dict[str, object]:
     smt_folder, error = _required_folder(params, "smt_folder", "SMT 资料文件夹")
     if error:
@@ -108,13 +226,8 @@ def _run_smt_layout_impl(root: Path, params: dict[str, object]) -> dict[str, obj
         sanity: dict[str, object] = {"status": "skipped_no_netlist"}
     else:
         parse_net_file(netlist_folder)
-        parse_part_file(netlist_folder)
-        sanity = {
-            "missing_layout": [],
-            "missing_bom": [],
-            "missing_netlist": [],
-            "footprint_conflicts": [],
-        }
+        netlist_parts = parse_part_file(netlist_folder)
+        sanity = _compute_sanity(components, list(bom_by_ref.values()), netlist_parts)
 
     fai_headers = ["序号", "位号", "面", "X(mm)", "Y(mm)", "角度", "封装", "物料编码", "型号", "描述", "状态"]
     fai_rows = [
