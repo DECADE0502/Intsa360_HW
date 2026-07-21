@@ -65,6 +65,16 @@
       "show_in_cadence": false
     },
     {
+      "id": "smt_layout",
+      "type": "web_tool",
+      "name": "贴片布局对照",
+      "description": "结合 SMT 资料、处理后 BOM 和可选网表，进行 NC 布局、首件核对和三向一致性检查。",
+      "category": "SMT",
+      "status": "available",
+      "show_in_platform": true,
+      "show_in_cadence": false
+    },
+    {
       "id": "cadence_nc_toggle",
       "type": "cadence_tcl",
       "name": "选中器件切换 NC",

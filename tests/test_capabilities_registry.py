@@ -27,6 +27,7 @@ class CapabilitiesRegistryTests(unittest.TestCase):
                 "netlist_compare",
                 "smt_package_check",
                 "single_network_check",
+                "smt_layout",
             ],
         )
 
