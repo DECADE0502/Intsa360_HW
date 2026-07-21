@@ -34,7 +34,16 @@ def _full_payload() -> dict[str, object]:
                 "high_risk": False,
             }
         ],
-        "nc_summary": {"total": 0, "refs": []},
+        "nc_summary": {
+            "total": 1,
+            "refs": ["R2"],
+            "confirmed_refs": [],
+            "candidate_refs": ["R2"],
+            "unverified_refs": ["R3"],
+            "conflict_refs": [],
+            "inference_mode": "without_netlist",
+            "explicit_summary_used": False,
+        },
         "sanity": {
             "missing_layout": [],
             "missing_bom": [],
@@ -69,6 +78,16 @@ def test_smt_layout_response_schema_accepts_skipped_netlist_sanity() -> None:
 
     assert response.sanity is not None
     assert response.sanity.status == "skipped_no_netlist"
+
+
+@pytest.mark.parametrize("status", ["candidate_nc", "unverified"])
+def test_smt_layout_response_schema_accepts_inferred_component_statuses(status: str) -> None:
+    payload = _full_payload()
+    payload["components"][0]["status"] = status
+
+    response = SmtLayoutResponse.model_validate(payload)
+
+    assert response.components[0].status == status
 
 
 def test_smt_layout_response_schema_rejects_extra_fields() -> None:

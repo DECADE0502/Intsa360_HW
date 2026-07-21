@@ -384,7 +384,7 @@ export type SmtComponent = {
   description: string;
   model: string;
   grade: string;
-  status: "installed" | "nc" | "missing_bom" | "missing_layout";
+  status: "installed" | "nc" | "candidate_nc" | "unverified" | "missing_bom" | "missing_layout";
   high_risk: boolean;
 };
 
@@ -423,13 +423,24 @@ export type SmtLayoutParams = {
   outline_dxf_layer?: string;
 };
 
+export type SmtNcSummary = {
+  total: number;
+  refs: string[];
+  confirmed_refs: string[];
+  candidate_refs: string[];
+  unverified_refs: string[];
+  conflict_refs: string[];
+  inference_mode: "with_netlist" | "without_netlist";
+  explicit_summary_used: boolean;
+};
+
 export type SmtLayoutResponse = {
   status: "ok" | "error" | "needs_confirmation";
   tool: "smt_layout";
   outputs: string[];
   board?: SmtBoard | null;
   components: SmtComponent[];
-  nc_summary?: { total: number; refs: string[] } | null;
+  nc_summary?: SmtNcSummary | null;
   sanity?: SmtSanity | { status: "skipped_no_netlist" } | null;
   fai_table?: { headers: string[]; rows: unknown[][] } | null;
   summary?: {

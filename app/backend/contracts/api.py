@@ -44,7 +44,7 @@ class SmtComponent(ContractModel):
     description: str
     model: str
     grade: str
-    status: Literal["installed", "nc", "missing_bom", "missing_layout"]
+    status: Literal["installed", "nc", "candidate_nc", "unverified", "missing_bom", "missing_layout"]
     high_risk: bool
 
 
@@ -82,6 +82,12 @@ class SmtSkippedSanity(ContractModel):
 class SmtNcSummary(ContractModel):
     total: int = Field(ge=0)
     refs: list[str] = Field(default_factory=list)
+    confirmed_refs: list[str] = Field(default_factory=list)
+    candidate_refs: list[str] = Field(default_factory=list)
+    unverified_refs: list[str] = Field(default_factory=list)
+    conflict_refs: list[str] = Field(default_factory=list)
+    inference_mode: Literal["with_netlist", "without_netlist"]
+    explicit_summary_used: bool = False
 
 
 class SmtFaiTable(ContractModel):
