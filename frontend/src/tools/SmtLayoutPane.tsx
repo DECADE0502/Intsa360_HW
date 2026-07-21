@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Alert, Button, Card, Empty, Input, Segmented, Space, Switch, Table, Tabs, Tag, Tooltip, Typography } from "antd";
+import { type Dispatch, type SetStateAction, useEffect, useMemo, useState } from "react";
+import { Alert, Button, Card, Empty, Segmented, Space, Switch, Table, Tabs, Tag, Tooltip, Typography, Upload } from "antd";
 import {
   ApartmentOutlined,
   DeleteOutlined,
@@ -11,8 +11,9 @@ import {
   ReloadOutlined,
 } from "@ant-design/icons";
 
-import { runSmtLayout, type SmtComponent, type SmtLayoutResponse, type SmtSanity } from "../api/client";
+import { runSmtLayout, uploadFiles, type SmtComponent, type SmtLayoutResponse, type SmtSanity } from "../api/client";
 import { toUserMessage } from "../api/errors";
+import { HistoryBomPicker } from "../components/HistoryBomPicker";
 import { PcbCanvas } from "../components/PcbCanvas";
 import { RefdesVirtualList, type RefdesListItem } from "../components/RefdesVirtualList";
 import { useToolWorkspace } from "../state/toolWorkspace";
@@ -21,12 +22,118 @@ import styles from "./SmtLayoutPane.module.css";
 
 
 type SmtLayoutWorkspace = {
-  smt: string;
-  bom: string;
-  netlist: string;
+  historyBom: string;
   result: SmtLayoutResponse | null;
   activeTab: string;
 };
+
+type DirectorySourceProps = {
+  kind: "smt" | "netlist";
+  title: string;
+  buttonLabel: string;
+  files: File[];
+  onFiles: Dispatch<SetStateAction<File[]>>;
+};
+
+const SMT_SOURCE_EXTENSIONS = new Set([".dxf", ".art", ".gbr", ".ger"]);
+
+function fileExtension(name: string) {
+  const index = name.lastIndexOf(".");
+  return index >= 0 ? name.slice(index).toLowerCase() : "";
+}
+
+function acceptsDirectoryFile(kind: DirectorySourceProps["kind"], file: File) {
+  const name = file.name.toLowerCase();
+  if (kind === "netlist") return name === "pstxnet.dat" || name === "pstxprt.dat";
+  return name === "xy.txt" || SMT_SOURCE_EXTENSIONS.has(fileExtension(name));
+}
+
+function addUniqueFile(files: File[], next: File) {
+  if (files.some((item) => item.name === next.name && item.size === next.size && item.lastModified === next.lastModified)) {
+    return files;
+  }
+  return [...files, next];
+}
+
+function selectedDirectoryLabel(files: File[]) {
+  if (!files.length) return "未选择";
+  const relative = (files[0] as File & { webkitRelativePath?: string }).webkitRelativePath || "";
+  const folder = relative.split("/").filter(Boolean)[0];
+  return folder ? `${folder} · ${files.length} 个有效文件` : `已选择 ${files.length} 个有效文件`;
+}
+
+function DirectorySource({ kind, title, buttonLabel, files, onFiles }: DirectorySourceProps) {
+  const icon = kind === "smt" ? <FolderOpenOutlined /> : <ApartmentOutlined />;
+  return (
+    <Card size="small" className="smt-layout-source-card">
+      <Space direction="vertical" size={8} style={{ width: "100%" }}>
+        <Typography.Text strong>{title}</Typography.Text>
+        <Space wrap>
+          <Upload
+            directory
+            multiple
+            accept={kind === "smt" ? ".txt,.dxf,.art,.gbr,.ger" : ".dat"}
+            fileList={[]}
+            showUploadList={false}
+            beforeUpload={(file) => {
+              if (acceptsDirectoryFile(kind, file)) onFiles((current) => addUniqueFile(current, file));
+              return false;
+            }}
+          >
+            <Button aria-label={buttonLabel} icon={icon}>{buttonLabel}</Button>
+          </Upload>
+          {files.length ? <Button onClick={() => onFiles([])}>清除</Button> : null}
+        </Space>
+        <Typography.Text type={files.length ? "success" : "secondary"} ellipsis={{ tooltip: selectedDirectoryLabel(files) }}>
+          {selectedDirectoryLabel(files)}
+        </Typography.Text>
+      </Space>
+    </Card>
+  );
+}
+
+function BomSource({
+  file,
+  historyBom,
+  onFile,
+  onHistoryBom,
+}: {
+  file?: File;
+  historyBom: string;
+  onFile: (file?: File) => void;
+  onHistoryBom: (path: string) => void;
+}) {
+  return (
+    <Card size="small" className="smt-layout-source-card">
+      <Space direction="vertical" size={8} style={{ width: "100%" }}>
+        <Typography.Text strong>处理后的 PLM/OA BOM</Typography.Text>
+        <HistoryBomPicker
+          value={historyBom}
+          onChange={(path) => {
+            onHistoryBom(path);
+            if (path) onFile(undefined);
+          }}
+        />
+        <Upload
+          accept=".xlsx,.xls"
+          maxCount={1}
+          fileList={file ? [{ uid: "bom", name: file.name, status: "done" as const }] : []}
+          beforeUpload={(next) => {
+            onFile(next);
+            onHistoryBom("");
+            return false;
+          }}
+          onRemove={() => {
+            onFile(undefined);
+            return true;
+          }}
+        >
+          <Button aria-label="选择 PLM/OA BOM" icon={<FileExcelOutlined />}>选择 PLM/OA BOM</Button>
+        </Upload>
+      </Space>
+    </Card>
+  );
+}
 
 
 function FaiChecklistTab({ result }: { result: SmtLayoutResponse | null }) {
@@ -431,40 +538,62 @@ export function SmtLayoutPane() {
   const [workspace, setWorkspace, resetWorkspace] = useToolWorkspace<SmtLayoutWorkspace>(
     "smt_layout",
     {
-      smt: "",
-      bom: "",
-      netlist: "",
+      historyBom: "",
       result: null,
       activeTab: "nc",
     },
     { heavyKeys: ["result"] },
   );
+  const [smtFiles, setSmtFiles] = useState<File[]>([]);
+  const [bomFile, setBomFile] = useState<File | undefined>();
+  const [netlistFiles, setNetlistFiles] = useState<File[]>([]);
+  const [historyBom, setHistoryBom] = useState(workspace.historyBom || "");
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
   const [selectedRef, setSelectedRef] = useState("");
+  const sanityAvailable = Boolean(
+    netlistFiles.length || (workspace.result?.sanity && !("status" in workspace.result.sanity)),
+  );
 
   useEffect(() => {
-    if (!workspace.netlist && workspace.activeTab === "sanity") {
+    setWorkspace((current) => ({ ...current, historyBom }));
+  }, [historyBom, setWorkspace]);
+
+  useEffect(() => {
+    if (!sanityAvailable && workspace.activeTab === "sanity") {
       setWorkspace((current) => ({ ...current, activeTab: "nc" }));
     }
-  }, [workspace.netlist, workspace.activeTab, setWorkspace]);
-
-  function updateField(field: "smt" | "bom" | "netlist", value: string) {
-    setWorkspace((current) => ({ ...current, [field]: value }));
-  }
+  }, [sanityAvailable, workspace.activeTab, setWorkspace]);
 
   async function handleRun() {
-    if (!workspace.smt.trim() || !workspace.bom.trim()) {
-      setError("请选择 SMT 资料文件夹和处理后的 BOM。 ");
+    if (!smtFiles.some((file) => file.name.toLowerCase() === "xy.txt")) {
+      setError("请选择包含 XY.txt 的 SMT 资料目录。");
+      return;
+    }
+    if (!historyBom && !bomFile) {
+      setError("请选择 BOM 处理后生成的 PLM 或 OA 成品 BOM。");
+      return;
+    }
+    if (netlistFiles.length && !netlistFiles.some((file) => file.name.toLowerCase() === "pstxnet.dat")) {
+      setError("所选网表目录缺少 pstxnet.dat，请重新选择正确目录。");
+      return;
+    }
+    if (netlistFiles.length && !netlistFiles.some((file) => file.name.toLowerCase() === "pstxprt.dat")) {
+      setError("所选网表目录缺少 pstxprt.dat，请重新选择正确目录。");
       return;
     }
     setRunning(true);
     setError("");
     try {
+      const [smtUpload, bomUpload, netlistUpload] = await Promise.all([
+        uploadFiles(smtFiles),
+        historyBom || !bomFile ? Promise.resolve(null) : uploadFiles([bomFile]),
+        netlistFiles.length ? uploadFiles(netlistFiles) : Promise.resolve(null),
+      ]);
       const result = await runSmtLayout({
-        smt_folder: workspace.smt.trim(),
-        processed_bom: workspace.bom.trim(),
-        ...(workspace.netlist.trim() ? { netlist_folder: workspace.netlist.trim() } : {}),
+        smt_folder: smtUpload.folder,
+        processed_bom: historyBom || bomUpload?.files[0]?.path || "",
+        ...(netlistUpload ? { netlist_folder: netlistUpload.folder } : {}),
       });
       setWorkspace((current) => ({ ...current, result }));
     } catch (runError) {
@@ -477,6 +606,10 @@ export function SmtLayoutPane() {
   function handleClear() {
     setError("");
     setSelectedRef("");
+    setSmtFiles([]);
+    setBomFile(undefined);
+    setNetlistFiles([]);
+    setHistoryBom("");
     resetWorkspace();
   }
 
@@ -489,14 +622,14 @@ export function SmtLayoutPane() {
     { key: "fai", label: "首件核对表", children: <FaiChecklistTab result={workspace.result} /> },
     {
       key: "sanity",
-      label: workspace.netlist ? (
+      label: sanityAvailable ? (
         "三向一致性"
       ) : (
         <Tooltip title="需网表文件夹">
           <span>三向一致性</span>
         </Tooltip>
       ),
-      disabled: !workspace.netlist,
+      disabled: !sanityAvailable,
       children: (
         <SanityReportTab
           result={workspace.result}
@@ -524,34 +657,30 @@ export function SmtLayoutPane() {
         className="smt-layout-inputs"
         style={{ display: "grid", gridTemplateColumns: "minmax(220px, 1fr) minmax(220px, 1fr) minmax(220px, 1fr)", gap: 10 }}
       >
-        <Input
-          aria-label="SMT 资料文件夹"
-          prefix={<FolderOpenOutlined />}
-          placeholder="SMT 资料文件夹路径（含 XY.txt）"
-          value={workspace.smt}
-          onChange={(event) => updateField("smt", event.target.value)}
-          allowClear
+        <DirectorySource
+          kind="smt"
+          title="SMT 资料目录"
+          buttonLabel="选择 SMT 资料目录"
+          files={smtFiles}
+          onFiles={setSmtFiles}
         />
-        <Input
-          aria-label="处理后的 BOM"
-          prefix={<FileExcelOutlined />}
-          placeholder="处理后的 PLM 或 OA BOM 路径"
-          value={workspace.bom}
-          onChange={(event) => updateField("bom", event.target.value)}
-          allowClear
+        <BomSource
+          file={bomFile}
+          historyBom={historyBom}
+          onFile={setBomFile}
+          onHistoryBom={setHistoryBom}
         />
-        <Input
-          aria-label="网表文件夹"
-          prefix={<ApartmentOutlined />}
-          placeholder="网表文件夹路径（可选）"
-          value={workspace.netlist}
-          onChange={(event) => updateField("netlist", event.target.value)}
-          allowClear
+        <DirectorySource
+          kind="netlist"
+          title="Cadence 网表目录（可选）"
+          buttonLabel="选择网表目录"
+          files={netlistFiles}
+          onFiles={setNetlistFiles}
         />
       </div>
 
       <Space style={{ marginTop: 12, marginBottom: 16 }}>
-        <Button type="primary" icon={<PlayCircleOutlined />} loading={running} onClick={handleRun}>
+        <Button aria-label="开始分析" type="primary" icon={<PlayCircleOutlined />} loading={running} onClick={handleRun}>
           开始分析
         </Button>
         <Button icon={<DeleteOutlined />} onClick={handleClear}>

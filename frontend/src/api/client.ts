@@ -362,7 +362,10 @@ export async function setPluginCadenceMenuVisibility(id: string, showInCadence: 
   return payload.plugin as PluginInfo;
 }
 
-export async function uploadFiles(files: File[]): Promise<{ files: Array<{ path: string; name: string }> }> {
+export async function uploadFiles(files: File[]): Promise<{
+  folder: string;
+  files: Array<{ path: string; name: string }>;
+}> {
   const form = new FormData();
   files.forEach((file) => form.append("files", file));
   const payload = await requestJson<any>("/api/upload", { method: "POST", body: form }, { timeoutMs: 300_000 });
