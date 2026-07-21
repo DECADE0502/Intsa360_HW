@@ -13,7 +13,7 @@ from app.backend.tools.bom_rules import NC_VALUE_RE
 
 # BOM 处理工具：把 Capture 导出的原始 BOM 处理成可导入的 PLM / OA 成品。
 # - 自动定位表头行（Capture 导出前面常有标题块），表头带不带 {} 花括号都能识别
-# - 按原样处理：过滤 NC/未贴、测试点 TP、跳线 JP、屏蔽 SH；按料号合并位号、统计数量
+# - 按物料属性过滤 NC/未贴和疑似工艺件；SH 屏蔽支架单独确认；按料号合并位号、统计数量
 #   （从 Capture 按版本导出的 BOM 本身已是该版本的真实器件，无需再做版本换料）
 # - 输出 PLM（19 列）和/或 OA（16 列）成品，并可追加 PCB/屏蔽罩等附加物料
 # - 同时产出 NC/未贴器件汇总
@@ -54,8 +54,10 @@ OA_HEADERS = [
 ]
 NC_HEADERS = ["原始行号", "位号", "子项编码", "物料名称", "型号", "描述", "Value", "过滤原因"]
 CONFLICT_FIELDS = ("name", "model", "desc", "grade", "unit")
-_PROCESS_TOKEN_RE = re.compile(
-    r"(?:^|[\s,;/()（）])(测试点|跳线|Test\s*Point)(?=$|[\s,;/()（）])",
+_PROCESS_MATERIAL_RE = re.compile(
+    r"(?:^|[\s,;/()（）])"
+    r"(测试点|跳线|安装孔|定位孔|TEST\s*POINT|MOUNTING\s*HOLE|MOUNTINGHOLE|FIDUCIAL|SCREW)"
+    r"(?=$|[\s,;/()（）])",
     re.IGNORECASE,
 )
 _NUMERIC_VALUE_RE = re.compile(
@@ -132,6 +134,41 @@ def has_shield_refs(refs: list[str]) -> bool:
     return any(ref.upper().startswith("SH") for ref in refs)
 
 
+def _material_text(row: dict[str, str]) -> str:
+    return " ".join(
+        str(row.get(field) or "").strip()
+        for field in ("desc", "name", "model", "pcb_package", "pcb_footprint")
+    )
+
+
+def _matches_process_material(row: dict[str, str]) -> str | None:
+    match = _PROCESS_MATERIAL_RE.search(_material_text(row))
+    return match.group(1) if match else None
+
+
+def _process_candidate_key(part_number: str, refs: list[str]) -> str:
+    normalized = sorted({normalize_ref(ref) for ref in refs}, key=natural_key)
+    return f"{part_number.strip()}|{','.join(normalized)}"
+
+
+def _classify_no_partnumber(refs: list[str], row: dict[str, str]) -> str:
+    upper = [ref.upper() for ref in refs]
+    value = str(row.get("value") or "").strip()
+    if NC_VALUE_RE.fullmatch(value):
+        return "NC/未贴（无料号）"
+    if any(ref.startswith("SH") for ref in upper):
+        return "疑似屏蔽支架 SH*（无料号）"
+    if any(ref.startswith(("TP", "Z_TP")) for ref in upper):
+        return "疑似测试点 TP*/Z_TP*（无料号）"
+    if any(ref.startswith("JP") for ref in upper):
+        return "疑似跳线 JP*（无料号）"
+    if any(re.fullmatch(r"H\d+", ref) for ref in upper):
+        return "疑似安装孔 H*（无料号）"
+    if any(ref.startswith(("MH", "MTG")) for ref in upper):
+        return "疑似安装孔 MH*/MTG*（无料号）"
+    return "子项编码为空"
+
+
 def _normalize_shield_row(row: dict[str, str], refs: list[str]) -> None:
     if not has_shield_refs(refs):
         return
@@ -158,31 +195,29 @@ def _processing_row(row: dict[str, str], refs: list[str]) -> dict[str, str]:
     return normalized
 
 
-def exclusion_reason(row: dict[str, str], refs: list[str], include_shields: bool = False) -> str | None:
-    if not row.get("part_number"):
-        return "子项编码为空"
+def exclusion_reason(
+    row: dict[str, str],
+    refs: list[str],
+    include_shields: bool = False,
+    process_material_keeps: set[str] | None = None,
+) -> str | None:
+    part_number = str(row.get("part_number") or "").strip()
+    if not part_number:
+        return _classify_no_partnumber(refs, row)
     upper = [r.upper() for r in refs]
     if any(r.startswith("SH") for r in upper):
         if include_shields:
             return None
         return "屏蔽支架 SH*"
-    value = str(row.get("value", "") or "").strip()
+    value = str(row.get("value") or "").strip()
     if NC_VALUE_RE.fullmatch(value):
         return "NC/未贴"
-    if any(r.startswith("JP") for r in upper):
-        return "跳线 JP*"
-    if any(r.startswith(("TP", "Z_TP")) for r in upper):
-        return "测试点 TP*/Z_TP*"
-    for field in ("name", "value"):
-        match = _PROCESS_TOKEN_RE.search(str(row.get(field, "") or "").strip())
-        if not match:
-            continue
-        token = match.group(1)
-        if token == "跳线":
-            prefixes = [re.match(r"^[A-Z]+", ref) for ref in upper]
-            if any(prefix and prefix.group(0) in {"R", "L", "FB", "C"} for prefix in prefixes):
-                return None
-        return f"字段疑似工艺器件（{token}），请人工确认"
+    keyword = _matches_process_material(row)
+    if keyword:
+        keeps = process_material_keeps or set()
+        if _process_candidate_key(part_number, refs) in keeps:
+            return None
+        return f"工艺件（描述含 {keyword}）"
     return None
 
 
@@ -205,12 +240,18 @@ def parse_source(path: Path) -> ParsedSource:
 def filter_rows(
     parsed: ParsedSource,
     include_shields: bool = False,
+    process_material_keeps: set[str] | None = None,
 ) -> tuple[list[dict[str, str]], list[list[object]]]:
     rows: list[dict[str, str]] = []
     excluded: list[list[object]] = []
     for row_num, row in zip(parsed.row_numbers, parsed.raw_rows):
         refs = [normalize_ref(r) for r in split_refs(row.get("reference"))]
-        reason = exclusion_reason(row, refs, include_shields=include_shields)
+        reason = exclusion_reason(
+            row,
+            refs,
+            include_shields=include_shields,
+            process_material_keeps=process_material_keeps,
+        )
         if reason:
             excluded.append([
                 row_num,
@@ -227,8 +268,16 @@ def filter_rows(
     return rows, excluded
 
 
-def load_source(path: Path, include_shields: bool = False) -> tuple[list[dict[str, str]], list[list[object]]]:
-    return filter_rows(parse_source(path), include_shields=include_shields)
+def load_source(
+    path: Path,
+    include_shields: bool = False,
+    process_material_keeps: set[str] | None = None,
+) -> tuple[list[dict[str, str]], list[list[object]]]:
+    return filter_rows(
+        parse_source(path),
+        include_shields=include_shields,
+        process_material_keeps=process_material_keeps,
+    )
 
 
 def detect_shield_candidates(source_rows: list[dict[str, str]]) -> list[dict[str, object]]:
@@ -236,7 +285,7 @@ def detect_shield_candidates(source_rows: list[dict[str, str]]) -> list[dict[str
     for row in source_rows:
         refs = sorted({normalize_ref(r) for r in split_refs(row.get("reference"))}, key=natural_key)
         shield_refs = [ref for ref in refs if ref.upper().startswith("SH")]
-        if not shield_refs:
+        if not shield_refs or not str(row.get("part_number") or "").strip():
             continue
         candidates.append(
             {
@@ -247,6 +296,29 @@ def detect_shield_candidates(source_rows: list[dict[str, str]]) -> list[dict[str
                 "grade": row.get("grade", "").strip(),
                 "refs": shield_refs,
                 "count": len(shield_refs),
+            }
+        )
+    return candidates
+
+
+def detect_process_material_candidates(source_rows: list[dict[str, str]]) -> list[dict[str, object]]:
+    candidates: list[dict[str, object]] = []
+    for row in source_rows:
+        part_number = str(row.get("part_number") or "").strip()
+        refs = sorted({normalize_ref(r) for r in split_refs(row.get("reference"))}, key=natural_key)
+        value = str(row.get("value") or "").strip()
+        keyword = _matches_process_material(row)
+        if not part_number or not refs or NC_VALUE_RE.fullmatch(value) or has_shield_refs(refs) or not keyword:
+            continue
+        candidates.append(
+            {
+                "key": _process_candidate_key(part_number, refs),
+                "part_number": part_number,
+                "refs": refs,
+                "description": str(row.get("desc") or "").strip(),
+                "name": str(row.get("name") or "").strip(),
+                "model": str(row.get("model") or "").strip(),
+                "matched_keyword": keyword,
             }
         )
     return candidates
@@ -493,9 +565,14 @@ def build_records(
     merge_conflicts: bool = False,
     conflict_choices: dict[str, object] | None = None,
     include_shields: bool = False,
+    process_material_keeps: set[str] | None = None,
 ) -> list[dict[str, object]]:
     groups: "OrderedDict[tuple, dict[str, object]]" = OrderedDict()
-    source_rows, _ = filter_rows(parsed, include_shields=include_shields)
+    source_rows, _ = filter_rows(
+        parsed,
+        include_shields=include_shields,
+        process_material_keeps=process_material_keeps,
+    )
     conflicts_by_code = {str(conflict["code"]): conflict for conflict in detect_part_conflicts(source_rows)}
     selected_by_code: dict[str, tuple[str, str, str, str, str]] = {}
     if merge_conflicts:
@@ -740,15 +817,20 @@ def process(
     merge_conflicts: bool = False,
     conflict_choices: dict[str, object] | None = None,
     confirm_shields: bool = False,
+    process_material_keeps: set[str] | None = None,
 ) -> dict[str, object]:
     source_path = parsed.source_path
     name = (name or source_path.stem).strip() or "BOM"
     parent_code = (parent_code or "").strip()
     parent_desc = (parent_desc or name).strip()
 
-    source_rows_for_checks, _ = filter_rows(parsed, include_shields=True)
-    shield_candidates = detect_shield_candidates(source_rows_for_checks)
-    source_rows, excluded = filter_rows(parsed, include_shields=confirm_shields)
+    shield_candidates = detect_shield_candidates(parsed.raw_rows)
+    process_material_candidates = detect_process_material_candidates(parsed.raw_rows)
+    source_rows, excluded = filter_rows(
+        parsed,
+        include_shields=confirm_shields,
+        process_material_keeps=process_material_keeps,
+    )
     conflicts = detect_part_conflicts(source_rows)
     unresolved_conflicts = (
         unresolved_part_conflicts(source_rows, conflict_choices)
@@ -760,6 +842,7 @@ def process(
         merge_conflicts=merge_conflicts,
         conflict_choices=conflict_choices,
         include_shields=confirm_shields,
+        process_material_keeps=process_material_keeps,
     )
 
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -793,8 +876,11 @@ def process(
             "merge_conflicts": merge_conflicts,
             "shield_candidates": len(shield_candidates),
             "confirm_shields": confirm_shields,
+            "process_material_candidates": len(process_material_candidates),
+            "process_material_keeps": len(process_material_keeps or set()),
         },
         "conflicts": conflicts,
         "unresolved_conflicts": unresolved_conflicts,
         "shield_candidates": shield_candidates,
+        "process_material_candidates": process_material_candidates,
     }

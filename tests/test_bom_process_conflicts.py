@@ -135,7 +135,97 @@ class BomProcessConflictTests(unittest.TestCase):
         reason = bom_process.exclusion_reason(row, ["J5"])
 
         self.assertIsNotNone(reason)
-        self.assertIn("人工确认", reason)
+        self.assertIn("工艺件", reason)
+
+    def test_prefix_alone_no_longer_excludes_material(self) -> None:
+        row = {
+            "part_number": "P001",
+            "value": "",
+            "name": "常规器件",
+            "desc": "普通贴片物料",
+            "model": "MODEL-A",
+        }
+
+        for ref in ("TP1", "Z_TP2", "JP1", "H1", "MH1", "MTG3", "R100", "C55", "U9"):
+            with self.subTest(ref=ref):
+                self.assertIsNone(bom_process.exclusion_reason(row, [ref]))
+        self.assertEqual(bom_process.exclusion_reason(row, ["SH1"]), "屏蔽支架 SH*")
+
+    def test_sh_still_triggers_confirmation_regardless_of_partnumber(self) -> None:
+        row = {"part_number": "P001", "value": "", "desc": "0402 电容", "name": "电容"}
+
+        self.assertEqual(bom_process.exclusion_reason(row, ["SH1"]), "屏蔽支架 SH*")
+        self.assertIsNone(bom_process.exclusion_reason(row, ["SH1"], include_shields=True))
+
+    def test_material_description_drives_process_candidate(self) -> None:
+        row = {
+            "part_number": "P001",
+            "value": "",
+            "name": "探针",
+            "desc": "测试点 探针",
+            "model": "PROBE-A",
+        }
+        key = bom_process._process_candidate_key("P001", ["R100"])
+
+        self.assertEqual(bom_process.exclusion_reason(row, ["R100"]), "工艺件（描述含 测试点）")
+        self.assertIsNone(
+            bom_process.exclusion_reason(row, ["R100"], process_material_keeps={key})
+        )
+
+    def test_process_material_regex_matches_only_independent_words(self) -> None:
+        row = {
+            "part_number": "P001",
+            "value": "10K",
+            "name": "电阻",
+            "desc": "10K 电阻 测试用",
+        }
+
+        self.assertIsNone(bom_process.exclusion_reason(row, ["R100"]))
+
+    def test_value_nc_overrides_process_keyword(self) -> None:
+        row = {"part_number": "P001", "value": "NC", "name": "探针", "desc": "测试点 探针"}
+
+        self.assertEqual(bom_process.exclusion_reason(row, ["R100"]), "NC/未贴")
+
+    def test_sh_position_overrides_process_keyword(self) -> None:
+        row = {"part_number": "P001", "value": "", "name": "探针", "desc": "测试点"}
+
+        self.assertEqual(bom_process.exclusion_reason(row, ["SH1"]), "屏蔽支架 SH*")
+
+    def test_detect_process_material_candidates_excludes_sh_nc_and_no_partnumber(self) -> None:
+        rows = [
+            {"reference": "R100", "part_number": "P001", "value": "", "name": "探针", "desc": "测试点 探针"},
+            {"reference": "SH1", "part_number": "P002", "value": "", "name": "探针", "desc": "测试点"},
+            {"reference": "TP2", "part_number": "P003", "value": "NC", "name": "探针", "desc": "测试点"},
+            {"reference": "TP3", "part_number": "", "value": "", "name": "探针", "desc": "测试点"},
+            {"reference": "R101", "part_number": "P004", "value": "10K", "name": "电阻", "desc": "普通电阻"},
+        ]
+
+        candidates = bom_process.detect_process_material_candidates(rows)
+
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0]["key"], "P001|R100")
+        self.assertEqual(candidates[0]["matched_keyword"], "测试点")
+
+    def test_adapter_returns_process_material_confirmation_after_shield(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["Reference", "Part Number", "Value", "Description", "Name"])
+            ws.append(["SH1", "SH-PN", "", "屏蔽支架", "屏蔽支架"])
+            ws.append(["TP5", "TP-PN", "", "测试点 探针", "探针"])
+            wb.save(source)
+            params = {"source_bom": str(source), "formats": ["plm"], "name": "FLOW"}
+
+            shield = run_bom_process(root, params)
+            params["confirm_shields"] = True
+            process_material = run_bom_process(root, params)
+
+        self.assertEqual(shield["reason"], "shield_bracket_candidates")
+        self.assertEqual(process_material["reason"], "process_material_candidates")
+        self.assertEqual(process_material["candidates"][0]["key"], "TP-PN|TP5")
 
     def test_letter_notation_numeric_pairs_require_manual_choice(self) -> None:
         def variants(first: str, second: str) -> list[dict[str, object]]:

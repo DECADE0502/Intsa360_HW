@@ -37,8 +37,7 @@ def _run_bom_process_impl(root: Path, params: dict[str, object]) -> dict[str, ob
     out_dir = _output_dir(params, root, "bom")
     template = _find_plm_template(root)
     parsed = bom_process.parse_source(source)
-    source_rows_for_checks, _ = bom_process.filter_rows(parsed, include_shields=True)
-    shield_candidates = bom_process.detect_shield_candidates(source_rows_for_checks)
+    shield_candidates = bom_process.detect_shield_candidates(parsed.raw_rows)
     if shield_candidates and "confirm_shields" not in params:
         return {
             "status": "needs_confirmation",
@@ -50,7 +49,28 @@ def _run_bom_process_impl(root: Path, params: dict[str, object]) -> dict[str, ob
             "summary": {"shield_candidates": len(shield_candidates)},
         }
     confirm_shields = bool(params.get("confirm_shields"))
-    source_rows, _ = bom_process.filter_rows(parsed, include_shields=confirm_shields)
+    process_candidates = bom_process.detect_process_material_candidates(parsed.raw_rows)
+    if process_candidates and "confirm_process_materials" not in params:
+        return {
+            "status": "needs_confirmation",
+            "tool": "bom_process",
+            "reason": "process_material_candidates",
+            "message": "发现有料号但描述疑似工艺件的位号，默认不装（NC）。请勾选需要装机的位号。",
+            "candidates": process_candidates,
+            "summary": {"process_material_candidates": len(process_candidates)},
+        }
+    raw_process_material_keeps = params.get("process_material_keeps")
+    process_material_values = raw_process_material_keeps if isinstance(raw_process_material_keeps, list) else []
+    process_material_keeps = {
+        str(value)
+        for value in process_material_values
+        if str(value).strip()
+    }
+    source_rows, _ = bom_process.filter_rows(
+        parsed,
+        include_shields=confirm_shields,
+        process_material_keeps=process_material_keeps,
+    )
     conflicts = bom_process.conflict_summary(source_rows)
     if conflicts and "merge_conflicts" not in params:
         return {
@@ -100,6 +120,7 @@ def _run_bom_process_impl(root: Path, params: dict[str, object]) -> dict[str, ob
         merge_conflicts,
         conflict_choices,
         confirm_shields,
+        process_material_keeps,
     )
     outputs = [str(p) for p in result["outputs"]] + [str(result["nc_summary"])]
     preview_rows = [

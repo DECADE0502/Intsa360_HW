@@ -49,6 +49,18 @@ def _source_bom() -> bytes:
     return buffer.getvalue()
 
 
+def _process_material_source_bom() -> bytes:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(["Reference", "Part Number", "Value", "Model", "Description", "Name", "Unit"])
+    sheet.append(["TP5", "TP-PN", "", "PROBE-A", "测试点 探针", "探针", "pcs"])
+    sheet.append(["R1", "R-PN", "10K", "R0402", "普通贴片电阻", "电阻", "pcs"])
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    workbook.close()
+    return buffer.getvalue()
+
+
 def _mutation_headers(client: TestClient) -> dict[str, str]:
     session = client.get("/api/v1/session")
     assert session.status_code == 200
@@ -163,3 +175,58 @@ def test_e2e_rejected_shield_stays_out_of_plm_and_keeps_raw_nc_name(tmp_path: Pa
         shield_nc = next(row for row in nc_rows if row[2] == "SH-PN")
         assert shield_nc[1] == "SH1"
         assert shield_nc[3] == "Shield bracket"
+
+
+def test_e2e_partnumber_tp_kept_by_user_choice(tmp_path: Path) -> None:
+    root = _runtime_root(tmp_path)
+    with TestClient(create_app(root), base_url=BASE_URL) as client:
+        headers = _mutation_headers(client)
+        upload = client.post(
+            "/api/v1/upload",
+            files={"files": ("source.xlsx", _process_material_source_bom(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+            headers=headers,
+        )
+        source = upload.json()["files"][0]["path"]
+        params: dict[str, object] = {"source_bom": source, "formats": ["plm"], "name": "KEEP_TP"}
+
+        review = client.post("/api/v1/tools/bom_process/run", json=params, headers=headers).json()
+        assert review["reason"] == "process_material_candidates"
+        params["confirm_process_materials"] = True
+        params["process_material_keeps"] = [review["candidates"][0]["key"]]
+        result = client.post("/api/v1/tools/bom_process/run", json=params, headers=headers).json()
+
+        plm_path = next(Path(path) for path in result["outputs"] if path.endswith("_PLM_BOM.xlsx"))
+        plm = load_workbook(plm_path, data_only=True)
+        try:
+            refs = [str(row[8] or "") for row in plm.active.iter_rows(min_row=3, values_only=True)]
+        finally:
+            plm.close()
+        assert any("TP5" in item for item in refs)
+
+
+def test_e2e_partnumber_tp_default_nc(tmp_path: Path) -> None:
+    root = _runtime_root(tmp_path)
+    with TestClient(create_app(root), base_url=BASE_URL) as client:
+        headers = _mutation_headers(client)
+        upload = client.post(
+            "/api/v1/upload",
+            files={"files": ("source.xlsx", _process_material_source_bom(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+            headers=headers,
+        )
+        params: dict[str, object] = {
+            "source_bom": upload.json()["files"][0]["path"],
+            "formats": ["plm"],
+            "name": "DEFAULT_NC",
+            "confirm_process_materials": True,
+            "process_material_keeps": [],
+        }
+
+        result = client.post("/api/v1/tools/bom_process/run", json=params, headers=headers).json()
+        nc_path = next(Path(path) for path in result["outputs"] if path.endswith("_NC未贴汇总.xlsx"))
+        nc = load_workbook(nc_path, data_only=True)
+        try:
+            rows = list(nc.active.iter_rows(min_row=2, values_only=True))
+        finally:
+            nc.close()
+        tp = next(row for row in rows if row[1] == "TP5")
+        assert str(tp[7]).startswith("工艺件（描述含 测试点）")
