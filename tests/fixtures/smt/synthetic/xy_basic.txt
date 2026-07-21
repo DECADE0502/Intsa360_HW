@@ -1,0 +1,7 @@
+VERSION = 2.0
+UUNITS = MILS
+
+# refdes ! symbol_x ! symbol_y ! rotation ! mirror ! symbol_name ! embedded_layer
+C1 ! 1000 ! 2000 ! -90 ! m ! C0402 !
+R1 ! 500 ! 250 ! 450 ! ! R0201
+
