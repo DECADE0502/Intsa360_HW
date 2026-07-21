@@ -370,6 +370,78 @@ export async function uploadFiles(files: File[]): Promise<{ files: Array<{ path:
   return payload;
 }
 
+export type SmtComponent = {
+  ref: string;
+  x_mm: number;
+  y_mm: number;
+  rotation: number;
+  side: "top" | "bottom";
+  footprint: string;
+  part_number: string;
+  description: string;
+  model: string;
+  grade: string;
+  status: "installed" | "nc" | "missing_bom" | "missing_layout";
+  high_risk: boolean;
+};
+
+export type SmtBoard = {
+  outline_rings: Array<Array<[number, number]>>;
+  bbox_mm: [number, number, number, number];
+  source: "dxf" | "gerber_bbox" | "explicit";
+};
+
+export type SmtSanityItem = {
+  ref: string;
+  note: string;
+  severity: "high" | "medium" | "low";
+};
+
+export type SmtFootprintConflict = {
+  ref: string;
+  xy_footprint: string;
+  netlist_footprint: string;
+  bom_footprint: string;
+  note: string;
+};
+
+export type SmtSanity = {
+  missing_layout: SmtSanityItem[];
+  missing_bom: SmtSanityItem[];
+  missing_netlist: SmtSanityItem[];
+  footprint_conflicts: SmtFootprintConflict[];
+};
+
+export type SmtLayoutParams = {
+  smt_folder: string;
+  processed_bom: string;
+  netlist_folder?: string;
+  outline_bbox_mm?: [number, number, number, number];
+  outline_dxf_layer?: string;
+};
+
+export type SmtLayoutResponse = {
+  status: "ok" | "error" | "needs_confirmation";
+  tool: "smt_layout";
+  outputs: string[];
+  board?: SmtBoard | null;
+  components: SmtComponent[];
+  nc_summary?: { total: number; refs: string[] } | null;
+  sanity?: SmtSanity | { status: "skipped_no_netlist" } | null;
+  fai_table?: { headers: string[]; rows: unknown[][] } | null;
+  summary?: {
+    total_components: number;
+    top_count: number;
+    bottom_count: number;
+    nc_count: number;
+    high_risk_count: number;
+  } | null;
+  error?: string | null;
+  message?: string | null;
+  user_message?: string | null;
+  error_kind?: string | null;
+};
+
 export async function runTool(tool: string, params: Record<string, unknown>, opts?: ApiOpts) {
   // 5 minutes for long tool runs; caller can override
   const result = await apiCall<any>(
@@ -383,6 +455,10 @@ export async function runTool(tool: string, params: Record<string, unknown>, opt
   );
   if (typeof window !== "undefined") window.dispatchEvent(new Event(HISTORY_UPDATED_EVENT));
   return result;
+}
+
+export async function runSmtLayout(params: SmtLayoutParams, opts?: ApiOpts): Promise<SmtLayoutResponse> {
+  return (await runTool("smt_layout", { ...params }, opts)) as SmtLayoutResponse;
 }
 
 export async function fetchVersion(opts?: ApiOpts): Promise<string> {
