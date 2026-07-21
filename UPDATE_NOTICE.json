@@ -1,20 +1,20 @@
 {
-  "version": "0.5.2",
-  "revision": "25a1d231f6a7a9d23cac5264101b216e9016af80",
-  "date": "2026-07-21",
-  "title": "0.5.2 OTA 信任链迁移版",
-  "summary": "重新建立 OTA 签名信任链，并包含 SMT 布局分析的文件和目录选择体验优化。",
-  "highlights": [
-    "重新建立 Ed25519 OTA 签名密钥和客户端信任公钥。",
-    "0.5.1 及更早版本需要手动运行本版 Setup 一次，后续版本即可恢复平台内 OTA。",
-    "SMT 资料改为目录选择，自动识别 XY.txt 与 DXF、ART、GBR、GER 板框文件。",
-    "PLM/OA 成品 BOM 支持文件选择和历史记录快选，Cadence 网表支持目录选择。",
-    "用户数据、历史记录、本机配置和用户插件在迁移安装过程中保留。"
-  ],
-  "compatibility": "0.5.1 及更早版本无法验证新的 OTA 清单，必须手动安装 0.5.2 Setup；安装完成后，0.5.3 及后续版本可继续通过平台升级。",
-  "trace": {
-    "repo": "DECADE0502/Intsa360_HW",
-    "branch": "main",
-    "trust_anchor_fingerprint": "sha256:a0c7ca048ea23095ceafa81e301be56ac829483e5bf9b751db319c3a68dd1511"
-  }
+    "version":  "0.5.2",
+    "revision":  "fe237dad4b67f9269ef60aab68001b2d7480388c",
+    "date":  "2026-07-21",
+    "title":  "0.5.2 OTA 信任链迁移版",
+    "summary":  "重新建立 OTA 签名信任链，并包含 SMT 布局分析的文件和目录选择体验优化。",
+    "highlights":  [
+                       "重新建立 Ed25519 OTA 签名密钥和客户端信任公钥。",
+                       "0.5.1 及更早版本需要手动运行本版 Setup 一次，后续版本即可恢复平台内 OTA。",
+                       "SMT 资料改为目录选择，自动识别 XY.txt 与 DXF、ART、GBR、GER 板框文件。",
+                       "PLM/OA 成品 BOM 支持文件选择和历史记录快选，Cadence 网表支持目录选择。",
+                       "用户数据、历史记录、本机配置和用户插件在迁移安装过程中保留。"
+                   ],
+    "compatibility":  "0.5.1 及更早版本无法验证新的 OTA 清单，必须手动安装 0.5.2 Setup；安装完成后，0.5.3 及后续版本可继续通过平台升级。",
+    "trace":  {
+                  "repo":  "DECADE0502/Intsa360_HW",
+                  "branch":  "main",
+                  "trust_anchor_fingerprint":  "sha256:a0c7ca048ea23095ceafa81e301be56ac829483e5bf9b751db319c3a68dd1511"
+              }
 }
