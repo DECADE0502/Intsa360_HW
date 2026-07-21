@@ -106,7 +106,7 @@ function BomSource({
   return (
     <Card size="small" className="smt-layout-source-card">
       <Space direction="vertical" size={8} style={{ width: "100%" }}>
-        <Typography.Text strong>处理后的 PLM/OA BOM</Typography.Text>
+        <Typography.Text strong>可导入 PLM/OA 的成品 BOM（不含 NC）</Typography.Text>
         <HistoryBomPicker
           value={historyBom}
           onChange={(path) => {
@@ -225,6 +225,28 @@ type SanityDisplayItem = {
 };
 
 const SANITY_SEVERITY_ORDER = { high: 0, medium: 1, low: 2 } as const;
+
+type NcEvidenceFilter = "actionable" | "confirmed" | "candidate" | "unverified" | "all";
+
+function evidenceKind(status: SmtComponent["status"]): RefdesListItem["evidence_kind"] | undefined {
+  if (status === "nc") return "confirmed";
+  if (status === "candidate_nc") return "candidate";
+  if (status === "unverified" || status === "missing_bom") return "unverified";
+  return undefined;
+}
+
+function evidenceLabel(kind: RefdesListItem["evidence_kind"]) {
+  if (kind === "confirmed") return "确定 NC";
+  if (kind === "candidate") return "候选 NC";
+  return "待确认";
+}
+
+function matchesEvidenceFilter(kind: RefdesListItem["evidence_kind"], filter: NcEvidenceFilter) {
+  if (!kind) return false;
+  if (filter === "all") return true;
+  if (filter === "actionable") return kind === "confirmed" || kind === "candidate";
+  return kind === filter;
+}
 
 function SanityReportTab({
   result,
@@ -364,49 +386,52 @@ function NcLayoutTab({
   onSelectedRef: (ref: string) => void;
 }) {
   const [side, setSide] = useState<"top" | "bottom" | "both">("both");
+  const [evidenceFilter, setEvidenceFilter] = useState<NcEvidenceFilter>("actionable");
   const [shOnly, setShOnly] = useState(false);
   const [highRiskOnly, setHighRiskOnly] = useState(false);
   const [hoveredRef, setHoveredRef] = useState("");
   const [frameSelectedRefs, setFrameSelectedRefs] = useState<string[] | null>(null);
   const [canvasKey, setCanvasKey] = useState(0);
   const components = result?.components || [];
-  const componentByRef = useMemo(
-    () => new Map(components.map((component) => [component.ref.toUpperCase(), component])),
-    [components],
-  );
   const layerComponents = useMemo(
     () =>
       components.filter((component) => {
+        const kind = evidenceKind(component.status);
+        if (kind && !matchesEvidenceFilter(kind, evidenceFilter) && component.ref !== selectedRef) return false;
         if (shOnly && !/^SH/i.test(component.ref)) return false;
         if (highRiskOnly && !component.high_risk) return false;
         return true;
       }),
-    [components, shOnly, highRiskOnly],
+    [components, evidenceFilter, selectedRef, shOnly, highRiskOnly],
   );
   const ncItems = useMemo<RefdesListItem[]>(
     () =>
-      (result?.nc_summary?.refs || []).map((ref) => {
-        const component = componentByRef.get(ref.toUpperCase());
-        return {
-          ref,
-          part_number: component?.part_number || "",
-          description: component?.description || "",
-          side: component?.side || "top",
-          high_risk: component?.high_risk || false,
-        };
+      components.flatMap((component) => {
+        const kind = evidenceKind(component.status);
+        if (!kind) return [];
+        return [{
+          ref: component.ref,
+          part_number: component.part_number,
+          description: component.description,
+          side: component.side,
+          high_risk: component.high_risk,
+          status_label: evidenceLabel(kind),
+          evidence_kind: kind,
+        }];
       }),
-    [result?.nc_summary?.refs, componentByRef],
+    [components],
   );
   const visibleNcItems = useMemo(() => {
     const frameRefs = frameSelectedRefs ? new Set(frameSelectedRefs.map((ref) => ref.toUpperCase())) : null;
     return ncItems.filter((item) => {
+      if (!matchesEvidenceFilter(item.evidence_kind, evidenceFilter) && item.ref !== selectedRef) return false;
       if (side !== "both" && item.side !== side) return false;
       if (shOnly && !/^SH/i.test(item.ref)) return false;
       if (highRiskOnly && !item.high_risk) return false;
       if (frameRefs && !frameRefs.has(item.ref.toUpperCase())) return false;
       return true;
     });
-  }, [ncItems, side, shOnly, highRiskOnly, frameSelectedRefs]);
+  }, [ncItems, evidenceFilter, selectedRef, side, shOnly, highRiskOnly, frameSelectedRefs]);
   const highlightedRefs = useMemo(
     () => new Set([hoveredRef, selectedRef].filter(Boolean)),
     [hoveredRef, selectedRef],
@@ -421,12 +446,42 @@ function NcLayoutTab({
 
   function resetScopedFilters() {
     setFrameSelectedRefs(null);
+    setEvidenceFilter("actionable");
     setShOnly(false);
     setHighRiskOnly(false);
   }
 
+  const ncSummary = result.nc_summary;
+  const confirmedCount = ncSummary?.confirmed_refs?.length ?? ncSummary?.refs?.length ?? 0;
+  const candidateCount = ncSummary?.candidate_refs?.length ?? 0;
+  const unverifiedCount = ncSummary?.unverified_refs?.length ?? 0;
+  const conflictRefs = ncSummary?.conflict_refs ?? [];
+  const hasNetlistEvidence = ncSummary?.inference_mode === "with_netlist";
+
   return (
     <div className="smt-nc-tab">
+      <Space direction="vertical" size={8} style={{ width: "100%", marginBottom: 12 }}>
+        <Alert
+          type={unverifiedCount ? "warning" : "info"}
+          showIcon
+          message={hasNetlistEvidence ? "网表已交叉验证" : "未提供网表，当前结果为候选 NC"}
+          description={(
+            <Space wrap>
+              <Tag color="red">确定 NC {confirmedCount}</Tag>
+              <Tag color="gold">候选 NC {candidateCount}</Tag>
+              <Tag color="blue">待确认 {unverifiedCount}</Tag>
+            </Space>
+          )}
+        />
+        {conflictRefs.length ? (
+          <Alert
+            type="warning"
+            showIcon
+            message="成品 BOM 与 NC 汇总冲突"
+            description={`${conflictRefs.join("、")} 已按成品 BOM 保留为贴装器件。`}
+          />
+        ) : null}
+      </Space>
       <div
         style={{
           display: "flex",
@@ -447,6 +502,21 @@ function NcLayoutTab({
               { label: "全部", value: "both" },
             ]}
             onChange={(value) => setSide(value as "top" | "bottom" | "both")}
+          />
+          <Segmented
+            aria-label="NC 证据筛选"
+            value={evidenceFilter}
+            options={[
+              { label: "需处理", value: "actionable" },
+              { label: "确定 NC", value: "confirmed" },
+              { label: "候选 NC", value: "candidate" },
+              { label: "待确认", value: "unverified" },
+              { label: "全部", value: "all" },
+            ]}
+            onChange={(value) => {
+              setEvidenceFilter(value as NcEvidenceFilter);
+              setFrameSelectedRefs(null);
+            }}
           />
           <Space size={6}>
             <Switch
@@ -486,7 +556,7 @@ function NcLayoutTab({
           ) : null}
         </Space>
         <Space>
-          {(frameSelectedRefs || shOnly || highRiskOnly) ? (
+          {(frameSelectedRefs || evidenceFilter !== "actionable" || shOnly || highRiskOnly) ? (
             <Button size="small" onClick={resetScopedFilters}>
               重置筛选
             </Button>
@@ -505,7 +575,7 @@ function NcLayoutTab({
       <div style={{ display: "grid", gridTemplateColumns: "320px minmax(0, 1fr)", gap: 12, minHeight: 520 }}>
         <section style={{ border: "1px solid #e2e5e9", borderRadius: 6, padding: 10, minWidth: 0 }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-            <Typography.Text strong>NC 位号</Typography.Text>
+            <Typography.Text strong>NC 与待确认位号</Typography.Text>
             <Typography.Text type="secondary">{visibleNcItems.length} / {ncItems.length}</Typography.Text>
           </div>
           <RefdesVirtualList

@@ -28,7 +28,16 @@ const fixture: SmtLayoutResponse = {
       high_risk: false,
     },
   ],
-  nc_summary: { total: 0, refs: [] },
+  nc_summary: {
+    total: 0,
+    refs: [],
+    confirmed_refs: [],
+    candidate_refs: [],
+    unverified_refs: [],
+    conflict_refs: [],
+    inference_mode: "without_netlist",
+    explicit_summary_used: false,
+  },
   sanity: { status: "skipped_no_netlist" },
   fai_table: { headers: ["Reference"], rows: [["R1"]] },
   summary: {

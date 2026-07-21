@@ -42,13 +42,23 @@ const result: SmtLayoutResponse = {
   },
   components: [
     component("R1", 10, 20, "top"),
-    component("SH1", 70, 50, "bottom", { high_risk: true }),
+    component("SH1", 70, 50, "bottom", { status: "candidate_nc", high_risk: true }),
+    component("U9", 55, 60, "top", { status: "unverified" }),
     component("C1", 40, 35, "top", { status: "installed" }),
   ],
-  nc_summary: { total: 2, refs: ["R1", "SH1"] },
+  nc_summary: {
+    total: 2,
+    refs: ["R1", "SH1"],
+    confirmed_refs: ["R1"],
+    candidate_refs: ["SH1"],
+    unverified_refs: ["U9"],
+    conflict_refs: [],
+    inference_mode: "with_netlist",
+    explicit_summary_used: false,
+  },
   sanity: { status: "skipped_no_netlist" },
   fai_table: { headers: [], rows: [] },
-  summary: { total_components: 3, top_count: 2, bottom_count: 1, nc_count: 2, high_risk_count: 1 },
+  summary: { total_components: 4, top_count: 3, bottom_count: 1, nc_count: 2, high_risk_count: 1 },
 };
 
 function seedWorkspace() {
@@ -98,6 +108,21 @@ describe("SMT layout NC tab", () => {
 
     expect(screen.getByTestId("nc-row-R1")).toBeInTheDocument();
     expect(screen.getByTestId("nc-row-SH1")).toBeInTheDocument();
+    expect(screen.queryByTestId("nc-row-U9")).not.toBeInTheDocument();
+    expect(screen.getByTestId("nc-row-R1")).toHaveTextContent("确定 NC");
+    expect(screen.getByTestId("nc-row-SH1")).toHaveTextContent("候选 NC");
+    expect(screen.getByText("网表已交叉验证")).toBeInTheDocument();
+  });
+
+  it("shows XY-only anomalies under the unverified evidence filter", async () => {
+    const user = userEvent.setup();
+    renderPane();
+
+    await user.click(screen.getByText("待确认", { selector: ".ant-segmented-item-label" }));
+
+    expect(screen.getByTestId("nc-row-U9")).toHaveTextContent("待确认");
+    expect(screen.queryByTestId("nc-row-R1")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("nc-row-SH1")).not.toBeInTheDocument();
   });
 
   it("highlights the canvas component while hovering its NC row", async () => {

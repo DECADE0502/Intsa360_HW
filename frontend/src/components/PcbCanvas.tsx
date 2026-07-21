@@ -48,6 +48,8 @@ function normalizeRefs(refs: Set<string>) {
 
 function componentStatusClass(component: SmtComponent) {
   if (component.status === "nc") return styles.nc;
+  if (component.status === "candidate_nc") return styles.candidateNc;
+  if (component.status === "unverified") return styles.unverified;
   if (component.status === "missing_bom") return styles.missingBom;
   if (component.status === "missing_layout") return styles.missingLayout;
   return styles.installed;

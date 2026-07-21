@@ -40,6 +40,16 @@
   stroke: #8c1d24;
 }
 
+.candidateNc {
+  fill: #e7a33e;
+  stroke: #8a5310;
+}
+
+.unverified {
+  fill: #4096ff;
+  stroke: #0958d9;
+}
+
 .missingBom {
   fill: #e7a33e;
   stroke: #8a5310;

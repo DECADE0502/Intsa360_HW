@@ -8,6 +8,8 @@ export type RefdesListItem = {
   description: string;
   side: "top" | "bottom";
   high_risk?: boolean;
+  status_label?: string;
+  evidence_kind?: "confirmed" | "candidate" | "unverified";
 };
 
 type RefdesVirtualListProps = {
@@ -64,7 +66,7 @@ export function RefdesVirtualList({
                 right: 0,
                 height: ROW_HEIGHT - 4,
                 display: "grid",
-                gridTemplateColumns: "64px minmax(0, 1fr) 46px",
+                gridTemplateColumns: "78px minmax(0, 1fr) 46px",
                 alignItems: "center",
                 gap: 8,
                 padding: "0 10px",
@@ -77,7 +79,14 @@ export function RefdesVirtualList({
                 cursor: "pointer",
               }}
             >
-              <Typography.Text strong>{item.ref}</Typography.Text>
+              <span style={{ minWidth: 0 }}>
+                <Typography.Text strong ellipsis style={{ display: "block" }}>{item.ref}</Typography.Text>
+                {item.status_label ? (
+                  <Typography.Text type="secondary" ellipsis style={{ display: "block", fontSize: 10 }}>
+                    {item.status_label}
+                  </Typography.Text>
+                ) : null}
+              </span>
               <span style={{ minWidth: 0 }}>
                 <Typography.Text ellipsis style={{ display: "block", fontSize: 12 }}>
                   {item.part_number || "无料号"}
