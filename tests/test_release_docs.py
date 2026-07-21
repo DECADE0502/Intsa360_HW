@@ -89,6 +89,12 @@ class ReleaseDocsTests(unittest.TestCase):
         self.assertIn('-c "import pytest"', text)
         self.assertIn("Python with pytest not found", text)
         self.assertIn("py_compile", text)
+        self.assertIn('Test-Path -LiteralPath "node_modules"', text)
+        self.assertIn("npm ci --prefer-offline --no-audit --no-fund", text)
+        self.assertLess(
+            text.index("npm ci --prefer-offline --no-audit --no-fund"),
+            text.index("npm run test:unit"),
+        )
         self.assertIn("npm run test:unit", text)
         self.assertIn("npm run build", text)
         self.assertIn("English UI text found", text)

@@ -66,6 +66,11 @@ try {
   if (Test-Path -LiteralPath "frontend\package.json") {
     Push-Location frontend
     try {
+      if (-not (Test-Path -LiteralPath "node_modules" -PathType Container)) {
+        Write-Host "Restoring locked frontend dependencies..." -ForegroundColor Cyan
+        npm ci --prefer-offline --no-audit --no-fund
+        if ($LASTEXITCODE -ne 0) { throw "frontend dependency restore failed" }
+      }
       npm run test:unit
       if ($LASTEXITCODE -ne 0) { throw "frontend unit tests failed" }
       npm run build
