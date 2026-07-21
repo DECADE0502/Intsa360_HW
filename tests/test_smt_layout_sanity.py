@@ -3,8 +3,8 @@ from __future__ import annotations
 from app.backend.tools.smt_layout import _compute_sanity
 
 
-def _component(ref: str, footprint: str = "R0402") -> dict[str, object]:
-    return {"ref": ref, "footprint": footprint}
+def _component(ref: str, footprint: str = "R0402", status: str = "installed") -> dict[str, object]:
+    return {"ref": ref, "footprint": footprint, "status": status}
 
 
 def _bom_row(ref: str, package: str = "R0402", description: str = "") -> dict[str, object]:
@@ -84,3 +84,13 @@ def test_sanity_high_severity_first() -> None:
         ("R10", "high"),
         ("R2", "medium"),
     ]
+
+
+def test_sanity_does_not_report_confirmed_nc_as_missing_bom() -> None:
+    sanity = _compute_sanity(
+        [_component("R1", status="installed"), _component("R2", status="nc")],
+        [_bom_row("R1")],
+        {"R1": "R0402", "R2": "R0402"},
+    )
+
+    assert sanity["missing_bom"] == []

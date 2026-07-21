@@ -95,7 +95,9 @@ def _find_nc_summary(processed_bom: Path) -> Path | None:
     return sorted(candidates, key=lambda path: path.name.casefold())[0] if candidates else None
 
 
-def _bom_by_ref(processed_bom: Path) -> tuple[dict[str, dict[str, object]], set[str]]:
+def _bom_by_ref(
+    processed_bom: Path,
+) -> tuple[dict[str, dict[str, object]], dict[str, dict[str, object]], bool]:
     rows = _read_bom_rows(processed_bom)
     by_ref = {
         str(ref).upper(): row
@@ -103,19 +105,43 @@ def _bom_by_ref(processed_bom: Path) -> tuple[dict[str, dict[str, object]], set[
         for ref in row.get("refs", [])
         if str(ref).strip()
     }
-    nc_refs: set[str] = set()
+    explicit_nc_by_ref: dict[str, dict[str, object]] = {}
     nc_summary = _find_nc_summary(processed_bom)
     if nc_summary:
         parsed = bom_process.parse_source(nc_summary)
         for row in parsed.raw_rows:
-            nc_refs.update(ref.upper() for ref in bom_process.split_refs(row.get("reference")))
-    return by_ref, nc_refs
+            refs = [ref.upper() for ref in bom_process.split_refs(row.get("reference"))]
+            normalized_row: dict[str, object] = {
+                "refs": refs,
+                "part_number": row.get("part_number", ""),
+                "description": row.get("desc", ""),
+                "model": row.get("model", ""),
+                "name": row.get("name", ""),
+                "grade": row.get("grade", ""),
+                "package": row.get("pcb_footprint") or row.get("pcb_package") or row.get("source_package") or "",
+            }
+            for ref in refs:
+                explicit_nc_by_ref[ref] = normalized_row
+    return by_ref, explicit_nc_by_ref, nc_summary is not None
 
 
-def _component_payload(component: object, bom_row: dict[str, object] | None, nc_refs: set[str]) -> dict[str, object]:
+def _component_payload(
+    component: object,
+    bom_row: dict[str, object] | None,
+    explicit_nc_row: dict[str, object] | None,
+    evidence: NcEvidence,
+) -> dict[str, object]:
     ref = str(component.ref)
-    row = bom_row or {}
-    status = "nc" if ref.upper() in nc_refs else ("installed" if bom_row else "missing_bom")
+    normalized_ref = ref.upper()
+    row = bom_row or explicit_nc_row or {}
+    if bom_row is not None:
+        status = "installed"
+    elif normalized_ref in evidence.confirmed_refs:
+        status = "nc"
+    elif normalized_ref in evidence.candidate_refs:
+        status = "candidate_nc"
+    else:
+        status = "unverified"
     description = str(row.get("description") or "")
     model = str(row.get("model") or "")
     footprint = str(component.footprint)
@@ -191,6 +217,11 @@ def _compute_sanity(
     xy_refs = set(component_by_ref)
     bom_refs = set(bom_by_ref)
     netlist_refs = set(netlist_by_ref)
+    confirmed_nc_refs = {
+        ref
+        for ref, component in component_by_ref.items()
+        if str(_component_value(component, "status") or "") == "nc"
+    }
 
     missing_layout = [
         {
@@ -206,7 +237,7 @@ def _compute_sanity(
             "note": f"{ref} 在 {'XY 布局' if ref in xy_refs else '网表'}中存在，但处理后 BOM 中没有记录。",
             "severity": "high" if ref in xy_refs else "medium",
         }
-        for ref in (xy_refs | netlist_refs) - bom_refs
+        for ref in ((xy_refs | netlist_refs) - bom_refs) - confirmed_nc_refs
     ]
     missing_netlist = [
         {
@@ -266,10 +297,19 @@ def _build_fai_table(components: list[object]) -> dict[str, object]:
         part_number = str(_component_value(component, "part_number") or "").strip()
         grade = str(_component_value(component, "grade") or "").strip()
         notes: list[str] = []
-        if grade not in {"优选", "正常"}:
-            notes.append("⚠ 等级")
-        if status == "missing_bom" or not part_number:
-            part_number = "⚠ BOM 缺料号"
+        status_text = {
+            "nc": ("NC，不贴装", "网表/NC 证据确认"),
+            "candidate_nc": ("候选 NC，需确认", "按 XY - 成品 BOM 推导"),
+            "unverified": ("⚠ XY 独有", "检查 XY、网表与 BOM"),
+        }.get(status)
+        if status_text:
+            part_number, status_note = status_text
+            notes.append(status_note)
+        else:
+            if grade not in {"优选", "正常"}:
+                notes.append("⚠ 等级")
+            if status == "missing_bom" or not part_number:
+                part_number = "⚠ BOM 缺料号"
         rows.append(
             [
                 str(_component_value(component, "ref") or ""),
@@ -359,9 +399,27 @@ def _run_smt_layout_impl(root: Path, params: dict[str, object]) -> dict[str, obj
         outline_bbox_mm=outline_bbox,
         outline_dxf_layer=str(params.get("outline_dxf_layer") or "").strip() or None,
     )
-    bom_by_ref, nc_refs = _bom_by_ref(processed_bom)
+    bom_by_ref, explicit_nc_by_ref, explicit_summary_used = _bom_by_ref(processed_bom)
+    netlist_parts: dict[str, str] | None = None
+    if netlist_folder is not None:
+        parse_net_file(netlist_folder)
+        netlist_parts = parse_part_file(netlist_folder)
+
+    xy_refs = {str(component.ref).upper() for component in parsed_components}
+    evidence = _infer_nc_evidence(
+        xy_refs=xy_refs,
+        bom_refs=set(bom_by_ref),
+        netlist_refs=set(netlist_parts) if netlist_parts is not None else None,
+        explicit_nc_refs=set(explicit_nc_by_ref),
+        explicit_summary_used=explicit_summary_used,
+    )
     components = [
-        _component_payload(component, bom_by_ref.get(component.ref.upper()), nc_refs)
+        _component_payload(
+            component,
+            bom_by_ref.get(component.ref.upper()),
+            explicit_nc_by_ref.get(component.ref.upper()),
+            evidence,
+        )
         for component in parsed_components
     ]
     components.sort(key=lambda item: natural_key(str(item["ref"])))
@@ -369,8 +427,7 @@ def _run_smt_layout_impl(root: Path, params: dict[str, object]) -> dict[str, obj
     if netlist_folder is None:
         sanity: dict[str, object] = {"status": "skipped_no_netlist"}
     else:
-        parse_net_file(netlist_folder)
-        netlist_parts = parse_part_file(netlist_folder)
+        assert netlist_parts is not None
         sanity = _compute_sanity(components, list(bom_by_ref.values()), netlist_parts)
 
     fai_table = _build_fai_table(components)
@@ -386,14 +443,23 @@ def _run_smt_layout_impl(root: Path, params: dict[str, object]) -> dict[str, obj
             "source": outline.source,
         },
         "components": components,
-        "nc_summary": {"total": len(nc_refs), "refs": sorted(nc_refs, key=natural_key)},
+        "nc_summary": {
+            "total": len(evidence.confirmed_refs | evidence.candidate_refs),
+            "refs": sorted(evidence.confirmed_refs | evidence.candidate_refs, key=natural_key),
+            "confirmed_refs": sorted(evidence.confirmed_refs, key=natural_key),
+            "candidate_refs": sorted(evidence.candidate_refs, key=natural_key),
+            "unverified_refs": sorted(evidence.unverified_refs, key=natural_key),
+            "conflict_refs": sorted(evidence.conflict_refs, key=natural_key),
+            "inference_mode": evidence.inference_mode,
+            "explicit_summary_used": evidence.explicit_summary_used,
+        },
         "sanity": sanity,
         "fai_table": fai_table,
         "summary": {
             "total_components": len(components),
             "top_count": sum(item["side"] == "top" for item in components),
             "bottom_count": sum(item["side"] == "bottom" for item in components),
-            "nc_count": sum(item["status"] == "nc" for item in components),
+            "nc_count": sum(item["status"] in {"nc", "candidate_nc"} for item in components),
             "high_risk_count": sum(bool(item["high_risk"]) for item in components),
         },
     }

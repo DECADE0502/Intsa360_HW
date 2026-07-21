@@ -98,6 +98,62 @@ def test_smt_layout_component_side_split(tmp_path: Path) -> None:
     assert result["summary"]["bottom_count"] == 10
 
 
+def test_smt_layout_infers_candidate_nc_from_xy_minus_uploaded_bom(tmp_path: Path) -> None:
+    smt, bom, refs = _inputs(tmp_path)
+    _write_bom(bom, refs[:-1])
+
+    result = run_smt_layout(tmp_path, {"smt_folder": str(smt), "processed_bom": str(bom)})
+
+    assert result["status"] == "ok"
+    assert result["nc_summary"]["confirmed_refs"] == []
+    assert result["nc_summary"]["candidate_refs"] == [refs[-1]]
+    assert result["nc_summary"]["refs"] == [refs[-1]]
+    assert result["nc_summary"]["inference_mode"] == "without_netlist"
+    status_by_ref = {item["ref"]: item["status"] for item in result["components"]}
+    assert status_by_ref[refs[-1]] == "candidate_nc"
+
+
+def test_smt_layout_uses_netlist_to_separate_confirmed_nc_and_unverified_xy(tmp_path: Path) -> None:
+    smt, bom, refs = _inputs(tmp_path, top=3, bottom=0)
+    _write_bom(bom, [refs[0]])
+    netlist = tmp_path / "netlist"
+    netlist.mkdir()
+    (netlist / "pstxnet.dat").write_text(f"NET N1 {refs[0]}.1 {refs[1]}.1\n", encoding="utf-8")
+    (netlist / "pstxprt.dat").write_text(
+        f"{refs[0]} 'R0402'\n{refs[1]} 'R0402'\n",
+        encoding="utf-8",
+    )
+
+    result = run_smt_layout(
+        tmp_path,
+        {"smt_folder": str(smt), "processed_bom": str(bom), "netlist_folder": str(netlist)},
+    )
+
+    assert result["nc_summary"]["confirmed_refs"] == [refs[1]]
+    assert result["nc_summary"]["candidate_refs"] == []
+    assert result["nc_summary"]["unverified_refs"] == [refs[2]]
+    assert result["nc_summary"]["refs"] == [refs[1]]
+    status_by_ref = {item["ref"]: item["status"] for item in result["components"]}
+    assert status_by_ref[refs[1]] == "nc"
+    assert status_by_ref[refs[2]] == "unverified"
+    assert refs[1] not in {item["ref"] for item in result["sanity"]["missing_bom"]}
+    assert refs[2] in {item["ref"] for item in result["sanity"]["missing_bom"]}
+
+
+def test_smt_layout_processed_bom_wins_over_explicit_nc_summary(tmp_path: Path) -> None:
+    smt, bom, refs = _inputs(tmp_path)
+    _write_bom(bom, [refs[0]])
+    _write_bom(tmp_path / "BOARD_NC未贴汇总.xlsx", refs)
+
+    result = run_smt_layout(tmp_path, {"smt_folder": str(smt), "processed_bom": str(bom)})
+
+    status_by_ref = {item["ref"]: item["status"] for item in result["components"]}
+    assert status_by_ref[refs[0]] == "installed"
+    assert status_by_ref[refs[1]] == "nc"
+    assert result["nc_summary"]["conflict_refs"] == [refs[0]]
+    assert result["nc_summary"]["explicit_summary_used"] is True
+
+
 def test_smt_layout_registered_in_capabilities() -> None:
     root = Path(__file__).resolve().parents[1]
     item = next(item for item in load_capabilities(root)["capabilities"] if item["id"] == "smt_layout")

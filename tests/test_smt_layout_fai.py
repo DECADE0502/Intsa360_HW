@@ -81,6 +81,24 @@ def test_fai_flags_grade_warn_rows() -> None:
     assert rows["R2"][10] == "⚠ 等级"
 
 
+def test_fai_marks_confirmed_candidate_and_unverified_components() -> None:
+    table = _build_fai_table(
+        [
+            _component("R1", status="nc", part_number="", grade=""),
+            _component("R2", status="candidate_nc", part_number="", grade=""),
+            _component("R3", status="unverified", part_number="", grade=""),
+        ]
+    )
+
+    rows = {row[0]: row for row in table["rows"]}
+    assert rows["R1"][5] == "NC，不贴装"
+    assert rows["R1"][10] == "网表/NC 证据确认"
+    assert rows["R2"][5] == "候选 NC，需确认"
+    assert rows["R2"][10] == "按 XY - 成品 BOM 推导"
+    assert rows["R3"][5] == "⚠ XY 独有"
+    assert rows["R3"][10] == "检查 XY、网表与 BOM"
+
+
 def test_fai_xlsx_writes_all_rows_and_headers_bold(tmp_path: Path) -> None:
     table = _build_fai_table(
         [
