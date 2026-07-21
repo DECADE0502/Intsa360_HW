@@ -1,15 +1,18 @@
-import { useEffect, useState } from "react";
-import { Alert, Button, Empty, Input, Space, Tabs, Tooltip, Typography } from "antd";
+import { useEffect, useMemo, useState } from "react";
+import { Alert, Button, Empty, Input, Segmented, Space, Switch, Tabs, Tag, Tooltip, Typography } from "antd";
 import {
   ApartmentOutlined,
   DeleteOutlined,
   FileExcelOutlined,
   FolderOpenOutlined,
   PlayCircleOutlined,
+  ReloadOutlined,
 } from "@ant-design/icons";
 
-import { runSmtLayout, type SmtLayoutResponse } from "../api/client";
+import { runSmtLayout, type SmtComponent, type SmtLayoutResponse } from "../api/client";
 import { toUserMessage } from "../api/errors";
+import { PcbCanvas } from "../components/PcbCanvas";
+import { RefdesVirtualList, type RefdesListItem } from "../components/RefdesVirtualList";
 import { useToolWorkspace } from "../state/toolWorkspace";
 
 
@@ -20,6 +23,186 @@ type SmtLayoutWorkspace = {
   result: SmtLayoutResponse | null;
   activeTab: string;
 };
+
+
+function NcLayoutTab({
+  result,
+  selectedRef,
+  onSelectedRef,
+}: {
+  result: SmtLayoutResponse | null;
+  selectedRef: string;
+  onSelectedRef: (ref: string) => void;
+}) {
+  const [side, setSide] = useState<"top" | "bottom" | "both">("both");
+  const [shOnly, setShOnly] = useState(false);
+  const [highRiskOnly, setHighRiskOnly] = useState(false);
+  const [hoveredRef, setHoveredRef] = useState("");
+  const [frameSelectedRefs, setFrameSelectedRefs] = useState<string[] | null>(null);
+  const [canvasKey, setCanvasKey] = useState(0);
+  const components = result?.components || [];
+  const componentByRef = useMemo(
+    () => new Map(components.map((component) => [component.ref.toUpperCase(), component])),
+    [components],
+  );
+  const layerComponents = useMemo(
+    () =>
+      components.filter((component) => {
+        if (shOnly && !/^SH/i.test(component.ref)) return false;
+        if (highRiskOnly && !component.high_risk) return false;
+        return true;
+      }),
+    [components, shOnly, highRiskOnly],
+  );
+  const ncItems = useMemo<RefdesListItem[]>(
+    () =>
+      (result?.nc_summary?.refs || []).map((ref) => {
+        const component = componentByRef.get(ref.toUpperCase());
+        return {
+          ref,
+          part_number: component?.part_number || "",
+          description: component?.description || "",
+          side: component?.side || "top",
+          high_risk: component?.high_risk || false,
+        };
+      }),
+    [result?.nc_summary?.refs, componentByRef],
+  );
+  const visibleNcItems = useMemo(() => {
+    const frameRefs = frameSelectedRefs ? new Set(frameSelectedRefs.map((ref) => ref.toUpperCase())) : null;
+    return ncItems.filter((item) => {
+      if (side !== "both" && item.side !== side) return false;
+      if (shOnly && !/^SH/i.test(item.ref)) return false;
+      if (highRiskOnly && !item.high_risk) return false;
+      if (frameRefs && !frameRefs.has(item.ref.toUpperCase())) return false;
+      return true;
+    });
+  }, [ncItems, side, shOnly, highRiskOnly, frameSelectedRefs]);
+  const highlightedRefs = useMemo(
+    () => new Set([hoveredRef, selectedRef].filter(Boolean)),
+    [hoveredRef, selectedRef],
+  );
+
+  if (!result) {
+    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="完成分析后在此查看 NC 布局" />;
+  }
+  if (!result.board) {
+    return <Alert type="warning" showIcon message="结果中没有可用板框，请重新选择正确的 SMT 资料目录。" />;
+  }
+
+  function resetScopedFilters() {
+    setFrameSelectedRefs(null);
+    setShOnly(false);
+    setHighRiskOnly(false);
+  }
+
+  return (
+    <div className="smt-nc-tab">
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          flexWrap: "wrap",
+          marginBottom: 12,
+        }}
+      >
+        <Space wrap>
+          <Segmented
+            aria-label="板面筛选"
+            value={side}
+            options={[
+              { label: "正面", value: "top" },
+              { label: "背面", value: "bottom" },
+              { label: "全部", value: "both" },
+            ]}
+            onChange={(value) => setSide(value as "top" | "bottom" | "both")}
+          />
+          <Space size={6}>
+            <Switch
+              size="small"
+              aria-label="仅显示 SH 位号"
+              checked={shOnly}
+              onChange={(checked) => {
+                setShOnly(checked);
+                setFrameSelectedRefs(null);
+              }}
+            />
+            <Typography.Text>SH 图层</Typography.Text>
+          </Space>
+          <Space size={6}>
+            <Switch
+              size="small"
+              aria-label="仅显示高风险器件"
+              checked={highRiskOnly}
+              onChange={(checked) => {
+                setHighRiskOnly(checked);
+                setFrameSelectedRefs(null);
+              }}
+            />
+            <Typography.Text>高风险图层</Typography.Text>
+          </Space>
+          {frameSelectedRefs ? (
+            <Tag
+              closable
+              color="blue"
+              onClose={(event) => {
+                event.preventDefault();
+                setFrameSelectedRefs(null);
+              }}
+            >
+              框选 {frameSelectedRefs.length} 项
+            </Tag>
+          ) : null}
+        </Space>
+        <Space>
+          {(frameSelectedRefs || shOnly || highRiskOnly) ? (
+            <Button size="small" onClick={resetScopedFilters}>
+              重置筛选
+            </Button>
+          ) : null}
+          <Tooltip title="重置板图缩放与位置">
+            <Button
+              size="small"
+              aria-label="重置板图视图"
+              icon={<ReloadOutlined />}
+              onClick={() => setCanvasKey((value) => value + 1)}
+            />
+          </Tooltip>
+        </Space>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "320px minmax(0, 1fr)", gap: 12, minHeight: 520 }}>
+        <section style={{ border: "1px solid #e2e5e9", borderRadius: 6, padding: 10, minWidth: 0 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+            <Typography.Text strong>NC 位号</Typography.Text>
+            <Typography.Text type="secondary">{visibleNcItems.length} / {ncItems.length}</Typography.Text>
+          </div>
+          <RefdesVirtualList
+            items={visibleNcItems}
+            selectedRef={selectedRef}
+            onHover={(ref) => setHoveredRef(ref || "")}
+            onSelect={onSelectedRef}
+          />
+        </section>
+        <section style={{ minWidth: 0, height: 520 }}>
+          <PcbCanvas
+            key={canvasKey}
+            outline={result.board.outline_rings}
+            components={layerComponents}
+            side={side}
+            highlightedRefs={highlightedRefs}
+            onHover={(ref) => setHoveredRef(ref || "")}
+            onSelect={onSelectedRef}
+            onFrameSelect={(refs) => setFrameSelectedRefs(refs)}
+            colorScheme="nc-emphasis"
+          />
+        </section>
+      </div>
+    </div>
+  );
+}
 
 
 export function SmtLayoutPane() {
@@ -36,6 +219,7 @@ export function SmtLayoutPane() {
   );
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
+  const [selectedRef, setSelectedRef] = useState("");
 
   useEffect(() => {
     if (!workspace.netlist && workspace.activeTab === "sanity") {
@@ -70,12 +254,17 @@ export function SmtLayoutPane() {
 
   function handleClear() {
     setError("");
+    setSelectedRef("");
     resetWorkspace();
   }
 
   const pending = <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="完成分析后在此查看结果" />;
   const tabs = [
-    { key: "nc", label: "NC 布局对照", children: pending },
+    {
+      key: "nc",
+      label: "NC 布局对照",
+      children: <NcLayoutTab result={workspace.result} selectedRef={selectedRef} onSelectedRef={setSelectedRef} />,
+    },
     { key: "fai", label: "首件核对表", children: pending },
     {
       key: "sanity",
