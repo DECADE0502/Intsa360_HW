@@ -1,0 +1,52 @@
+.faiToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.faiTable {
+  width: 100%;
+}
+
+.faiWarn > td {
+  background: #fff7e6 !important;
+}
+
+@page {
+  size: A3 landscape;
+  margin: 10mm;
+}
+
+@media print {
+  :global(.app-sider),
+  :global(.service-offline-alert),
+  :global(.platform-load-alert),
+  .noPrint {
+    display: none !important;
+  }
+
+  :global(.app-content) {
+    overflow: visible !important;
+    padding: 0 !important;
+  }
+
+  .printRoot {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    background: #fff;
+    color: #111;
+  }
+
+  .printRoot :global(.ant-table-pagination) {
+    display: none !important;
+  }
+
+  .printRoot :global(.ant-table-cell) {
+    padding: 4px 6px !important;
+    font-size: 9pt;
+  }
+}

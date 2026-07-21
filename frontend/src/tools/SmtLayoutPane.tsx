@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Button, Empty, Input, Segmented, Space, Switch, Tabs, Tag, Tooltip, Typography } from "antd";
+import { Alert, Button, Empty, Input, Segmented, Space, Switch, Table, Tabs, Tag, Tooltip, Typography } from "antd";
 import {
   ApartmentOutlined,
   DeleteOutlined,
+  DownloadOutlined,
   FileExcelOutlined,
   FolderOpenOutlined,
   PlayCircleOutlined,
+  PrinterOutlined,
   ReloadOutlined,
 } from "@ant-design/icons";
 
@@ -14,6 +16,8 @@ import { toUserMessage } from "../api/errors";
 import { PcbCanvas } from "../components/PcbCanvas";
 import { RefdesVirtualList, type RefdesListItem } from "../components/RefdesVirtualList";
 import { useToolWorkspace } from "../state/toolWorkspace";
+import { outputHref } from "../utils/outputHref";
+import styles from "./SmtLayoutPane.module.css";
 
 
 type SmtLayoutWorkspace = {
@@ -23,6 +27,87 @@ type SmtLayoutWorkspace = {
   result: SmtLayoutResponse | null;
   activeTab: string;
 };
+
+
+function FaiChecklistTab({ result }: { result: SmtLayoutResponse | null }) {
+  const [side, setSide] = useState<"top" | "bottom" | "both">("both");
+  const headers = result?.fai_table?.headers || [];
+  const rows = result?.fai_table?.rows || [];
+  const visibleRows = useMemo(
+    () =>
+      rows.filter((row) => {
+        if (side === "both") return true;
+        const rowSide = String(row[1] || "").trim().toLowerCase();
+        return side === "top" ? rowSide === "正面" || rowSide === "top" : rowSide === "背面" || rowSide === "bottom";
+      }),
+    [rows, side],
+  );
+  const dataSource = visibleRows.map((values, index) => ({ key: `${String(values[0] || "row")}-${index}`, values, index }));
+  const columns = headers.map((header, index) => ({
+    title: header,
+    key: String(index),
+    width: index === 7 ? 280 : index === 0 ? 90 : index === 10 ? 140 : 120,
+    ellipsis: index !== 7,
+    render: (_: unknown, record: { values: unknown[] }) => String(record.values[index] ?? ""),
+  }));
+  const downloadPath = result?.outputs.find((path) => path.toLowerCase().endsWith(".xlsx"));
+
+  if (!result?.fai_table) {
+    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="完成分析后在此预览首件核对表" />;
+  }
+
+  return (
+    <div className={styles.printRoot}>
+      <div className={`${styles.faiToolbar} ${styles.noPrint}`}>
+        <Space wrap>
+          <Segmented
+            aria-label="首件表面别筛选"
+            value={side}
+            options={[
+              { label: "正面", value: "top" },
+              { label: "背面", value: "bottom" },
+              { label: "全部", value: "both" },
+            ]}
+            onChange={(value) => setSide(value as "top" | "bottom" | "both")}
+          />
+          <Typography.Text type="secondary">当前 {visibleRows.length} / {rows.length} 项</Typography.Text>
+        </Space>
+        <Space>
+          <Button aria-label="打印视图" icon={<PrinterOutlined />} onClick={() => window.print()}>
+            打印视图
+          </Button>
+          {downloadPath ? (
+            <Button
+              aria-label="下载 XLSX"
+              type="primary"
+              icon={<DownloadOutlined />}
+              href={outputHref(downloadPath)}
+            >
+              下载 XLSX
+            </Button>
+          ) : null}
+        </Space>
+      </div>
+      <Table
+        className={styles.faiTable}
+        size="small"
+        columns={columns}
+        dataSource={dataSource}
+        pagination={{ pageSize: 50, hideOnSinglePage: true, showSizeChanger: false }}
+        scroll={{ x: "max-content" }}
+        rowClassName={(record) => {
+          const partNumber = String(record.values[5] || "");
+          const note = String(record.values[10] || "");
+          return partNumber.startsWith("⚠") || note ? `smt-fai-row--warn ${styles.faiWarn}` : "";
+        }}
+        onRow={(record) => ({
+          "data-testid": `fai-row-${record.index}`,
+          "data-row-ref": String(record.values[0] || ""),
+        } as React.HTMLAttributes<HTMLTableRowElement>)}
+      />
+    </div>
+  );
+}
 
 
 function NcLayoutTab({
@@ -265,7 +350,7 @@ export function SmtLayoutPane() {
       label: "NC 布局对照",
       children: <NcLayoutTab result={workspace.result} selectedRef={selectedRef} onSelectedRef={setSelectedRef} />,
     },
-    { key: "fai", label: "首件核对表", children: pending },
+    { key: "fai", label: "首件核对表", children: <FaiChecklistTab result={workspace.result} /> },
     {
       key: "sanity",
       label: workspace.netlist ? (
