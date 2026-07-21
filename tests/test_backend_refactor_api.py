@@ -24,7 +24,7 @@ class BackendRefactorApiTests(unittest.TestCase):
 
             tools = get_json("/api/tools")
             self.assertIn("tools", tools)
-            self.assertEqual(len(tools["tools"]), 6)
+            self.assertEqual(len(tools["tools"]), 7)
             self.assertTrue({tool["id"] for tool in tools["tools"]} >= {"bom_process", "netlist_compare"})
 
             version = get_json("/api/version")
