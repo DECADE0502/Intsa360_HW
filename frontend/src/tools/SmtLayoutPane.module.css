@@ -15,6 +15,34 @@
   background: #fff7e6 !important;
 }
 
+.sanityGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.sanityGroup {
+  min-width: 0;
+}
+
+.sanityMiniCanvas {
+  height: 180px;
+  margin-bottom: 10px;
+}
+
+.sanityMiniCanvas > div,
+.sanityMiniCanvas svg {
+  min-height: 180px;
+  height: 180px;
+}
+
+@media (max-width: 1100px) {
+  .sanityGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
 @page {
   size: A3 landscape;
   margin: 10mm;

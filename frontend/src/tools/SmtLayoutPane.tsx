@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Button, Empty, Input, Segmented, Space, Switch, Table, Tabs, Tag, Tooltip, Typography } from "antd";
+import { Alert, Button, Card, Empty, Input, Segmented, Space, Switch, Table, Tabs, Tag, Tooltip, Typography } from "antd";
 import {
   ApartmentOutlined,
   DeleteOutlined,
@@ -11,7 +11,7 @@ import {
   ReloadOutlined,
 } from "@ant-design/icons";
 
-import { runSmtLayout, type SmtComponent, type SmtLayoutResponse } from "../api/client";
+import { runSmtLayout, type SmtComponent, type SmtLayoutResponse, type SmtSanity } from "../api/client";
 import { toUserMessage } from "../api/errors";
 import { PcbCanvas } from "../components/PcbCanvas";
 import { RefdesVirtualList, type RefdesListItem } from "../components/RefdesVirtualList";
@@ -105,6 +105,143 @@ function FaiChecklistTab({ result }: { result: SmtLayoutResponse | null }) {
           "data-row-ref": String(record.values[0] || ""),
         } as React.HTMLAttributes<HTMLTableRowElement>)}
       />
+    </div>
+  );
+}
+
+
+type SanityGroupKey = keyof SmtSanity;
+type SanityDisplayItem = {
+  ref: string;
+  note: string;
+  severity: "high" | "medium" | "low";
+};
+
+const SANITY_SEVERITY_ORDER = { high: 0, medium: 1, low: 2 } as const;
+
+function SanityReportTab({
+  result,
+  onDrillDown,
+}: {
+  result: SmtLayoutResponse | null;
+  onDrillDown: (ref: string) => void;
+}) {
+  if (!result) {
+    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="完成分析后在此查看三向一致性" />;
+  }
+  if (!result.sanity || "status" in result.sanity) {
+    return <Alert type="info" showIcon message="未执行三向一致性检查" description="请选择包含 pstxprt.dat 的网表文件夹后重新分析。" />;
+  }
+
+  const sanity = result.sanity;
+  const rawGroups: Array<{
+    key: SanityGroupKey;
+    label: string;
+    items: SanityDisplayItem[];
+    canvas: boolean;
+  }> = [
+    {
+      key: "missing_layout",
+      label: "布局缺失",
+      items: sanity.missing_layout,
+      canvas: true,
+    },
+    {
+      key: "missing_bom",
+      label: "BOM 缺失",
+      items: sanity.missing_bom,
+      canvas: true,
+    },
+    {
+      key: "missing_netlist",
+      label: "网表缺失",
+      items: sanity.missing_netlist,
+      canvas: false,
+    },
+    {
+      key: "footprint_conflicts",
+      label: "封装冲突",
+      items: sanity.footprint_conflicts.map((item) => ({ ref: item.ref, note: item.note, severity: "high" as const })),
+      canvas: true,
+    },
+  ];
+  const groups = rawGroups.map((group) => ({
+    ...group,
+    items: [...group.items].sort(
+      (left, right) =>
+        SANITY_SEVERITY_ORDER[left.severity] - SANITY_SEVERITY_ORDER[right.severity] ||
+        left.ref.localeCompare(right.ref, undefined, { numeric: true }),
+    ),
+  }));
+  const total = groups.reduce((count, group) => count + group.items.length, 0);
+
+  if (!total) {
+    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="三方一致，无发现问题" />;
+  }
+
+  const columns = [
+    { title: "位号", dataIndex: "ref", key: "ref", width: 90 },
+    {
+      title: "等级",
+      dataIndex: "severity",
+      key: "severity",
+      width: 76,
+      render: (severity: SanityDisplayItem["severity"]) => (
+        <Tag color={severity === "high" ? "red" : severity === "medium" ? "gold" : "default"}>
+          {severity === "high" ? "高" : severity === "medium" ? "中" : "低"}
+        </Tag>
+      ),
+    },
+    { title: "说明", dataIndex: "note", key: "note", ellipsis: true },
+  ];
+
+  return (
+    <div className={styles.sanityGrid}>
+      {groups.map((group) => (
+        <section key={group.key} data-testid={`sanity-group-${group.key}`} className={styles.sanityGroup}>
+          <Card
+            size="small"
+            title={
+              <Space>
+                <span>{group.label}</span>
+                <Tag>{group.items.length}</Tag>
+              </Space>
+            }
+          >
+            {group.canvas && result.board ? (
+              <div data-testid={`sanity-canvas-${group.key}`} className={styles.sanityMiniCanvas}>
+                <PcbCanvas
+                  outline={result.board.outline_rings}
+                  components={result.components}
+                  side="both"
+                  highlightedRefs={new Set(group.items.map((item) => item.ref))}
+                  onSelect={onDrillDown}
+                  colorScheme="sanity-emphasis"
+                />
+              </div>
+            ) : null}
+            <Table
+              size="small"
+              columns={columns}
+              dataSource={group.items.map((item) => ({ ...item, key: item.ref }))}
+              pagination={false}
+              scroll={{ y: group.canvas ? 150 : 330 }}
+              locale={{ emptyText: "本项无问题" }}
+              onRow={(item) => ({
+                role: "button",
+                tabIndex: 0,
+                "data-testid": `sanity-row-${group.key}-${item.ref}`,
+                "data-sanity-group": group.key,
+                "data-ref": item.ref,
+                onClick: () => onDrillDown(item.ref),
+                onKeyDown: (event) => {
+                  if (event.key === "Enter" || event.key === " ") onDrillDown(item.ref);
+                },
+              } as React.HTMLAttributes<HTMLTableRowElement>)}
+            />
+          </Card>
+        </section>
+      ))}
     </div>
   );
 }
@@ -343,7 +480,6 @@ export function SmtLayoutPane() {
     resetWorkspace();
   }
 
-  const pending = <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="完成分析后在此查看结果" />;
   const tabs = [
     {
       key: "nc",
@@ -361,7 +497,15 @@ export function SmtLayoutPane() {
         </Tooltip>
       ),
       disabled: !workspace.netlist,
-      children: pending,
+      children: (
+        <SanityReportTab
+          result={workspace.result}
+          onDrillDown={(ref) => {
+            setSelectedRef(ref);
+            setWorkspace((current) => ({ ...current, activeTab: "nc" }));
+          }}
+        />
+      ),
     },
   ];
 
