@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from app.backend.parsers.board_outline import resolve_board_outline
@@ -9,15 +10,30 @@ from app.backend.parsers.xy import parse_xy_file
 from app.backend.tools import bom_process
 from app.backend.tools.common import (
     USER_INPUT_EXCEPTIONS,
+    _output_dir,
     _read_bom_rows,
     _required_file,
     _required_folder,
+    _timestamp,
     _user_error,
 )
 from app.backend.tools.smt_package import _is_high_risk_package, _package_matches
 
 
 _SANITY_SEVERITY_ORDER = {"high": 0, "medium": 1, "low": 2}
+_FAI_HEADERS = [
+    "位号",
+    "面",
+    "X(mm)",
+    "Y(mm)",
+    "封装",
+    "应贴料号",
+    "应贴型号",
+    "应贴描述",
+    "优选等级",
+    "QC",
+    "备注",
+]
 
 
 def _find_xy_file(folder: Path) -> Path:
@@ -191,6 +207,91 @@ def _compute_sanity(
     }
 
 
+def _fai_sort_key(component: object) -> tuple[object, ...]:
+    side = str(_component_value(component, "side") or "top").casefold()
+    x_mm = float(_component_value(component, "x_mm") or 0.0)
+    y_mm = float(_component_value(component, "y_mm") or 0.0)
+    y_band = int(y_mm // 2.54)
+    return (0 if side == "top" else 1, -y_band, x_mm, natural_key(str(_component_value(component, "ref"))))
+
+
+def _build_fai_table(components: list[object]) -> dict[str, object]:
+    rows: list[list[object]] = []
+    for component in sorted(components, key=_fai_sort_key):
+        side = str(_component_value(component, "side") or "top").casefold()
+        status = str(_component_value(component, "status") or "")
+        part_number = str(_component_value(component, "part_number") or "").strip()
+        grade = str(_component_value(component, "grade") or "").strip()
+        notes: list[str] = []
+        if grade not in {"优选", "正常"}:
+            notes.append("⚠ 等级")
+        if status == "missing_bom" or not part_number:
+            part_number = "⚠ BOM 缺料号"
+        rows.append(
+            [
+                str(_component_value(component, "ref") or ""),
+                "正面" if side == "top" else "背面",
+                float(_component_value(component, "x_mm") or 0.0),
+                float(_component_value(component, "y_mm") or 0.0),
+                str(_component_value(component, "footprint") or ""),
+                part_number,
+                str(_component_value(component, "model") or ""),
+                str(_component_value(component, "description") or ""),
+                grade,
+                "",
+                "；".join(notes),
+            ]
+        )
+    return {"headers": list(_FAI_HEADERS), "rows": rows}
+
+
+def _write_fai_xlsx(output_dir: Path, name: str, stamp: str, table: dict[str, object]) -> Path:
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = re.sub(r'[<>:"/\\|?*]+', "_", str(name or "SMT")).strip(" ._") or "SMT"
+    output = output_dir / f"首件核对表_{safe_name}_{stamp}.xlsx"
+    workbook = Workbook()
+    try:
+        sheet = workbook.active
+        sheet.title = "首件核对表"
+        headers = list(table.get("headers") or [])
+        rows = list(table.get("rows") or [])
+        sheet.append(headers)
+        for row in rows:
+            sheet.append(list(row))
+
+        header_fill = PatternFill("solid", fgColor="D9EAF7")
+        warning_fill = PatternFill("solid", fgColor="FFF7E6")
+        for cell in sheet[1]:
+            cell.font = Font(bold=True)
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+        for row_index in range(2, sheet.max_row + 1):
+            part_number = str(sheet.cell(row=row_index, column=6).value or "")
+            note = str(sheet.cell(row=row_index, column=11).value or "")
+            if part_number.startswith("⚠") or note:
+                for cell in sheet[row_index]:
+                    cell.fill = warning_fill
+
+        widths = [14, 8, 12, 12, 18, 20, 20, 40, 14, 10, 18]
+        for index, width in enumerate(widths, start=1):
+            sheet.column_dimensions[sheet.cell(row=1, column=index).column_letter].width = width
+        sheet.freeze_panes = "A2"
+        sheet.auto_filter.ref = sheet.dimensions
+        sheet.print_title_rows = "1:1"
+        sheet.page_setup.paperSize = sheet.PAPERSIZE_A3
+        sheet.page_setup.orientation = "landscape"
+        sheet.page_setup.fitToWidth = 1
+        sheet.page_setup.fitToHeight = 0
+        sheet.sheet_properties.pageSetUpPr.fitToPage = True
+        workbook.save(output)
+    finally:
+        workbook.close()
+    return output
+
+
 def _run_smt_layout_impl(root: Path, params: dict[str, object]) -> dict[str, object]:
     smt_folder, error = _required_folder(params, "smt_folder", "SMT 资料文件夹")
     if error:
@@ -229,27 +330,13 @@ def _run_smt_layout_impl(root: Path, params: dict[str, object]) -> dict[str, obj
         netlist_parts = parse_part_file(netlist_folder)
         sanity = _compute_sanity(components, list(bom_by_ref.values()), netlist_parts)
 
-    fai_headers = ["序号", "位号", "面", "X(mm)", "Y(mm)", "角度", "封装", "物料编码", "型号", "描述", "状态"]
-    fai_rows = [
-        [
-            index,
-            item["ref"],
-            item["side"],
-            item["x_mm"],
-            item["y_mm"],
-            item["rotation"],
-            item["footprint"],
-            item["part_number"],
-            item["model"],
-            item["description"],
-            item["status"],
-        ]
-        for index, item in enumerate(components, start=1)
-    ]
+    fai_table = _build_fai_table(components)
+    fai_name = str(params.get("name") or processed_bom.stem)
+    fai_output = _write_fai_xlsx(_output_dir(params, root, "smt"), fai_name, _timestamp(), fai_table)
     return {
         "status": "ok",
         "tool": "smt_layout",
-        "outputs": [],
+        "outputs": [str(fai_output)],
         "board": {
             "outline_rings": outline.rings,
             "bbox_mm": outline.bbox,
@@ -258,7 +345,7 @@ def _run_smt_layout_impl(root: Path, params: dict[str, object]) -> dict[str, obj
         "components": components,
         "nc_summary": {"total": len(nc_refs), "refs": sorted(nc_refs, key=natural_key)},
         "sanity": sanity,
-        "fai_table": {"headers": fai_headers, "rows": fai_rows},
+        "fai_table": fai_table,
         "summary": {
             "total_components": len(components),
             "top_count": sum(item["side"] == "top" for item in components),
