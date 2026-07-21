@@ -1,18 +1,20 @@
 {
-  "version": "0.5.1",
-  "revision": "17fc16bb8337b0eb45791404fc50ee51cf60de48",
+  "version": "0.5.2",
+  "revision": "25a1d231f6a7a9d23cac5264101b216e9016af80",
   "date": "2026-07-21",
-  "title": "0.5.1 SMT 资料选择体验优化",
-  "summary": "SMT 布局分析不再要求手动输入本机路径，改为直接选择资料目录、成品 BOM 和网表目录。",
+  "title": "0.5.2 OTA 信任链迁移版",
+  "summary": "重新建立 OTA 签名信任链，并包含 SMT 布局分析的文件和目录选择体验优化。",
   "highlights": [
-    "SMT 资料改为目录选择，自动提取 XY.txt 与 DXF、ART、GBR、GER 板框文件。",
-    "PLM/OA 成品 BOM 改为文件选择，并继续支持从平台历史记录快速复用。",
-    "Cadence 网表改为目录选择，自动识别 pstxnet.dat 与 pstxprt.dat。",
-    "分析前校验必需文件，上传后统一使用服务端路径，避免手工路径错误。"
+    "重新建立 Ed25519 OTA 签名密钥和客户端信任公钥。",
+    "0.5.1 及更早版本需要手动运行本版 Setup 一次，后续版本即可恢复平台内 OTA。",
+    "SMT 资料改为目录选择，自动识别 XY.txt 与 DXF、ART、GBR、GER 板框文件。",
+    "PLM/OA 成品 BOM 支持文件选择和历史记录快选，Cadence 网表支持目录选择。",
+    "用户数据、历史记录、本机配置和用户插件在迁移安装过程中保留。"
   ],
-  "compatibility": "已安装 0.4.4 及以上版本的用户可通过平台 OTA 升级；用户数据、历史记录、本机配置和用户插件会保留。",
+  "compatibility": "0.5.1 及更早版本无法验证新的 OTA 清单，必须手动安装 0.5.2 Setup；安装完成后，0.5.3 及后续版本可继续通过平台升级。",
   "trace": {
     "repo": "DECADE0502/Intsa360_HW",
-    "branch": "main"
+    "branch": "main",
+    "trust_anchor_fingerprint": "sha256:a0c7ca048ea23095ceafa81e301be56ac829483e5bf9b751db319c3a68dd1511"
   }
 }

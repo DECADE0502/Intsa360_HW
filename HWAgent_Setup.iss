@@ -1,6 +1,6 @@
 #define MyAppName "Insta360硬件提效平台"
 #ifndef MyAppVersion
-  #define MyAppVersion "0.5.1"
+  #define MyAppVersion "0.5.2"
 #endif
 #define MyAppPublisher "Insta360"
 #define MyAppExeName "Insta360_HW.exe"
