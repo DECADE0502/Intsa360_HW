@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 from app.backend.parsers.board_outline import resolve_board_outline
@@ -34,6 +35,48 @@ _FAI_HEADERS = [
     "QC",
     "备注",
 ]
+
+
+@dataclass(frozen=True)
+class NcEvidence:
+    confirmed_refs: set[str]
+    candidate_refs: set[str]
+    unverified_refs: set[str]
+    conflict_refs: set[str]
+    inference_mode: str
+    explicit_summary_used: bool
+
+
+def _infer_nc_evidence(
+    *,
+    xy_refs: set[str],
+    bom_refs: set[str],
+    netlist_refs: set[str] | None,
+    explicit_nc_refs: set[str],
+    explicit_summary_used: bool,
+) -> NcEvidence:
+    missing_from_bom = xy_refs - bom_refs
+    conflicts = explicit_nc_refs & bom_refs
+    if netlist_refs is None:
+        confirmed = missing_from_bom & explicit_nc_refs
+        return NcEvidence(
+            confirmed_refs=confirmed,
+            candidate_refs=missing_from_bom - explicit_nc_refs,
+            unverified_refs=set(),
+            conflict_refs=conflicts,
+            inference_mode="without_netlist",
+            explicit_summary_used=explicit_summary_used,
+        )
+
+    confirmed = missing_from_bom & (netlist_refs | explicit_nc_refs)
+    return NcEvidence(
+        confirmed_refs=confirmed,
+        candidate_refs=set(),
+        unverified_refs=missing_from_bom - netlist_refs - explicit_nc_refs,
+        conflict_refs=conflicts,
+        inference_mode="with_netlist",
+        explicit_summary_used=explicit_summary_used,
+    )
 
 
 def _find_xy_file(folder: Path) -> Path:
