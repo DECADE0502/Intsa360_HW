@@ -197,15 +197,18 @@ $identity = [ordered]@{
 Write-HwLifecycleJsonAtomic -Path $ServiceStatePath -Value $identity
 
 $ready = $false
-foreach ($attempt in 1..75) {
+$startupDeadline = (Get-Date).AddSeconds(90)
+$attempt = 0
+do {
+  $attempt += 1
   $process.Refresh()
   if ($process.HasExited) { break }
-  if ((Test-HwLifecycleService -RuntimeRoot $Root -StateRoot $StateRoot -ProbeTimeouts @(200)) -and (Test-ToolsReady -Port $Port)) {
+  if ((Test-HwLifecycleService -RuntimeRoot $Root -StateRoot $StateRoot -ProbeTimeouts @(1000)) -and (Test-ToolsReady -Port $Port)) {
     $ready = $true
     break
   }
-  Start-Sleep -Milliseconds 200
-}
+  Start-Sleep -Milliseconds 500
+} while ((Get-Date) -lt $startupDeadline)
 
 if (-not $ready) {
   if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }

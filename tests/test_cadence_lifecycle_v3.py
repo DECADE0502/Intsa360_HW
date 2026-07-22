@@ -37,6 +37,24 @@ def _run_powershell(command: str, *, env: dict[str, str] | None = None, timeout:
 
 @unittest.skipUnless(os.name == "nt", "Windows Cadence integration")
 class CadenceLifecycleV3Tests(unittest.TestCase):
+    def test_candidate_cleanup_command_survives_nested_import_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshot = Path(tmp) / "snapshot"
+            snapshot.mkdir()
+            command = (
+                f". '{_quote(PATHS)}'; "
+                f"function Import-Candidate {{ . '{_quote(TCL_SCRIPTS)}' }}; "
+                "Import-Candidate; "
+                "if (-not (Get-Command Complete-HwAgentCadenceDeploymentTransaction -ErrorAction SilentlyContinue)) "
+                "{ throw 'cleanup command escaped with the import scope' }; "
+                f"Complete-HwAgentCadenceDeploymentTransaction -SnapshotRoot '{_quote(snapshot)}'; "
+                f"Write-Output ([string](-not (Test-Path -LiteralPath '{_quote(snapshot)}')))"
+            )
+            result = _run_powershell(command)
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stdout.strip(), "True")
+
     def test_legacy_install_entry_delegates_to_the_owned_repair_flow(self) -> None:
         source = LEGACY_INSTALL.read_text(encoding="utf-8")
 

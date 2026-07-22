@@ -562,7 +562,7 @@ function Restore-HwAgentCadenceDeploymentTransaction {
   }
 }
 
-function Complete-HwAgentCadenceDeploymentTransaction {
+function global:Complete-HwAgentCadenceDeploymentTransaction {
   param([Parameter(Mandatory=$true)][string]$SnapshotRoot)
   if (Test-Path -LiteralPath $SnapshotRoot) {
     Remove-Item -LiteralPath $SnapshotRoot -Recurse -Force

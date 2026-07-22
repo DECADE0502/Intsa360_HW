@@ -146,9 +146,10 @@ function Start-HwV3Service {
     & $powershell -NoProfile -ExecutionPolicy Bypass -File $launcher -StateRoot $StateRoot -Restart -NoOpen
     if ($LASTEXITCODE -ne 0) { throw "Backend service start failed with exit code $LASTEXITCODE." }
   }
-  foreach ($attempt in 1..40) {
+  $startupDeadline = (Get-Date).AddSeconds(120)
+  do {
     if (Test-HwV3Service -RuntimeRoot $RuntimeRoot -StateRoot $StateRoot) { return }
-    Start-Sleep -Milliseconds 250
-  }
+    Start-Sleep -Milliseconds 500
+  } while ((Get-Date) -lt $startupDeadline)
   throw "The activated backend did not pass instance and health verification."
 }

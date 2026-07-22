@@ -1,10 +1,21 @@
 from __future__ import annotations
 
+import asyncio
+import os
 import socket
 import threading
 
 import uvicorn
 from fastapi import FastAPI
+
+
+def _configure_windows_event_loop() -> None:
+    """Avoid Proactor accept failures after an updater health probe disconnects."""
+    if os.name != "nt":
+        return
+    selector_policy = getattr(asyncio, "WindowsSelectorEventLoopPolicy", None)
+    if selector_policy is not None and not isinstance(asyncio.get_event_loop_policy(), selector_policy):
+        asyncio.set_event_loop_policy(selector_policy())
 
 
 class FastApiCompatServer:
@@ -31,6 +42,7 @@ class FastApiCompatServer:
 
     def serve_forever(self, poll_interval: float = 0.5) -> None:
         del poll_interval
+        _configure_windows_event_loop()
         try:
             self._server.run(sockets=[self._socket])
         finally:

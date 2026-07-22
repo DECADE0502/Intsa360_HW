@@ -261,6 +261,9 @@ function Restore-CadenceIntegration {
 
 function Complete-ProtectedRecovery {
   if (-not $SkipCadence -and -not [string]::IsNullOrWhiteSpace($cadenceSnapshot)) {
+    . (Join-Path $oldRuntime "scripts\lib\Paths.ps1")
+    . (Join-Path $oldRuntime "scripts\lib\Cadence.ps1")
+    . (Join-Path $oldRuntime "scripts\lib\TclScripts.ps1")
     Complete-HwAgentCadenceDeploymentTransaction -SnapshotRoot $cadenceSnapshot
   }
   Remove-Item -LiteralPath $protectedInstallationSnapshot -Force -ErrorAction SilentlyContinue

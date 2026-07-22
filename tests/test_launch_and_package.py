@@ -123,6 +123,8 @@ Write-Output "$state|$script:calls"
         self.assertIn("executable = $Python", text)
         self.assertIn("version = $Version", text)
         self.assertIn("Test-HwLifecycleService", text)
+        self.assertIn("AddSeconds(90)", text)
+        self.assertIn("ProbeTimeouts @(1000)", text)
         self.assertIn("Global\\Insta360_HW_ServiceLaunch_V2", text)
         self.assertIn("AbandonedMutexException", text)
         self.assertIn("ReleaseMutex", text)
@@ -145,12 +147,14 @@ Write-Output "$state|$script:calls"
 
     def test_service_restart_reclaims_exact_runtime_processes_without_state_file(self) -> None:
         runtime = (ROOT / "scripts" / "lifecycle" / "Runtime.ps1").read_text(encoding="utf-8-sig")
+        v3_runtime = (ROOT / "scripts" / "lifecycle_v3" / "Runtime.ps1").read_text(encoding="utf-8-sig")
 
         self.assertIn("Get-HwLifecycleRuntimeBackendProcesses", runtime)
         self.assertIn("app\\backend\\suite_app.py", runtime)
         self.assertIn("runtime\\python\\python.exe", runtime)
         self.assertIn("remaining owned backend process", runtime)
         self.assertIn("[string]$health.state_root", runtime)
+        self.assertIn("AddSeconds(120)", v3_runtime)
 
     def test_waiting_page_is_readable_chinese_and_redirects_to_target(self) -> None:
         text = (ROOT / "app" / "frontend" / "waiting.html").read_text(encoding="utf-8")
