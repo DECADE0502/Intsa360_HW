@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { Alert, App as AntdApp, Button, ConfigProvider, Layout, Menu, Spin, Typography } from "antd";
-import { ReloadOutlined } from "@ant-design/icons";
+import { Alert, App as AntdApp, Button, ConfigProvider, Drawer, Layout, Menu, Spin, Typography, type MenuProps } from "antd";
+import { CloseOutlined, MenuOutlined, ReloadOutlined } from "@ant-design/icons";
 import zhCN from "antd/locale/zh_CN";
 import {
   fetchCapabilities,
@@ -53,6 +53,71 @@ function WorkspacePersistenceNotice() {
   return null;
 }
 
+function PlatformNavigation({
+  active,
+  items,
+  version,
+  serviceOnline,
+  onSelect,
+  onClose,
+}: {
+  active: string;
+  items: MenuProps["items"];
+  version?: string;
+  serviceOnline: boolean;
+  onSelect: (key: string) => void;
+  onClose?: () => void;
+}) {
+  return (
+    <>
+      <div className="app-brand">
+        <img className="app-brand-logo" src="/assets/insta360_logo.png" alt="Insta360" />
+        <div className="app-brand-copy">
+          <Typography.Text className="app-brand-title">硬件提效平台</Typography.Text>
+          <div className="app-brand-meta">
+            <span className={`app-brand-dot ${serviceOnline ? "" : "app-brand-dot--offline"}`} />
+            v{version || "-"} · {serviceOnline ? "运行中" : "服务离线"}
+          </div>
+        </div>
+        {onClose ? (
+          <Button
+            type="text"
+            className="app-mobile-nav-close"
+            icon={<CloseOutlined />}
+            aria-label="关闭平台导航"
+            onClick={onClose}
+          />
+        ) : null}
+      </div>
+      <Menu
+        mode="inline"
+        selectedKeys={[active]}
+        items={items}
+        onClick={({ key }) => onSelect(key)}
+        className="app-menu"
+      />
+      <div className="app-footer">
+        <UpdateStatus version={version || ""} />
+        <div className="app-footer-meta">
+          <a href="/api/logs/download" className="app-footer-link">
+            导出全部日志
+          </a>
+          <span className="app-footer-sep">·</span>
+          <a
+            href="https://github.com/DECADE0502/Intsa360_HW"
+            target="_blank"
+            rel="noopener"
+            className="app-footer-link"
+          >
+            源码仓库
+          </a>
+        </div>
+        <div className="app-footer-author">wuqiyou@insta360.com</div>
+      </div>
+    </>
+  );
+}
+
 export default function App() {
   const [tools, setTools] = useState<ToolInfo[]>([]);
   const [caps, setCaps] = useState<Capability[]>([]);
@@ -65,6 +130,7 @@ export default function App() {
   const [catalogError, setCatalogError] = useState("");
   const [catalogReloading, setCatalogReloading] = useState(false);
   const [active, setActive] = useState("__home");
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const healthProbeInFlight = useRef(false);
   const healthProbeFailures = useRef(0);
@@ -280,6 +346,11 @@ export default function App() {
     }));
   }
 
+  function selectTool(key: string) {
+    setActive(key);
+    setMobileNavOpen(false);
+  }
+
   if (loading) {
     return (
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh" }}>
@@ -293,37 +364,51 @@ export default function App() {
       <AntdApp>
         <WorkspacePersistenceNotice />
         <Layout className="app-shell">
-        <Sider width={232} className="app-sider">
-          <div className="app-brand">
-            <img className="app-brand-logo" src="/assets/insta360_logo.png" alt="Insta360" />
-            <div className="app-brand-copy">
-              <Typography.Text className="app-brand-title">硬件提效平台</Typography.Text>
-              <div className="app-brand-meta">
-                <span className={`app-brand-dot ${serviceOnline ? "" : "app-brand-dot--offline"}`} />
-                v{status?.version || "-"} · {serviceOnline ? "运行中" : "服务离线"}
-              </div>
-            </div>
-          </div>
-          <Menu mode="inline" selectedKeys={[active]} items={menu} onClick={({ key }) => setActive(key)} className="app-menu" />
-          <div className="app-footer">
-            <UpdateStatus version={status?.version} />
-            <div className="app-footer-meta">
-              <a href="/api/logs/download" className="app-footer-link">
-                导出全部日志
-              </a>
-              <span className="app-footer-sep">·</span>
-              <a
-                href="https://github.com/DECADE0502/Intsa360_HW"
-                target="_blank"
-                rel="noopener"
-                className="app-footer-link"
-              >
-                源码仓库
-              </a>
-            </div>
-            <div className="app-footer-author">wuqiyou@insta360.com</div>
-          </div>
+        <Sider width={232} className="app-sider app-desktop-sider">
+          <PlatformNavigation
+            active={active}
+            items={menu}
+            version={status?.version}
+            serviceOnline={serviceOnline}
+            onSelect={selectTool}
+          />
         </Sider>
+        <header className="app-mobile-header">
+          <Button
+            type="text"
+            icon={<MenuOutlined />}
+            aria-label="打开平台导航"
+            onClick={() => setMobileNavOpen(true)}
+          />
+          <img className="app-mobile-logo" src="/assets/insta360_logo.png" alt="" />
+          <div className="app-mobile-title">
+            <strong>硬件提效平台</strong>
+            <span>
+              <i className={`app-brand-dot ${serviceOnline ? "" : "app-brand-dot--offline"}`} />
+              {serviceOnline ? "运行中" : "服务离线"}
+            </span>
+          </div>
+        </header>
+        <Drawer
+          placement="left"
+          width={304}
+          open={mobileNavOpen}
+          onClose={() => setMobileNavOpen(false)}
+          rootClassName="app-mobile-drawer"
+          title={null}
+          closable={false}
+        >
+          <nav className="app-mobile-nav" aria-label="平台导航">
+            <PlatformNavigation
+              active={active}
+              items={menu}
+              version={status?.version}
+              serviceOnline={serviceOnline}
+              onSelect={selectTool}
+              onClose={() => setMobileNavOpen(false)}
+            />
+          </nav>
+        </Drawer>
         <Content className="app-content" style={{ overflow: "auto" }}>
           {!serviceOnline ? (
             <Alert

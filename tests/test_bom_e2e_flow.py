@@ -67,6 +67,15 @@ def _mutation_headers(client: TestClient) -> dict[str, str]:
     return {SESSION_HEADER: session.json()["token"], "Origin": BASE_URL}
 
 
+def _placement_resolution(group: dict[str, object], action: str) -> dict[str, object]:
+    inferred = group.get("inferred_fields") if isinstance(group.get("inferred_fields"), dict) else {}
+    return {
+        "action": action,
+        "part_number": str(inferred.get("part_number") or ""),
+        "field_patch": {},
+    }
+
+
 def test_bom_process_confirmation_package_and_history_flow(tmp_path: Path) -> None:
     root = _runtime_root(tmp_path)
     with TestClient(create_app(root), base_url=BASE_URL) as client:
@@ -86,13 +95,17 @@ def test_bom_process_confirmation_package_and_history_flow(tmp_path: Path) -> No
             "name": "E2E_BOARD",
         }
 
-        shield_review = client.post("/api/v1/tools/bom_process/run", json=params, headers=headers)
-        assert shield_review.status_code == 200, shield_review.text
-        assert shield_review.json()["status"] == "needs_confirmation"
-        assert shield_review.json()["reason"] == "shield_bracket_candidates"
-        assert shield_review.json()["shield_candidates"][0]["refs"] == ["SH1"]
+        placement_review = client.post("/api/v1/tools/bom_process/run", json=params, headers=headers)
+        assert placement_review.status_code == 200, placement_review.text
+        assert placement_review.json()["status"] == "needs_confirmation"
+        assert placement_review.json()["reason"] == "placement_review"
+        shield_group = placement_review.json()["groups"][0]
+        assert shield_group["category"] == "shield"
+        assert shield_group["refs"] == ["SH1"]
 
-        params["confirm_shields"] = True
+        params["placement_resolutions"] = {
+            shield_group["key"]: _placement_resolution(shield_group, "keep")
+        }
         conflict_review = client.post("/api/v1/tools/bom_process/run", json=params, headers=headers)
         assert conflict_review.status_code == 200, conflict_review.text
         assert conflict_review.json()["status"] == "needs_confirmation"
@@ -147,10 +160,13 @@ def test_e2e_rejected_shield_stays_out_of_plm_and_keeps_raw_nc_name(tmp_path: Pa
             "name": "E2E_REJECT_SH",
         }
 
-        shield_review = client.post("/api/v1/tools/bom_process/run", json=params, headers=headers)
-        assert shield_review.json()["reason"] == "shield_bracket_candidates"
+        placement_review = client.post("/api/v1/tools/bom_process/run", json=params, headers=headers)
+        assert placement_review.json()["reason"] == "placement_review"
+        shield_group = placement_review.json()["groups"][0]
 
-        params["confirm_shields"] = False
+        params["placement_resolutions"] = {
+            shield_group["key"]: _placement_resolution(shield_group, "exclude")
+        }
         conflict_review = client.post("/api/v1/tools/bom_process/run", json=params, headers=headers)
         conflict = conflict_review.json()["conflicts"][0]
         params["merge_conflicts"] = True
@@ -190,9 +206,12 @@ def test_e2e_partnumber_tp_kept_by_user_choice(tmp_path: Path) -> None:
         params: dict[str, object] = {"source_bom": source, "formats": ["plm"], "name": "KEEP_TP"}
 
         review = client.post("/api/v1/tools/bom_process/run", json=params, headers=headers).json()
-        assert review["reason"] == "process_material_candidates"
-        params["confirm_process_materials"] = True
-        params["process_material_keeps"] = [review["candidates"][0]["key"]]
+        assert review["reason"] == "placement_review"
+        process_group = review["groups"][0]
+        assert process_group["state"] == "suspected_process"
+        params["placement_resolutions"] = {
+            process_group["key"]: _placement_resolution(process_group, "keep")
+        }
         result = client.post("/api/v1/tools/bom_process/run", json=params, headers=headers).json()
 
         plm_path = next(Path(path) for path in result["outputs"] if path.endswith("_PLM_BOM.xlsx"))
@@ -217,10 +236,13 @@ def test_e2e_partnumber_tp_default_nc(tmp_path: Path) -> None:
             "source_bom": upload.json()["files"][0]["path"],
             "formats": ["plm"],
             "name": "DEFAULT_NC",
-            "confirm_process_materials": True,
-            "process_material_keeps": [],
         }
 
+        review = client.post("/api/v1/tools/bom_process/run", json=params, headers=headers).json()
+        process_group = review["groups"][0]
+        params["placement_resolutions"] = {
+            process_group["key"]: _placement_resolution(process_group, "exclude")
+        }
         result = client.post("/api/v1/tools/bom_process/run", json=params, headers=headers).json()
         nc_path = next(Path(path) for path in result["outputs"] if path.endswith("_NC未贴汇总.xlsx"))
         nc = load_workbook(nc_path, data_only=True)
@@ -229,4 +251,5 @@ def test_e2e_partnumber_tp_default_nc(tmp_path: Path) -> None:
         finally:
             nc.close()
         tp = next(row for row in rows if row[1] == "TP5")
-        assert str(tp[7]).startswith("工艺件（描述含 测试点）")
+        assert str(tp[7]).startswith("用户确认不装（疑似工艺件）")
+        assert tp[8] == "process_default"

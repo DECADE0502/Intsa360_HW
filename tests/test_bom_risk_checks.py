@@ -76,6 +76,17 @@ class BomRiskCheckTests(unittest.TestCase):
 
         self.assertEqual(finding["status"], "warn")
 
+    def test_review_summary_is_reported_without_reopening_resolved_items(self) -> None:
+        findings = evaluate_bom_risks(
+            [{"part_number": "P1", "quantity": 1, "refs": ["X1"]}],
+            {"kept_groups": 2, "excluded_groups": 3},
+        )
+
+        review = next(item for item in findings if item["name"] == "装机人工审查")
+        self.assertEqual(review["status"], "info")
+        self.assertIn("纳入 2 组", review["message"])
+        self.assertIn("不装 3 组", review["message"])
+
     def test_generic_import_keeps_ncp_parts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -239,6 +250,18 @@ class BomRiskCheckTests(unittest.TestCase):
             self.assertIn("EMMC-PN", finding["message"])
             self.assertIn("DDR-PN", finding["message"])
             self.assertIn("硬件版本号", finding["message"])
+
+    def test_risk_result_identifies_the_exact_processed_bom(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bom = root / "processed.xlsx"
+            _write_bom(bom, [["R1", "R-PN", "电阻", 1, "电阻", "10K", "正常"]])
+
+            result = run_bom_risk_check(root, {"bom": str(bom)})
+
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(result["source_file"], str(bom))
+            self.assertEqual(result["risk_report"]["source_file"], str(bom))
 
 
 if __name__ == "__main__":

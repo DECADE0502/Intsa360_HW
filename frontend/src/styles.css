@@ -1,6 +1,6 @@
 html, body, #root { margin: 0; height: 100%; }
 
-.app-shell { height: 100vh; }
+.app-shell { height: 100vh; height: 100dvh; }
 
 /* ── Dark professional sidebar ────────────────────────────────────────
    A hardware-engineering tool reads as precise and instrumented, so the
@@ -149,7 +149,10 @@ html, body, #root { margin: 0; height: 100%; }
   overflow-wrap: anywhere;
 }
 
-.app-content { padding: 36px 48px; width: 100%; box-sizing: border-box; }
+.app-content { padding: 36px 48px; width: 100%; min-width: 0; box-sizing: border-box; }
+.app-mobile-header { display: none; }
+.app-mobile-drawer .ant-drawer-body { padding: 0; background: #14181f; }
+.app-mobile-nav { display: flex; flex-direction: column; height: 100%; background: #14181f; }
 .service-offline-alert { margin-bottom: 16px; }
 .platform-load-alert { margin-bottom: 16px; }
 
@@ -217,6 +220,219 @@ html, body, #root { margin: 0; height: 100%; }
   border: 1px solid #f0f0f0;
   border-radius: 8px;
   padding: 14px;
+}
+
+.placement-review-shell {
+  min-width: 0;
+  border: 1px solid #e7ebf0;
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.placement-review-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 320px);
+  gap: 24px;
+  align-items: center;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid #edf0f4;
+}
+
+.placement-review-head .ant-typography { margin: 0; }
+
+.placement-progress {
+  display: grid;
+  grid-template-columns: auto minmax(120px, 1fr);
+  gap: 12px;
+  align-items: center;
+  color: #5f6977;
+  font-size: 13px;
+}
+
+.placement-review-shell > .ant-alert {
+  margin: 12px 20px 0;
+}
+
+.placement-review-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 20px 0;
+}
+
+.placement-review-shell > .ant-tabs {
+  padding: 0 20px;
+}
+
+.placement-review-shell > .ant-tabs .ant-tabs-content-holder {
+  min-width: 0;
+}
+
+.placement-workbench {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 14px;
+  height: min(590px, calc(100vh - 300px));
+  min-height: 430px;
+  padding-bottom: 16px;
+}
+
+.placement-index-pane {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.placement-index-list {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  border: 1px solid #e7ebf0;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 6px;
+}
+
+.placement-index-item {
+  display: block;
+  width: 100%;
+  min-height: 64px;
+  margin: 0 0 4px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #242b36;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.placement-index-item:hover { background: #edf4fb; }
+.placement-index-item.is-active { background: #e7f1fb; box-shadow: inset 3px 0 0 #1677ff; }
+.placement-index-title { display: flex; align-items: flex-start; gap: 7px; font-weight: 600; }
+.placement-index-title > .anticon { margin-top: 4px; color: #d48806; }
+.placement-index-title > .anticon.is-done { color: #389e0d; }
+.placement-index-title .placement-ref-list { flex: 1; }
+.placement-index-meta { display: block; margin-top: 5px; padding-left: 21px; color: #7b8491; font-size: 12px; }
+
+.placement-detail-pane {
+  min-width: 0;
+  overflow: auto;
+  border: 1px solid #e7ebf0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.placement-detail {
+  min-width: 0;
+  padding: 16px;
+  animation: placement-detail-in 0.18s ease-out;
+}
+
+.placement-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #edf0f4;
+}
+
+.placement-detail-title { margin-bottom: 8px; }
+.placement-ref-list { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.placement-ref-list .ant-tag { margin: 0; }
+
+.placement-evidence-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 12px 0;
+}
+
+.placement-evidence-row .ant-tag {
+  max-width: 100%;
+  margin: 0;
+  white-space: normal;
+}
+
+.placement-field-compare {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.92fr) minmax(340px, 1.08fr);
+  gap: 14px;
+}
+
+.placement-field-panel {
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid #edf0f4;
+  border-radius: 8px;
+  background: #fbfcfd;
+}
+
+.placement-raw-grid { margin-top: 10px; }
+.placement-raw-row {
+  display: grid;
+  grid-template-columns: 118px minmax(0, 1fr);
+  gap: 10px;
+  min-height: 32px;
+  padding: 6px 0;
+  border-bottom: 1px solid #edf0f4;
+}
+.placement-raw-row:last-child { border-bottom: 0; }
+.placement-raw-row > span { color: #7b8491; font-size: 12px; }
+.placement-raw-row .ant-typography { overflow-wrap: anywhere; }
+.placement-raw-row .is-suspicious { color: #b54708; background: #fff4e5; }
+
+.placement-edit-grid {
+  display: grid;
+  gap: 9px;
+  margin-top: 10px;
+}
+
+.placement-edit-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.placement-edit-field {
+  display: grid;
+  grid-template-columns: 108px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.placement-edit-field > span {
+  color: #657080;
+  font-size: 12px;
+  text-align: right;
+}
+
+.placement-edit-grid .ant-alert { margin-top: 2px; }
+
+.placement-review-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 20px;
+  border-top: 1px solid #edf0f4;
+  background: #fafbfd;
+}
+
+@keyframes placement-detail-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .placement-index-item { transition: none; }
+  .placement-detail { animation: none; }
 }
 
 .conflict-detail-head {
@@ -1367,6 +1583,11 @@ html, body, #root { margin: 0; height: 100%; }
 @media (max-width: 980px) {
   .app-content { padding: 24px; }
   .process-grid { grid-template-columns: 1fr; }
+  .placement-review-head { grid-template-columns: 1fr; }
+  .placement-workbench { grid-template-columns: 1fr; height: auto; }
+  .placement-index-list { max-height: 230px; }
+  .placement-detail-pane { max-height: none; }
+  .placement-field-compare { grid-template-columns: 1fr; }
   .deliver-actions { grid-template-columns: 1fr; }
   .conflict-workbench { grid-template-columns: 1fr; height: auto; }
   .conflict-index-list { max-height: 220px; }
@@ -1402,7 +1623,47 @@ html, body, #root { margin: 0; height: 100%; }
 }
 
 @media (max-width: 720px) {
+  .app-shell { flex-direction: column !important; }
+  .app-desktop-sider { display: none !important; }
+  .app-mobile-header {
+    display: grid;
+    grid-template-columns: 40px 28px minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+    min-height: 56px;
+    padding: 0 12px;
+    background: #14181f;
+    border-bottom: 1px solid #2a303a;
+    color: #f5f7fa;
+  }
+  .app-mobile-header .ant-btn { color: #f5f7fa; }
+  .app-mobile-logo { display: block; width: 28px; height: 28px; object-fit: contain; }
+  .app-mobile-title { display: grid; min-width: 0; line-height: 1.2; }
+  .app-mobile-title strong { overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+  .app-mobile-title span { display: flex; align-items: center; gap: 6px; margin-top: 3px; color: #9ea7b5; font-size: 11px; }
+  .app-mobile-title .app-brand-dot { flex: 0 0 auto; }
+  .app-shell.ant-layout-has-sider > .app-content {
+    flex: 1 1 auto;
+    width: 100% !important;
+    min-height: 0;
+    padding: 16px 12px;
+  }
+  .app-mobile-drawer .ant-drawer-content { background: #14181f; }
+  .app-mobile-drawer .ant-drawer-body { overflow: hidden; }
+  .app-mobile-nav .app-menu { flex: 1; overflow-y: auto; }
+  .app-mobile-nav .app-footer { position: static; }
+  .app-mobile-nav-close { margin-left: auto; color: #cdd4df !important; }
   .bom-review-actions {
     grid-template-columns: 1fr;
   }
+  .placement-review-toolbar,
+  .placement-detail-head,
+  .placement-review-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .placement-progress { grid-template-columns: 1fr; }
+  .placement-edit-pair { grid-template-columns: 1fr; }
+  .placement-detail-head .ant-radio-group { display: grid; grid-template-columns: 1fr; width: 100%; }
+  .placement-detail-head .ant-radio-button-wrapper { text-align: center; }
 }

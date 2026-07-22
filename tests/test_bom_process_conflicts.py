@@ -37,6 +37,106 @@ def make_source(path: Path) -> None:
 
 
 class BomProcessConflictTests(unittest.TestCase):
+    def test_missing_part_number_materials_require_review_and_can_be_restored(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["Reference", "Part Number", "Value", "PCB Footprint", "Source Package"])
+            refs = ("ANCHOR1", "ANCHOR2", "ANCHOR3", "ANCHOR4")
+            recovered_code = "123456789012"
+            for ref in refs:
+                ws.append([ref, "", recovered_code, "MECH_PAD", "MECH_LIB"])
+            wb.save(source)
+
+            params: dict[str, object] = {
+                "source_bom": str(source),
+                "formats": ["plm"],
+                "parent_code": "203010100819",
+                "name": "HARDWARE_PARTS",
+            }
+            review = run_bom_process(root, params)
+
+            self.assertEqual(review["status"], "needs_confirmation")
+            self.assertEqual(review["reason"], "placement_review")
+            self.assertEqual(len(review["groups"]), 1)
+            candidate = review["groups"][0]
+            self.assertEqual(candidate["suggested_code"], recovered_code)
+            self.assertEqual(candidate["recommended_action"], "keep")
+            self.assertEqual(candidate["refs"], list(refs))
+
+            params["placement_resolutions"] = {
+                candidate["key"]: {
+                    "action": "keep",
+                    "part_number": recovered_code,
+                    "field_patch": {
+                        "name": "焊接结构件",
+                        "model": "MECH-A",
+                        "desc": "焊接结构件",
+                    },
+                }
+            }
+            result = run_bom_process(root, params)
+
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(result["summary"]["placement_review"]["kept_groups"], 1)
+            plm_path = next(Path(path) for path in result["outputs"] if path.endswith("_PLM_BOM.xlsx"))
+            nc_path = next(Path(path) for path in result["outputs"] if path.endswith("_NC未贴汇总.xlsx"))
+            plm = load_workbook(plm_path, data_only=True)
+            nc = load_workbook(nc_path, data_only=True)
+            try:
+                plm_rows = list(plm.active.iter_rows(min_row=3, values_only=True))
+                nc_rows = list(nc.active.iter_rows(min_row=2, values_only=True))
+            finally:
+                plm.close()
+                nc.close()
+
+            restored = next(row for row in plm_rows if row[2] == recovered_code)
+            self.assertEqual(restored[3], "焊接结构件")
+            self.assertEqual(restored[4], "MECH-A")
+            self.assertEqual(restored[5], "焊接结构件")
+            self.assertEqual(restored[7], 4)
+            self.assertEqual(restored[8], ",".join(refs))
+            self.assertFalse(any(refs[0] in str(row[1] or "") for row in nc_rows))
+
+    def test_missing_part_number_material_can_be_explicitly_confirmed_not_installed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.append(["Reference", "Part Number", "Value", "PCB Footprint", "Source Package"])
+            ws.append(["LINK1", "", "Short_L1", "sp2-L1", "Short_L3"])
+            wb.save(source)
+
+            params: dict[str, object] = {"source_bom": str(source), "formats": ["plm"], "name": "NO_STUFF"}
+            review = run_bom_process(root, params)
+            self.assertEqual(review["reason"], "placement_review")
+            candidate = review["groups"][0]
+            self.assertEqual(candidate["state"], "suspected_process")
+            self.assertEqual(candidate["recommended_action"], "exclude")
+
+            params["placement_resolutions"] = {
+                candidate["key"]: {
+                    "action": "exclude",
+                    "part_number": "",
+                    "field_patch": {},
+                }
+            }
+            result = run_bom_process(root, params)
+
+            self.assertEqual(result["status"], "ok")
+            nc_path = next(Path(path) for path in result["outputs"] if path.endswith("_NC未贴汇总.xlsx"))
+            nc = load_workbook(nc_path, data_only=True)
+            try:
+                rows = list(nc.active.iter_rows(min_row=2, values_only=True))
+            finally:
+                nc.close()
+            self.assertEqual(rows[0][1], "LINK1")
+            self.assertEqual(rows[0][7], "用户确认不装（疑似工艺件）")
+            self.assertEqual(rows[0][8], "process_default")
+
     def test_parsed_source_can_filter_shields_without_reopening_workbook(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "source.xlsx"
@@ -207,7 +307,7 @@ class BomProcessConflictTests(unittest.TestCase):
         self.assertEqual(candidates[0]["key"], "P001|R100")
         self.assertEqual(candidates[0]["matched_keyword"], "测试点")
 
-    def test_adapter_returns_process_material_confirmation_after_shield(self) -> None:
+    def test_adapter_returns_shield_and_process_materials_in_one_review(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             source = root / "source.xlsx"
@@ -219,13 +319,25 @@ class BomProcessConflictTests(unittest.TestCase):
             wb.save(source)
             params = {"source_bom": str(source), "formats": ["plm"], "name": "FLOW"}
 
-            shield = run_bom_process(root, params)
-            params["confirm_shields"] = True
-            process_material = run_bom_process(root, params)
+            review = run_bom_process(root, params)
+            groups = {group["category"]: group for group in review["groups"]}
+            params["placement_resolutions"] = {
+                groups["shield"]["key"]: {
+                    "action": "keep",
+                    "part_number": "SH-PN",
+                    "field_patch": {},
+                },
+                groups["suspected_process"]["key"]: {
+                    "action": "exclude",
+                    "part_number": "TP-PN",
+                    "field_patch": {},
+                },
+            }
+            completed = run_bom_process(root, params)
 
-        self.assertEqual(shield["reason"], "shield_bracket_candidates")
-        self.assertEqual(process_material["reason"], "process_material_candidates")
-        self.assertEqual(process_material["candidates"][0]["key"], "TP-PN|TP5")
+        self.assertEqual(review["reason"], "placement_review")
+        self.assertEqual(set(groups), {"shield", "suspected_process"})
+        self.assertEqual(completed["status"], "ok")
 
     def test_letter_notation_numeric_pairs_require_manual_choice(self) -> None:
         def variants(first: str, second: str) -> list[dict[str, object]]:
@@ -705,10 +817,11 @@ class BomProcessConflictTests(unittest.TestCase):
             )
 
             self.assertEqual(result["status"], "needs_confirmation")
-            self.assertEqual(result["reason"], "shield_bracket_candidates")
-            self.assertEqual(result["shield_count"], 1)
-            self.assertEqual(result["shield_candidates"][0]["refs"], ["SH1"])
-            self.assertEqual(result["shield_candidates"][0]["code"], "SH-PN")
+            self.assertEqual(result["reason"], "placement_review")
+            self.assertEqual(len(result["groups"]), 1)
+            self.assertEqual(result["groups"][0]["category"], "shield")
+            self.assertEqual(result["groups"][0]["refs"], ["SH1"])
+            self.assertEqual(result["groups"][0]["original_fields"]["part_number"], "SH-PN")
 
     def test_shield_confirmation_precedes_conflict_prompt_for_same_code(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -728,11 +841,18 @@ class BomProcessConflictTests(unittest.TestCase):
             }
 
             shield_review = run_bom_process(root, params)
-            params["confirm_shields"] = True
+            shield_group = shield_review["groups"][0]
+            params["placement_resolutions"] = {
+                shield_group["key"]: {
+                    "action": "keep",
+                    "part_number": "P-SHARED",
+                    "field_patch": {},
+                }
+            }
             conflict_review = run_bom_process(root, params)
 
         self.assertEqual(shield_review["status"], "needs_confirmation")
-        self.assertEqual(shield_review["reason"], "shield_bracket_candidates")
+        self.assertEqual(shield_review["reason"], "placement_review")
         self.assertNotIn("conflicts", shield_review)
         self.assertEqual(conflict_review["status"], "needs_confirmation")
         self.assertEqual(conflict_review["reason"], "part_property_conflicts")
@@ -790,8 +910,9 @@ class BomProcessConflictTests(unittest.TestCase):
             )
 
             self.assertEqual(result["status"], "needs_confirmation")
-            self.assertEqual(result["reason"], "shield_bracket_candidates")
-            self.assertEqual(result["shield_candidates"][0]["refs"], ["SH1"])
+            self.assertEqual(result["reason"], "placement_review")
+            self.assertEqual(result["groups"][0]["state"], "conflicting")
+            self.assertEqual(result["groups"][0]["refs"], ["SH1"])
 
     def test_confirmed_sh_with_nc_value_enters_final_bom_not_nc_summary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

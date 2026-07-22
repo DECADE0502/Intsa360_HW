@@ -22,7 +22,11 @@ def _run_bom_risk_check_impl(root: Path, params: dict[str, object]) -> dict[str,
         return _error("bom_risk_check", error)
 
     rows = _read_bom_rows(bom, require_refs=False)
-    findings = evaluate_bom_risks(rows)
+    review_summary = params.get("review_summary")
+    findings = evaluate_bom_risks(
+        rows,
+        review_summary if isinstance(review_summary, dict) else None,
+    )
     positions = sum(len(row.get("refs") or []) for row in rows)
     parts = len({row["part_number"] for row in rows if row.get("part_number")})
 
@@ -56,12 +60,14 @@ def _run_bom_risk_check_impl(root: Path, params: dict[str, object]) -> dict[str,
     )
     result["risk_report"] = {
         "label": bom.name,
+        "source_file": str(bom),
         "findings": findings,
         "stats": {"数据行": len(rows), "位号数": positions, "料号数": parts},
         "grade_flags": grade_flags,
         "type_flags": find_type_mismatches(rows),
         "review": {"headers": review_headers, "rows": review_rows, "grade_col": 5},
     }
+    result["source_file"] = str(bom)
     return result
 
 

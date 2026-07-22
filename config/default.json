@@ -7,6 +7,26 @@
     "accessory_menu_cn": "Insta360硬件提效平台",
     "autoload_dirs": []
   },
+  "bom": {
+    "material_code_shapes": [
+      {
+        "id": "digits",
+        "pattern": "^\\d{6,20}$",
+        "note": "纯数字内部编码"
+      },
+      {
+        "id": "dotted",
+        "pattern": "^[A-Za-z][A-Za-z0-9]{0,7}\\.[A-Za-z0-9][A-Za-z0-9._-]{2,}$",
+        "note": "带点分段编码"
+      },
+        {
+          "id": "vendor_mpn",
+          "pattern": "^[A-Za-z][A-Za-z0-9]{1,15}[-_][A-Za-z0-9][A-Za-z0-9-_/.]{2,}$",
+          "note": "厂商 MPN"
+        }
+    ],
+    "nc_keywords": ["NC", "DNP", "DNI", "No Load", "NOFIT", "不贴", "未贴", "空贴"]
+  },
   "update": {
     "schema": 3,
     "channel": "stable",

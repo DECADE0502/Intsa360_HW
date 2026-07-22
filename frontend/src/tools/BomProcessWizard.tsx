@@ -35,6 +35,14 @@ import { packageDownloadName } from "../utils/downloadName";
 import { outputHref } from "../utils/outputHref";
 import { riskStatusText } from "../utils/statusText";
 import { buildRecommendedConflictChoices } from "./bomConflictChoices";
+import {
+  PlacementReview,
+  seedPlacementResolutions,
+  type PlacementResolution,
+} from "./PlacementReview";
+
+export { PlacementReview } from "./PlacementReview";
+export type { PlacementResolution } from "./PlacementReview";
 
 const { Dragger } = Upload;
 const ASSETS_UPDATED_EVENT = "insta360_hw:assets-updated";
@@ -59,14 +67,6 @@ function bname(p: string) {
 function hasBomConflicts(pres: any) {
   const conflicts = pres?.conflicts || [];
   return pres?.reason === "part_property_conflicts" || (pres?.status !== "ok" && ((pres?.conflict_count || 0) > 0 || conflicts.length > 0));
-}
-
-function hasShieldCandidates(pres: any) {
-  return pres?.reason === "shield_bracket_candidates" && (pres?.shield_candidates || []).length > 0;
-}
-
-function hasProcessMaterials(pres: any) {
-  return pres?.reason === "process_material_candidates" && (pres?.candidates || []).length > 0;
 }
 
 function renderFullRefs(refs: string[] = []) {
@@ -99,15 +99,16 @@ export function BomProcessWizard() {
       pres: null as any,
       rres: null as any,
       conflictChoices: {} as Record<string, number>,
-      confirmShields: false,
-      confirmProcessMaterials: false,
-      processMaterialKeeps: [] as string[],
+      placementResolutions: {} as Record<string, PlacementResolution>,
+      placementVisitedTabs: [] as string[],
     },
     { heavyKeys: ["pres", "rres"] },
   );
   const activePresetSource = presetConsumed ? "" : presetSource;
   const activePresetName = presetConsumed ? "" : presetName;
-  const freshPreset = Boolean(activePresetSource && activePresetSource !== workspace.sp);
+  // Cadence commonly overwrites the same inbox path. Every explicit source= launch is
+  // therefore a new processing session even when the path matches the saved workspace.
+  const hasPresetInvocation = Boolean(activePresetSource);
 
   const [stage, setStage] = useState<Stage>(activePresetSource ? "review" : (String(workspace.stage || "source") as Stage));
   const [sp, setSp] = useState(String(activePresetSource || workspace.sp || ""));
@@ -115,18 +116,17 @@ export function BomProcessWizard() {
   const [pcode, setPcode] = useState(String(workspace.pcode || "203010100819"));
   const [pdesc, setPdesc] = useState(String(workspace.pdesc || ""));
   const [fmts, setFmts] = useState<string[]>(Array.isArray(workspace.fmts) ? (workspace.fmts as string[]) : ["plm", "oa"]);
-  const [extras, setExtras] = useState<Extra[]>(freshPreset || !Array.isArray(workspace.extras) ? [] : (workspace.extras as Extra[]));
-  const [pres, setPres] = useState<any>(freshPreset ? null : workspace.pres || null);
-  const [rres, setRres] = useState<any>(freshPreset ? null : workspace.rres || null);
+  const [extras, setExtras] = useState<Extra[]>(hasPresetInvocation || !Array.isArray(workspace.extras) ? [] : (workspace.extras as Extra[]));
+  const [pres, setPres] = useState<any>(hasPresetInvocation ? null : workspace.pres || null);
+  const [rres, setRres] = useState<any>(hasPresetInvocation ? null : workspace.rres || null);
   const [rrun, setRrun] = useState(false);
   const [running, setRunning] = useState(false);
-  const [conflictChoices, setConflictChoices] = useState<Record<string, number>>(freshPreset ? {} : (workspace.conflictChoices as Record<string, number>) || {});
-  const [confirmShields, setConfirmShields] = useState(freshPreset ? false : Boolean(workspace.confirmShields));
-  const [confirmProcessMaterials, setConfirmProcessMaterials] = useState(
-    freshPreset ? false : Boolean(workspace.confirmProcessMaterials),
+  const [conflictChoices, setConflictChoices] = useState<Record<string, number>>(hasPresetInvocation ? {} : (workspace.conflictChoices as Record<string, number>) || {});
+  const [placementResolutions, setPlacementResolutions] = useState<Record<string, PlacementResolution>>(
+    hasPresetInvocation ? {} : (workspace.placementResolutions as Record<string, PlacementResolution>) || {},
   );
-  const [processMaterialKeeps, setProcessMaterialKeeps] = useState<string[]>(
-    freshPreset || !Array.isArray(workspace.processMaterialKeeps) ? [] : (workspace.processMaterialKeeps as string[]),
+  const [placementVisitedTabs, setPlacementVisitedTabs] = useState<string[]>(
+    hasPresetInvocation || !Array.isArray(workspace.placementVisitedTabs) ? [] : (workspace.placementVisitedTabs as string[]),
   );
 
   useEffect(() => {
@@ -141,11 +141,15 @@ export function BomProcessWizard() {
       pres,
       rres,
       conflictChoices,
-      confirmShields,
-      confirmProcessMaterials,
-      processMaterialKeeps,
+      placementResolutions,
+      placementVisitedTabs,
     });
-  }, [stage, sp, name, pcode, pdesc, fmts, extras, pres, rres, conflictChoices, confirmShields, confirmProcessMaterials, processMaterialKeeps]);
+  }, [stage, sp, name, pcode, pdesc, fmts, extras, pres, rres, conflictChoices, placementResolutions, placementVisitedTabs]);
+
+  useEffect(() => {
+    if (pres?.reason !== "placement_review") return;
+    setPlacementResolutions((current) => seedPlacementResolutions(pres.groups || [], current));
+  }, [pres]);
 
   const steps = ["来源", "识别", "处理", "审查", "交付"];
   const si = { source: 0, review: 1, process: 2, risk: 3, deliver: 4 }[stage];
@@ -156,6 +160,11 @@ export function BomProcessWizard() {
       const u = await uploadFiles([f]);
       setSp(u.files[0]?.path || "");
       setName((p) => p || bname(f.name));
+      setPres(null);
+      setRres(null);
+      setConflictChoices({});
+      setPlacementResolutions({});
+      setPlacementVisitedTabs([]);
       message.success("已接收文件");
       setStage("review");
     } catch (e: any) {
@@ -166,18 +175,18 @@ export function BomProcessWizard() {
 
   useEffect(() => {
     if (stage !== "process" || pres) return;
+    setRres(null);
+    setRrun(false);
     setRunning(true);
     runTool("bom_process", {
       source_bom: sp,
       formats: fmts,
       name,
       parent_code: pcode,
-        parent_desc: pdesc,
-        extras: extras.filter((e) => e.code),
-        confirm_shields: confirmShields ? true : undefined,
-        confirm_process_materials: confirmProcessMaterials ? true : undefined,
-        process_material_keeps: processMaterialKeeps,
-      })
+      parent_desc: pdesc,
+      extras: extras.filter((e) => e.code),
+      placement_resolutions: placementResolutions,
+    })
       .then((r) => {
         setPres(r);
         if (r.status === "ok") notifyAssetsUpdated();
@@ -187,21 +196,30 @@ export function BomProcessWizard() {
       .finally(() => setRunning(false));
   }, [stage]);
 
+  const riskSource = String(pres?.process_file || pres?.outputs?.[0] || "");
+
   useEffect(() => {
-    if (stage !== "risk" || rres || rrun) return;
-    const pf = pres?.process_file || pres?.outputs?.[0];
-    if (!pf) {
-      setRres({ status: "error", error: "尚未生成成品 BOM，请先完成编码冲突确认和 BOM 处理。" });
+    if (stage !== "risk" || rrun) return;
+    if (!riskSource) {
+      setRres({
+        status: "error",
+        error: "尚未生成成品 BOM，请先完成编码冲突确认和 BOM 处理。",
+        source_file: "",
+      });
       return;
     }
+    if (rres?.source_file === riskSource) return;
+    setRres(null);
     setRrun(true);
-    runTool("bom_risk_check", { bom: pf })
-      .then(setRres)
-      .catch((e) => setRres({ status: "error", error: toUserMessage(e) }))
+    runTool("bom_risk_check", { bom: riskSource, review_summary: pres?.summary?.placement_review })
+      .then((result) => setRres({ ...result, source_file: result?.source_file || riskSource }))
+      .catch((e) => setRres({ status: "error", error: toUserMessage(e), source_file: riskSource }))
       .finally(() => setRrun(false));
-  }, [stage]);
+  }, [stage, riskSource, rres?.source_file, rrun]);
 
   async function applyMerge(merge: boolean) {
+    setRres(null);
+    setRrun(false);
     setRunning(true);
     try {
       const r = await runTool("bom_process", {
@@ -213,14 +231,11 @@ export function BomProcessWizard() {
         extras: extras.filter((e) => e.code),
         merge_conflicts: merge,
         conflict_choices: merge ? conflictChoices : {},
-        confirm_shields: confirmShields,
-        confirm_process_materials: confirmProcessMaterials,
-        process_material_keeps: processMaterialKeeps,
+        placement_resolutions: placementResolutions,
       });
       setPres(r);
       if (r.status === "ok") notifyAssetsUpdated();
       if (r.status === "ok" && !hasBomConflicts(r)) {
-        setConflictChoices({});
         setStage("risk");
       }
     } catch (e: any) {
@@ -242,6 +257,8 @@ export function BomProcessWizard() {
       return;
     }
     setConflictChoices(choices);
+    setRres(null);
+    setRrun(false);
     setRunning(true);
     try {
       const r = await runTool("bom_process", {
@@ -253,14 +270,11 @@ export function BomProcessWizard() {
         extras: extras.filter((e) => e.code),
         merge_conflicts: true,
         conflict_choices: choices,
-        confirm_shields: confirmShields,
-        confirm_process_materials: confirmProcessMaterials,
-        process_material_keeps: processMaterialKeeps,
+        placement_resolutions: placementResolutions,
       });
       setPres(r);
       if (r.status === "ok") notifyAssetsUpdated();
       if (r.status === "ok" && !hasBomConflicts(r)) {
-        setConflictChoices({});
         setStage("risk");
       }
     } catch (e: any) {
@@ -270,35 +284,10 @@ export function BomProcessWizard() {
     }
   }
 
-  async function confirmShieldBrackets() {
+  async function applyPlacementReview() {
+    setRres(null);
+    setRrun(false);
     setRunning(true);
-    try {
-      setConfirmShields(true);
-      const r = await runTool("bom_process", {
-        source_bom: sp,
-        formats: fmts,
-        name,
-        parent_code: pcode,
-        parent_desc: pdesc,
-        extras: extras.filter((e) => e.code),
-        confirm_shields: true,
-        confirm_process_materials: confirmProcessMaterials,
-        process_material_keeps: processMaterialKeeps,
-      });
-      setPres(r);
-      if (r.status === "ok") notifyAssetsUpdated();
-      if (r.status === "ok" && !hasBomConflicts(r) && !hasShieldCandidates(r)) setStage("risk");
-    } catch (e: any) {
-      setPres({ status: "error", error: toUserMessage(e) });
-    } finally {
-      setRunning(false);
-    }
-  }
-
-  async function applyProcessMaterials(keeps: string[]) {
-    setRunning(true);
-    setConfirmProcessMaterials(true);
-    setProcessMaterialKeeps(keeps);
     try {
       const r = await runTool("bom_process", {
         source_bom: sp,
@@ -307,9 +296,7 @@ export function BomProcessWizard() {
         parent_code: pcode,
         parent_desc: pdesc,
         extras: extras.filter((e) => e.code),
-        confirm_shields: confirmShields,
-        confirm_process_materials: true,
-        process_material_keeps: keeps,
+        placement_resolutions: placementResolutions,
       });
       setPres(r);
       if (r.status === "ok") notifyAssetsUpdated();
@@ -374,9 +361,8 @@ export function BomProcessWizard() {
     setRrun(false);
     setRunning(false);
     setConflictChoices({});
-    setConfirmShields(false);
-    setConfirmProcessMaterials(false);
-    setProcessMaterialKeeps([]);
+    setPlacementResolutions({});
+    setPlacementVisitedTabs([]);
     const cleanUrl = `${window.location.pathname}?tool=bom_process`;
     window.history.replaceState({}, "", cleanUrl);
     if (options.successMessage) message.success(options.successMessage);
@@ -423,14 +409,16 @@ export function BomProcessWizard() {
           onRecommendedMerge={applyRecommendedMerge}
           onApply={() => applyMerge(true)}
           onSplit={() => applyMerge(false)}
-          onConfirmShields={confirmShieldBrackets}
-          processMaterialKeeps={processMaterialKeeps}
-          setProcessMaterialKeeps={setProcessMaterialKeeps}
-          onApplyProcessMaterials={() => applyProcessMaterials(processMaterialKeeps)}
-          onDefaultProcessMaterials={() => applyProcessMaterials([])}
+          placementResolutions={placementResolutions}
+          setPlacementResolutions={setPlacementResolutions}
+          placementVisitedTabs={placementVisitedTabs}
+          setPlacementVisitedTabs={setPlacementVisitedTabs}
+          onApplyPlacementReview={applyPlacementReview}
           onNext={() => setStage("risk")}
           onBack={() => {
             setPres(null);
+            setRres(null);
+            setRrun(false);
             setStage("review");
           }}
         />
@@ -447,9 +435,8 @@ export function BomProcessWizard() {
             setPres(null);
             setRres(null);
             setConflictChoices({});
-            setConfirmShields(false);
-            setConfirmProcessMaterials(false);
-            setProcessMaterialKeeps([]);
+            setPlacementResolutions({});
+            setPlacementVisitedTabs([]);
             resetWorkspace();
             setStage("review");
           }}
@@ -545,11 +532,11 @@ function ProcessView({
   onRecommendedMerge,
   onApply,
   onSplit,
-  onConfirmShields,
-  processMaterialKeeps,
-  setProcessMaterialKeeps,
-  onApplyProcessMaterials,
-  onDefaultProcessMaterials,
+  placementResolutions,
+  setPlacementResolutions,
+  placementVisitedTabs,
+  setPlacementVisitedTabs,
+  onApplyPlacementReview,
   onNext,
   onBack,
 }: any) {
@@ -557,14 +544,25 @@ function ProcessView({
   if (running) return <Result icon={<FileTextOutlined spin />} title="正在处理 BOM…" subTitle="解析字段、过滤 NC 器件、合并位号、生成 PLM/OA" />;
   if (!pres) return null;
   if (pres.status === "error") return <Result status="error" title="处理失败" subTitle={pres.error} extra={<Button onClick={onBack}>返回修改</Button>} />;
+  if (pres.reason === "placement_review") {
+    return (
+      <PlacementReview
+        groups={pres.groups || []}
+        readonlyNc={pres.readonly_nc || { count: 0, items: [] }}
+        resolutions={placementResolutions}
+        visitedTabs={placementVisitedTabs}
+        onResolutionsChange={setPlacementResolutions}
+        onVisitedTabsChange={setPlacementVisitedTabs}
+        onApply={onApplyPlacementReview}
+        onBack={onBack}
+        running={running}
+      />
+    );
+  }
 
   const s = pres.summary || {};
   const conflicts = pres.conflicts || [];
   const hasC = hasBomConflicts(pres);
-  const hasS = hasShieldCandidates(pres);
-  const hasP = hasProcessMaterials(pres);
-  const shieldCandidates = pres.shield_candidates || [];
-  const processCandidates = pres.candidates || [];
   const allDone = !hasC || conflicts.every((c: any) => conflictChoices[c.code] !== undefined);
   const activeConflict = conflicts.find((c: any) => c.code === activeConflictCode) || conflicts[0];
   const selectedCount = conflicts.filter((c: any) => conflictChoices[c.code] !== undefined).length;
@@ -575,36 +573,24 @@ function ProcessView({
       <div className="process-sidebar">
         <Card size="small" title="处理概览">
           <Descriptions size="small" column={1}>
-            <Descriptions.Item label="料号">{s.records ?? "-"}</Descriptions.Item>
-            <Descriptions.Item label="位号">{s.total_positions ?? "-"}</Descriptions.Item>
-            <Descriptions.Item label="已过滤">{s.excluded ?? "-"}</Descriptions.Item>
-            <Descriptions.Item label="历史冲突">{s.conflicts ?? conflicts.length ?? 0}</Descriptions.Item>
+            {hasC ? (
+              <>
+                <Descriptions.Item label="编码冲突">{conflicts.length}</Descriptions.Item>
+                <Descriptions.Item label="低置信推荐">{lowConfidenceCount}</Descriptions.Item>
+                <Descriptions.Item label="已选择">{selectedCount}/{conflicts.length}</Descriptions.Item>
+              </>
+            ) : (
+              <>
+                <Descriptions.Item label="料号">{s.records ?? "-"}</Descriptions.Item>
+                <Descriptions.Item label="位号">{s.total_positions ?? "-"}</Descriptions.Item>
+                <Descriptions.Item label="已过滤">{s.excluded ?? "-"}</Descriptions.Item>
+                <Descriptions.Item label="编码冲突">{s.conflicts ?? conflicts.length ?? 0}</Descriptions.Item>
+              </>
+            )}
           </Descriptions>
         </Card>
         <Card size="small" title="下一步">
-          {hasS ? (
-            <Space direction="vertical" style={{ width: "100%" }}>
-              <Typography.Text type="secondary">请确认 SH 位号是否为屏蔽支架。确认后这些物料会进入最终 BOM。</Typography.Text>
-              <Button type="primary" block onClick={onConfirmShields}>
-                确认作为屏蔽支架进入 BOM
-              </Button>
-              <Button block onClick={onBack}>
-                返回修改附加物料
-              </Button>
-            </Space>
-          ) : hasP ? (
-            <Space direction="vertical" style={{ width: "100%" }}>
-              <Typography.Text type="secondary">
-                疑似工艺件默认进入 NC 汇总。仅勾选确认需要实际贴装的位号。
-              </Typography.Text>
-              <Button type="primary" block onClick={onApplyProcessMaterials}>
-                按勾选结果继续
-              </Button>
-              <Button block onClick={onDefaultProcessMaterials}>
-                全部按默认 NC
-              </Button>
-            </Space>
-          ) : hasC ? (
+          {hasC ? (
             <Space direction="vertical" style={{ width: "100%" }}>
               <Typography.Text type="secondary">
                 系统已为全部 {conflicts.length} 项给出原始候选推荐，其中 {lowConfidenceCount} 项为低置信推荐；可一键采用，也可逐项修改。
@@ -633,42 +619,7 @@ function ProcessView({
         </Card>
       </div>
       <div className="conflict-main">
-        {hasS ? (
-          <Card
-            size="small"
-            title={<><WarningOutlined style={{ color: "#f0a040" }} /> 发现 {shieldCandidates.length} 个 SH 屏蔽支架候选</>}
-          >
-            <Alert
-              type="warning"
-              showIcon
-              message="SH 位号将作为屏蔽支架进入最终 BOM"
-              description="请核对物料编码、名称、型号和位号，确认无误后继续。"
-              style={{ marginBottom: 12 }}
-            />
-            <Table
-              size="small"
-              pagination={false}
-              rowKey={(row: any, index) => `${row.code}-${index}`}
-              dataSource={shieldCandidates}
-              columns={[
-                { title: "子项编码", dataIndex: "code", width: 150 },
-                { title: "名称", dataIndex: "name", width: 140 },
-                { title: "型号", dataIndex: "model", ellipsis: true },
-                { title: "描述", dataIndex: "desc", ellipsis: true },
-                { title: "位号", dataIndex: "refs", render: (refs: string[]) => renderFullRefs(refs) },
-              ]}
-            />
-          </Card>
-        ) : hasP ? (
-          <ProcessMaterialConfirm
-            candidates={processCandidates}
-            selectedKeys={processMaterialKeeps}
-            onSelectedKeysChange={setProcessMaterialKeeps}
-            onApply={onApplyProcessMaterials}
-            onDefault={onDefaultProcessMaterials}
-            running={running}
-          />
-        ) : hasC ? (
+        {hasC ? (
           <Card
             size="small"
             title={<><WarningOutlined style={{ color: "#f0a040" }} /> 发现 {conflicts.length} 个编码冲突</>}
@@ -721,74 +672,6 @@ function ProcessView({
         )}
       </div>
     </div>
-  );
-}
-
-export function ProcessMaterialConfirm({
-  candidates,
-  selectedKeys,
-  onSelectedKeysChange,
-  onApply,
-  onDefault,
-  running,
-}: {
-  candidates: any[];
-  selectedKeys: string[];
-  onSelectedKeysChange: (keys: string[]) => void;
-  onApply: () => void;
-  onDefault: () => void;
-  running: boolean;
-}) {
-  const selected = new Set(selectedKeys);
-  const toggle = (key: string, checked: boolean) => {
-    const next = new Set(selected);
-    if (checked) next.add(key);
-    else next.delete(key);
-    onSelectedKeysChange(Array.from(next));
-  };
-
-  return (
-    <Card
-      size="small"
-      title={<><WarningOutlined style={{ color: "#f0a040" }} /> 发现 {candidates.length} 个疑似工艺件</>}
-    >
-      <Alert
-        type="warning"
-        showIcon
-        message="疑似工艺件默认不装（NC）"
-        description="请根据物料描述和位号勾选确实需要进入最终 BOM 的物料。"
-        style={{ marginBottom: 12 }}
-      />
-      <Table
-        size="small"
-        pagination={{ pageSize: 8 }}
-        rowKey="key"
-        dataSource={candidates}
-        columns={[
-          {
-            title: "装机",
-            key: "keep",
-            width: 70,
-            render: (_: unknown, row: any) => (
-              <Checkbox
-                aria-label={`保留 ${row.refs?.join(",") || row.part_number}`}
-                checked={selected.has(row.key)}
-                onChange={(event) => toggle(row.key, event.target.checked)}
-              />
-            ),
-          },
-          { title: "子项编码", dataIndex: "part_number", width: 150 },
-          { title: "位号", dataIndex: "refs", render: (refs: string[]) => renderFullRefs(refs) },
-          { title: "名称", dataIndex: "name", width: 120 },
-          { title: "描述", dataIndex: "description", ellipsis: true },
-          { title: "命中关键字", dataIndex: "matched_keyword", width: 120, render: (value: string) => <Tag color="orange">{value}</Tag> },
-        ]}
-      />
-      <Space style={{ marginTop: 12 }}>
-        <Button type="primary" loading={running} onClick={onApply}>按勾选结果继续</Button>
-        <Button disabled={running} onClick={onDefault}>全部按默认 NC</Button>
-      </Space>
-    </Card>
   );
 }
 

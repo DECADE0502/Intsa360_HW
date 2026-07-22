@@ -4,10 +4,11 @@ import re
 from collections import Counter
 
 from app.backend.tools.common import qty_matches
+from app.backend.tools.bom_classify import default_nc_value_re
 
 
-_NC_RE = re.compile(r"(^|[,/\s（(])NC([,/\s）)]|$)", re.IGNORECASE)
-NC_VALUE_RE = re.compile(r"^(?:NC|DNP)(?:[/,（(].*)?$", re.IGNORECASE)
+_NC_RE = re.compile(r"(^|[,/\s（(])(?:NC|DNP|DNI|NO\s*LOAD|NOFIT|不贴|未贴|空贴)([,/\s）)]|$)", re.IGNORECASE)
+NC_VALUE_RE = default_nc_value_re()
 _MECH_KW = ["螺丝", "螺钉", "螺母", "垫片", "华司", "铜柱", "支柱", "定位孔", "安装孔", "MOUNTINGHOLE", "散热片", "导热垫"]
 _TP_PREFIX = ("TP", "JP", "Z_TP", "FID", "MK", "MH")
 _TP_KW = ["测试点", "跳线", "FIDUCIAL", "基准", "拼板", "工艺边", "MARK点"]
@@ -95,7 +96,10 @@ def find_type_mismatches(rows: list[dict[str, object]]) -> list[dict[str, str]]:
     return mismatches
 
 
-def evaluate_bom_risks(rows: list[dict[str, object]]) -> list[dict[str, str]]:
+def evaluate_bom_risks(
+    rows: list[dict[str, object]],
+    review_summary: dict[str, object] | None = None,
+) -> list[dict[str, str]]:
     """Evaluate reusable BOM risk rules without depending on a tool engine."""
 
     def blob(row: dict[str, object]) -> str:
@@ -145,4 +149,12 @@ def evaluate_bom_risks(rows: list[dict[str, object]]) -> list[dict[str, str]]:
         findings.append({"name": "硬件版本敏感物料", "status": "info", "message": "发现 eMMC/DDR 相关物料：" + ", ".join(codes[:10]) + "；请注意核对硬件版本号、容量/速率和替代关系"})
     else:
         findings.append({"name": "硬件版本敏感物料", "status": "ok", "message": "未发现 eMMC/DDR 相关物料"})
+    if review_summary:
+        kept = int(review_summary.get("kept_groups") or 0)
+        excluded = int(review_summary.get("excluded_groups") or 0)
+        findings.append({
+            "name": "装机人工审查",
+            "status": "info",
+            "message": f"已人工确认纳入 {kept} 组、确认不装 {excluded} 组；这些决议不再作为空编码风险重复报警。",
+        })
     return findings

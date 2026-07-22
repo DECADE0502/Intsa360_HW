@@ -9,6 +9,15 @@ from app.backend.capture_fields import BOM_OPTIONAL_FIELDS, FIELD_DEFAULTS, PLM_
 from app.backend.parsers._workbook import build_merged_cell_lookup, open_bom_workbook
 from app.backend.parsers.bom_table import INHERIT_FIELDS, normalize_header, split_refs
 from app.backend.parsers.refs import natural_key
+from app.backend.tools.bom_classify import (
+    CODE_CANDIDATE_FIELDS,
+    PROCESS_MATERIAL_RE,
+    NormalizedBomRow,
+    build_normalized_row,
+    classification_config,
+    code_shape_matches,
+    process_keyword,
+)
 from app.backend.tools.bom_rules import NC_VALUE_RE
 
 # BOM 处理工具：把 Capture 导出的原始 BOM 处理成可导入的 PLM / OA 成品。
@@ -52,21 +61,14 @@ OA_HEADERS = [
     "单位*##dw", "位号##wh", "备注##bz", "替代组编码##tdzbm", "替代策略##tdcl", "发料方式##tdfs",
     "物料优选等级##tdyxj", "领料方式*##flfs", "是否参与MRP运算*##sfcymrpys", "是否跳层*##sftc",
 ]
-NC_HEADERS = ["原始行号", "位号", "子项编码", "物料名称", "型号", "描述", "Value", "过滤原因"]
+NC_HEADERS = ["原始行号", "位号", "子项编码", "物料名称", "型号", "描述", "Value", "过滤原因", "判定类型"]
 CONFLICT_FIELDS = ("name", "model", "desc", "grade", "unit")
-_PROCESS_MATERIAL_RE = re.compile(
-    r"(?:^|[\s,;/()（）])"
-    r"(测试点|跳线|安装孔|定位孔|TEST\s*POINT|MOUNTING\s*HOLE|MOUNTINGHOLE|FIDUCIAL|SCREW)"
-    r"(?=$|[\s,;/()（）])",
-    re.IGNORECASE,
-)
+_PROCESS_MATERIAL_RE = PROCESS_MATERIAL_RE
 _NUMERIC_VALUE_RE = re.compile(
     r"^\d+(?:\.\d+)?(?:\s*[RrKkMmGgTtUuNnPpFfHhVv]\d*)?"
     r"\s*(?:Ω|ohms?|%|℃|°C|[VvAaWwFfHh])?$",
     re.IGNORECASE,
 )
-
-
 def _looks_numeric(value: str) -> bool:
     """Return whether a value is a numeric component specification."""
     return bool(_NUMERIC_VALUE_RE.fullmatch(value.strip()))
@@ -78,6 +80,7 @@ class ParsedSource:
     source_path: Path
     raw_rows: list[dict[str, str]]
     row_numbers: list[int]
+    normalized_rows: tuple[NormalizedBomRow, ...] = ()
 
 
 def normalize_ref(ref: str) -> str:
@@ -115,10 +118,22 @@ def _cell(
     key: str,
     merged_lookup: dict[tuple[int, int], object] | None = None,
 ) -> str:
+    value, _ = _cell_details(ws, row, mapping, key, merged_lookup)
+    return value
+
+
+def _cell_details(
+    ws,
+    row: int,
+    mapping: dict[str, int],
+    key: str,
+    merged_lookup: dict[tuple[int, int], object] | None = None,
+) -> tuple[str, str]:
     col = mapping.get(key)
     if not col:
-        return ""
+        return "", "cell"
     raw_value = ws.cell(row, col).value
+    provenance = "cell"
     source_field = {
         "desc": "description",
         "pcb_footprint": "package",
@@ -127,7 +142,9 @@ def _cell(
     }.get(key, key)
     if raw_value is None and merged_lookup is not None and source_field in INHERIT_FIELDS:
         raw_value = merged_lookup.get((row, col))
-    return str(raw_value or "").strip()
+        if raw_value is not None:
+            provenance = "merged_inherit"
+    return str(raw_value or "").strip(), provenance
 
 
 def has_shield_refs(refs: list[str]) -> bool:
@@ -142,8 +159,7 @@ def _material_text(row: dict[str, str]) -> str:
 
 
 def _matches_process_material(row: dict[str, str]) -> str | None:
-    match = _PROCESS_MATERIAL_RE.search(_material_text(row))
-    return match.group(1) if match else None
+    return process_keyword(_material_text(row)) or None
 
 
 def _process_candidate_key(part_number: str, refs: list[str]) -> str:
@@ -152,6 +168,8 @@ def _process_candidate_key(part_number: str, refs: list[str]) -> str:
 
 
 def _classify_no_partnumber(refs: list[str], row: dict[str, str]) -> str:
+    if row.get("_missing_part_number_decision") == "exclude":
+        return "用户确认不装（空编码）"
     upper = [ref.upper() for ref in refs]
     value = str(row.get("value") or "").strip()
     if NC_VALUE_RE.fullmatch(value):
@@ -180,16 +198,26 @@ def _normalize_shield_row(row: dict[str, str], refs: list[str]) -> None:
 
 def _processing_row(row: dict[str, str], refs: list[str]) -> dict[str, str]:
     normalized = dict(row)
+    raw_flags = normalized.get("_field_flags")
+    field_flags = raw_flags if isinstance(raw_flags, dict) else {}
+    value_flags = set(field_flags.get("value") or [])
+    safe_value = not value_flags.intersection({
+        "code_shape",
+        "nc_keyword",
+        "process_keyword",
+        "placeholder_residue",
+        "mojibake",
+    })
     if not normalized.get("name"):
         normalized["name"] = normalized.get("part_type") or ""
     if not normalized.get("model"):
         normalized["model"] = (
-            normalized.get("value")
+            (normalized.get("value") if safe_value else "")
             or normalized.get("pcb_package")
             or normalized.get("pcb_footprint")
             or ""
         )
-    if not normalized.get("desc"):
+    if not normalized.get("desc") and safe_value:
         normalized["desc"] = normalized.get("value") or ""
     _normalize_shield_row(normalized, refs)
     return normalized
@@ -201,6 +229,11 @@ def exclusion_reason(
     include_shields: bool = False,
     process_material_keeps: set[str] | None = None,
 ) -> str | None:
+    placement_action = str(row.get("_placement_action") or "").strip().lower()
+    if placement_action == "exclude":
+        return str(row.get("_placement_reason") or "用户确认不装")
+    if placement_action in {"keep", "keep_as_is"}:
+        return None
     part_number = str(row.get("part_number") or "").strip()
     if not part_number:
         return _classify_no_partnumber(refs, row)
@@ -221,6 +254,19 @@ def exclusion_reason(
     return None
 
 
+def _exclusion_reason_kind(row: dict[str, str], reason: str) -> str:
+    explicit = str(row.get("_placement_reason_kind") or "").strip()
+    if explicit:
+        return explicit
+    if reason.startswith("NC/未贴"):
+        return "system_nc"
+    if reason.startswith("工艺件"):
+        return "process_default"
+    if reason.startswith("用户确认不装"):
+        return "user_excluded"
+    return "legacy_filter"
+
+
 def parse_source(path: Path) -> ParsedSource:
     with open_bom_workbook(path, data_only=True) as wb:
         ws = wb.active
@@ -228,13 +274,30 @@ def parse_source(path: Path) -> ParsedSource:
         header_row, mapping = detect_header(ws)
         rows: list[dict[str, str]] = []
         row_numbers: list[int] = []
+        normalized_rows: list[NormalizedBomRow] = []
         for row_num in range(header_row + 1, ws.max_row + 1):
-            row = {key: _cell(ws, row_num, mapping, key, merged_lookup) for key in SRC_ALIASES}
+            details = {
+                key: _cell_details(ws, row_num, mapping, key, merged_lookup)
+                for key in SRC_ALIASES
+            }
+            row = {key: value for key, (value, _) in details.items()}
             if not any(row.values()):
                 continue
+            refs = [normalize_ref(ref) for ref in split_refs(row.get("reference"))]
             rows.append(row)
             row_numbers.append(row_num)
-        return ParsedSource(source_path=Path(path), raw_rows=rows, row_numbers=row_numbers)
+            normalized_rows.append(build_normalized_row(
+                row_num,
+                refs,
+                row,
+                {key: provenance for key, (_, provenance) in details.items()},
+            ))
+        return ParsedSource(
+            source_path=Path(path),
+            raw_rows=rows,
+            row_numbers=row_numbers,
+            normalized_rows=tuple(normalized_rows),
+        )
 
 
 def filter_rows(
@@ -262,6 +325,7 @@ def filter_rows(
                 row.get("desc"),
                 row.get("value"),
                 reason,
+                _exclusion_reason_kind(row, reason),
             ])
             continue
         rows.append(_processing_row(row, refs))
@@ -299,6 +363,170 @@ def detect_shield_candidates(source_rows: list[dict[str, str]]) -> list[dict[str
             }
         )
     return candidates
+
+
+def _clean_candidate_field(value: object) -> str:
+    text = str(value or "").strip()
+    if not text or text.startswith("{") or "\ufffd" in text:
+        return ""
+    return text
+
+
+def _suggest_part_number(row: dict[str, str]) -> str:
+    config = classification_config()
+    for field in CODE_CANDIDATE_FIELDS:
+        if field == "part_number":
+            continue
+        value = _clean_candidate_field(row.get(field))
+        if value and code_shape_matches(value, config):
+            return value
+    return ""
+
+
+def _missing_candidate_signature(row: dict[str, str], suggested_code: str) -> tuple[str, ...]:
+    if suggested_code:
+        return ("suggested", suggested_code.upper())
+    return (
+        "properties",
+        *(
+            _clean_candidate_field(row.get(field)).casefold()
+            for field in (
+                "value",
+                "name",
+                "model",
+                "desc",
+                "pcb_footprint",
+                "pcb_package",
+                "source_package",
+                "source_part",
+            )
+        ),
+    )
+
+
+def detect_missing_part_number_candidates(parsed: ParsedSource) -> list[dict[str, object]]:
+    """Group blank-code rows that still carry evidence of a physical material."""
+    grouped: "OrderedDict[tuple[str, ...], dict[str, object]]" = OrderedDict()
+    for row_num, row in zip(parsed.row_numbers, parsed.raw_rows):
+        if str(row.get("part_number") or "").strip() or row.get("_missing_part_number_decision"):
+            continue
+        refs = sorted({normalize_ref(ref) for ref in split_refs(row.get("reference"))}, key=natural_key)
+        value = str(row.get("value") or "").strip()
+        if not refs or NC_VALUE_RE.fullmatch(value):
+            continue
+
+        suggested_code = _suggest_part_number(row)
+        evidence: list[str] = []
+        if suggested_code:
+            evidence.append("Value/型号疑似物料编码")
+        if any(_clean_candidate_field(row.get(field)) for field in ("name", "model", "desc")):
+            evidence.append("存在名称、型号或描述")
+        if any(
+            _clean_candidate_field(row.get(field))
+            for field in ("pcb_footprint", "pcb_package", "source_package", "source_part")
+        ):
+            evidence.append("存在封装或原理图库信息")
+        if not evidence:
+            continue
+
+        signature = _missing_candidate_signature(row, suggested_code)
+        candidate = grouped.setdefault(
+            signature,
+            {
+                "row_numbers": [],
+                "refs": set(),
+                "suggested_code": suggested_code,
+                "name": _clean_candidate_field(row.get("name")),
+                "model": _clean_candidate_field(row.get("model")),
+                "desc": _clean_candidate_field(row.get("desc")),
+                "value": value,
+                "pcb_footprint": _clean_candidate_field(row.get("pcb_footprint") or row.get("pcb_package")),
+                "source_package": _clean_candidate_field(row.get("source_package")),
+                "evidence": [],
+            },
+        )
+        candidate["row_numbers"].append(row_num)
+        candidate["refs"].update(refs)
+        for item in evidence:
+            if item not in candidate["evidence"]:
+                candidate["evidence"].append(item)
+        for field in ("name", "model", "desc", "value", "pcb_footprint", "source_package"):
+            if not candidate[field]:
+                candidate[field] = _clean_candidate_field(row.get(field))
+
+    candidates: list[dict[str, object]] = []
+    for candidate in grouped.values():
+        refs = sorted(candidate["refs"], key=natural_key)
+        row_numbers = sorted(candidate["row_numbers"])
+        suggested_code = str(candidate["suggested_code"] or "")
+        candidates.append(
+            {
+                **candidate,
+                "key": f"rows:{','.join(str(value) for value in row_numbers)}",
+                "row_numbers": row_numbers,
+                "refs": refs,
+                "position_count": len(refs),
+                "recommended_action": "keep" if suggested_code else "review",
+            }
+        )
+    return candidates
+
+
+def apply_missing_part_number_resolutions(
+    parsed: ParsedSource,
+    resolutions: dict[str, object],
+) -> tuple[ParsedSource, dict[str, int]]:
+    candidates = detect_missing_part_number_candidates(parsed)
+    missing_keys = [str(candidate["key"]) for candidate in candidates if candidate["key"] not in resolutions]
+    if missing_keys:
+        raise ValueError(f"仍有 {len(missing_keys)} 组空编码物料未确认。")
+
+    rows = [dict(row) for row in parsed.raw_rows]
+    row_indexes = {row_num: index for index, row_num in enumerate(parsed.row_numbers)}
+    summary = {
+        "missing_part_number_candidates": len(candidates),
+        "missing_part_number_positions": sum(int(candidate["position_count"]) for candidate in candidates),
+        "missing_part_number_kept": 0,
+        "missing_part_number_excluded": 0,
+    }
+    for candidate in candidates:
+        key = str(candidate["key"])
+        resolution = resolutions.get(key)
+        if not isinstance(resolution, dict):
+            raise ValueError(f"空编码物料 {','.join(candidate['refs'])} 的确认结果无效。")
+        action = str(resolution.get("action") or "").strip().lower()
+        if action not in {"keep", "exclude"}:
+            raise ValueError(f"请选择空编码物料 {','.join(candidate['refs'])} 是纳入 BOM 还是确认不装。")
+
+        if action == "keep":
+            part_number = str(resolution.get("part_number") or "").strip()
+            if not part_number:
+                raise ValueError(f"空编码物料 {','.join(candidate['refs'])} 选择纳入 BOM 时必须填写子项编码。")
+            resolved_fields = {
+                field: _clean_candidate_field(resolution.get(field))
+                for field in ("name", "model", "desc", "grade", "unit")
+            }
+            if not any(resolved_fields[field] for field in ("name", "model", "desc")):
+                raise ValueError(f"空编码物料 {','.join(candidate['refs'])} 至少需要填写名称、型号或描述之一。")
+            summary["missing_part_number_kept"] += 1
+        else:
+            part_number = ""
+            resolved_fields = {}
+            summary["missing_part_number_excluded"] += 1
+
+        for row_num in candidate["row_numbers"]:
+            row = rows[row_indexes[int(row_num)]]
+            row["_missing_part_number_decision"] = action
+            if action == "exclude":
+                continue
+            row["part_number"] = part_number
+            for field, value in resolved_fields.items():
+                if value:
+                    row[field] = value
+            if str(row.get("value") or "").strip() == part_number:
+                row["value"] = ""
+
+    return ParsedSource(parsed.source_path, rows, list(parsed.row_numbers), parsed.normalized_rows), summary
 
 
 def detect_process_material_candidates(source_rows: list[dict[str, str]]) -> list[dict[str, object]]:
@@ -596,6 +824,7 @@ def build_records(
             groups[key] = {
                 "code": code,
                 "refs": set(),
+                "user_touched": set(),
                 **{field: [] for field in (*CONFLICT_FIELDS, *BOM_OPTIONAL_FIELDS)},
             }
         for field in CONFLICT_FIELDS:
@@ -604,6 +833,9 @@ def build_records(
             if field not in CONFLICT_FIELDS:
                 groups[key][field].append(row.get(field, "").strip())
         groups[key]["refs"].update(refs)
+        raw_touched = row.get("_user_touched")
+        if isinstance(raw_touched, (list, tuple, set)):
+            groups[key]["user_touched"].update(str(field) for field in raw_touched)
     records = []
     for group in groups.values():
         refs = sorted(group["refs"], key=natural_key)
@@ -616,6 +848,7 @@ def build_records(
             "grade": selected[3] if selected else _representative(group["grade"], "grade"),
             "refs": refs,
             "qty": len(refs),
+            "user_touched": sorted(group["user_touched"]),
         }
         for field in BOM_OPTIONAL_FIELDS:
             if selected is not None and field in CONFLICT_FIELDS:
@@ -638,6 +871,7 @@ def _extra_records(extras: list[dict[str, object]] | None) -> list[dict[str, obj
         out.append({
             "code": code, "name": str(extra.get("name") or "").strip(), "model": str(extra.get("model") or "").strip(),
             "desc": str(extra.get("desc") or "").strip(), "grade": "", "refs": refs, "qty": qty,
+            "user_touched": [],
             **{field: FIELD_DEFAULTS.get(field, "") for field in BOM_OPTIONAL_FIELDS},
         })
     return out
@@ -818,14 +1052,27 @@ def process(
     conflict_choices: dict[str, object] | None = None,
     confirm_shields: bool = False,
     process_material_keeps: set[str] | None = None,
+    placement_summary: dict[str, object] | None = None,
 ) -> dict[str, object]:
     source_path = parsed.source_path
     name = (name or source_path.stem).strip() or "BOM"
     parent_code = (parent_code or "").strip()
     parent_desc = (parent_desc or name).strip()
 
-    shield_candidates = detect_shield_candidates(parsed.raw_rows)
-    process_material_candidates = detect_process_material_candidates(parsed.raw_rows)
+    if placement_summary:
+        category_counts = placement_summary.get("category_counts")
+        state_counts = placement_summary.get("state_counts")
+        category_counts = category_counts if isinstance(category_counts, dict) else {}
+        state_counts = state_counts if isinstance(state_counts, dict) else {}
+        shield_candidates: list[dict[str, object]] = []
+        process_material_candidates: list[dict[str, object]] = []
+        shield_candidate_count = int(category_counts.get("shield") or 0)
+        process_material_candidate_count = int(state_counts.get("suspected_process") or 0)
+    else:
+        shield_candidates = detect_shield_candidates(parsed.raw_rows)
+        process_material_candidates = detect_process_material_candidates(parsed.raw_rows)
+        shield_candidate_count = len(shield_candidates)
+        process_material_candidate_count = len(process_material_candidates)
     source_rows, excluded = filter_rows(
         parsed,
         include_shields=confirm_shields,
@@ -869,15 +1116,17 @@ def process(
             "records": len(records),
             "total_positions": sum(rec["qty"] for rec in records),
             "excluded": len(excluded),
+            "nc_reason_counts": dict(Counter(str(row[8] or "legacy_filter") for row in excluded)),
             "extras": len(_extra_records(extras)),
             "conflicts": len(conflicts),
             "recommended_conflicts": sum(1 for conflict in conflicts if conflict.get("high_confidence")),
             "unresolved_conflicts": len(unresolved_conflicts),
             "merge_conflicts": merge_conflicts,
-            "shield_candidates": len(shield_candidates),
+            "shield_candidates": shield_candidate_count,
             "confirm_shields": confirm_shields,
-            "process_material_candidates": len(process_material_candidates),
+            "process_material_candidates": process_material_candidate_count,
             "process_material_keeps": len(process_material_keeps or set()),
+            "placement_review": dict(placement_summary or {}),
         },
         "conflicts": conflicts,
         "unresolved_conflicts": unresolved_conflicts,

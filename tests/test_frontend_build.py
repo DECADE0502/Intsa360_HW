@@ -529,15 +529,17 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn("buildRecommendedConflictChoices", wizard)
         self.assertIn("conflict_choices: choices", wizard)
 
-    def test_bom_process_wizard_confirms_shield_bracket_candidates(self) -> None:
+    def test_bom_process_wizard_uses_unified_placement_review_for_shields(self) -> None:
         wizard = (ROOT / "frontend" / "src" / "tools" / "BomProcessWizard.tsx").read_text(encoding="utf-8")
+        placement = (ROOT / "frontend" / "src" / "tools" / "PlacementReview.tsx").read_text(encoding="utf-8")
 
-        self.assertIn("shield_bracket_candidates", wizard)
-        self.assertIn("confirm_shields", wizard)
-        self.assertIn("shield_candidates", wizard)
+        self.assertIn('pres.reason === "placement_review"', wizard)
+        self.assertIn("placement_resolutions", wizard)
+        self.assertNotIn("confirm_shields", wizard)
+        self.assertIn('{ key: "shield", label: "屏蔽支架" }', placement)
         self.assertIn("屏蔽支架、NC、等级、位号类型、硬件版本敏感物料", wizard)
         self.assertNotIn("屏蔽支架/屏蔽罩", wizard)
-        self.assertIn("确认作为屏蔽支架进入 BOM", wizard)
+        self.assertIn("按审查结果继续", placement)
 
     def test_bom_wizard_does_not_treat_successful_merge_summary_as_pending_conflict(self) -> None:
         wizard = (ROOT / "frontend" / "src" / "tools" / "BomProcessWizard.tsx").read_text(encoding="utf-8")
@@ -564,6 +566,8 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn(".process-grid", css)
         self.assertIn(".conflict-workbench", css)
         self.assertIn(".conflict-index-list", css)
+        self.assertIn(".placement-workbench", css)
+        self.assertIn(".placement-field-compare", css)
         self.assertIn(".variant-field--wide", css)
         self.assertIn("grid-template-columns", css)
 
