@@ -8,7 +8,7 @@ from app.backend.parsers.board_outline import resolve_board_outline
 from app.backend.parsers.cadence_pst import parse_net_file, parse_part_file
 from app.backend.parsers.refs import natural_key
 from app.backend.parsers.xy import parse_xy_file
-from app.backend.tools import bom_process
+from app.backend.tools.bom_decisions import DecisionManifest, load_decision_manifest
 from app.backend.tools.common import (
     USER_INPUT_EXCEPTIONS,
     _output_dir,
@@ -43,8 +43,9 @@ class NcEvidence:
     candidate_refs: set[str]
     unverified_refs: set[str]
     conflict_refs: set[str]
+    non_nc_refs: set[str]
     inference_mode: str
-    explicit_summary_used: bool
+    decision_manifest_used: bool
 
 
 def _infer_nc_evidence(
@@ -53,7 +54,8 @@ def _infer_nc_evidence(
     bom_refs: set[str],
     netlist_refs: set[str] | None,
     explicit_nc_refs: set[str],
-    explicit_summary_used: bool,
+    explicit_non_nc_refs: set[str],
+    decision_manifest_used: bool,
 ) -> NcEvidence:
     missing_from_bom = xy_refs - bom_refs
     conflicts = explicit_nc_refs & bom_refs
@@ -61,21 +63,23 @@ def _infer_nc_evidence(
         confirmed = missing_from_bom & explicit_nc_refs
         return NcEvidence(
             confirmed_refs=confirmed,
-            candidate_refs=missing_from_bom - explicit_nc_refs,
+            candidate_refs=missing_from_bom - explicit_nc_refs - explicit_non_nc_refs,
             unverified_refs=set(),
             conflict_refs=conflicts,
+            non_nc_refs=missing_from_bom & explicit_non_nc_refs,
             inference_mode="without_netlist",
-            explicit_summary_used=explicit_summary_used,
+            decision_manifest_used=decision_manifest_used,
         )
 
     confirmed = missing_from_bom & (netlist_refs | explicit_nc_refs)
     return NcEvidence(
         confirmed_refs=confirmed,
         candidate_refs=set(),
-        unverified_refs=missing_from_bom - netlist_refs - explicit_nc_refs,
+        unverified_refs=missing_from_bom - netlist_refs - explicit_nc_refs - explicit_non_nc_refs,
         conflict_refs=conflicts,
+        non_nc_refs=missing_from_bom & explicit_non_nc_refs,
         inference_mode="with_netlist",
-        explicit_summary_used=explicit_summary_used,
+        decision_manifest_used=decision_manifest_used,
     )
 
 
@@ -86,18 +90,10 @@ def _find_xy_file(folder: Path) -> Path:
     raise ValueError("SMT 文件夹缺少 XY.txt")
 
 
-def _find_nc_summary(processed_bom: Path) -> Path | None:
-    candidates = [
-        path
-        for path in processed_bom.parent.glob("*.xlsx")
-        if path != processed_bom and "nc未贴" in path.name.casefold()
-    ]
-    return sorted(candidates, key=lambda path: path.name.casefold())[0] if candidates else None
-
-
 def _bom_by_ref(
     processed_bom: Path,
-) -> tuple[dict[str, dict[str, object]], dict[str, dict[str, object]], bool]:
+    manifest: DecisionManifest | None,
+) -> tuple[dict[str, dict[str, object]], dict[str, dict[str, object]], dict[str, dict[str, object]]]:
     rows = _read_bom_rows(processed_bom)
     by_ref = {
         str(ref).upper(): row
@@ -106,38 +102,47 @@ def _bom_by_ref(
         if str(ref).strip()
     }
     explicit_nc_by_ref: dict[str, dict[str, object]] = {}
-    nc_summary = _find_nc_summary(processed_bom)
-    if nc_summary:
-        parsed = bom_process.parse_source(nc_summary)
-        for row in parsed.raw_rows:
-            refs = [ref.upper() for ref in bom_process.split_refs(row.get("reference"))]
+    explicit_non_nc_by_ref: dict[str, dict[str, object]] = {}
+    if manifest is not None:
+        for ref, decision in manifest.by_ref().items():
+            if str(decision.get("destination") or "") != "non_smt":
+                continue
+            material = decision.get("material_snapshot")
+            snapshot = material if isinstance(material, dict) else {}
             normalized_row: dict[str, object] = {
-                "refs": refs,
-                "part_number": row.get("part_number", ""),
-                "description": row.get("desc", ""),
-                "model": row.get("model", ""),
-                "name": row.get("name", ""),
-                "grade": row.get("grade", ""),
-                "package": row.get("pcb_footprint") or row.get("pcb_package") or row.get("source_package") or "",
+                "refs": [ref],
+                "part_number": snapshot.get("part_number", ""),
+                "description": snapshot.get("desc", ""),
+                "model": snapshot.get("model", ""),
+                "name": snapshot.get("name", ""),
+                "grade": snapshot.get("grade", ""),
+                "package": snapshot.get("pcb_footprint") or snapshot.get("pcb_package") or "",
+                "exclusion_kind": decision.get("exclusion_kind", ""),
+                "role": decision.get("role", ""),
+                "subtype": decision.get("subtype", ""),
             }
-            for ref in refs:
+            if str(decision.get("exclusion_kind") or "") == "nc":
                 explicit_nc_by_ref[ref] = normalized_row
-    return by_ref, explicit_nc_by_ref, nc_summary is not None
+            else:
+                explicit_non_nc_by_ref[ref] = normalized_row
+    return by_ref, explicit_nc_by_ref, explicit_non_nc_by_ref
 
 
 def _component_payload(
     component: object,
     bom_row: dict[str, object] | None,
-    explicit_nc_row: dict[str, object] | None,
+    non_smt_row: dict[str, object] | None,
     evidence: NcEvidence,
 ) -> dict[str, object]:
     ref = str(component.ref)
     normalized_ref = ref.upper()
-    row = bom_row or explicit_nc_row or {}
+    row = bom_row or non_smt_row or {}
     if bom_row is not None:
         status = "installed"
     elif normalized_ref in evidence.confirmed_refs:
         status = "nc"
+    elif normalized_ref in evidence.non_nc_refs:
+        status = "non_smt"
     elif normalized_ref in evidence.candidate_refs:
         status = "candidate_nc"
     else:
@@ -217,10 +222,10 @@ def _compute_sanity(
     xy_refs = set(component_by_ref)
     bom_refs = set(bom_by_ref)
     netlist_refs = set(netlist_by_ref)
-    confirmed_nc_refs = {
+    confirmed_non_installed_refs = {
         ref
         for ref, component in component_by_ref.items()
-        if str(_component_value(component, "status") or "") == "nc"
+        if str(_component_value(component, "status") or "") in {"nc", "non_smt"}
     }
 
     missing_layout = [
@@ -237,7 +242,7 @@ def _compute_sanity(
             "note": f"{ref} 在 {'XY 布局' if ref in xy_refs else '网表'}中存在，但处理后 BOM 中没有记录。",
             "severity": "high" if ref in xy_refs else "medium",
         }
-        for ref in ((xy_refs | netlist_refs) - bom_refs) - confirmed_nc_refs
+        for ref in ((xy_refs | netlist_refs) - bom_refs) - confirmed_non_installed_refs
     ]
     missing_netlist = [
         {
@@ -301,6 +306,7 @@ def _build_fai_table(components: list[object]) -> dict[str, object]:
             "nc": ("NC，不贴装", "网表/NC 证据确认"),
             "candidate_nc": ("候选 NC，需确认", "按 XY - 成品 BOM 推导"),
             "unverified": ("⚠ XY 独有", "检查 XY、网表与 BOM"),
+            "non_smt": ("非贴片项", "BOM 决策清单已确认非 NC 排除"),
         }.get(status)
         if status_text:
             part_number, status_note = status_text
@@ -384,6 +390,14 @@ def _run_smt_layout_impl(root: Path, params: dict[str, object]) -> dict[str, obj
         raise ValueError(error)
     assert smt_folder is not None and processed_bom is not None
 
+    decision_manifest: DecisionManifest | None = None
+    if str(params.get("decision_manifest") or "").strip():
+        manifest_path, error = _required_file(params, "decision_manifest", "BOM 决策清单")
+        if error:
+            raise ValueError(error)
+        assert manifest_path is not None
+        decision_manifest = load_decision_manifest(manifest_path)
+
     netlist_folder: Path | None = None
     if str(params.get("netlist_folder") or "").strip() or isinstance(params.get("netlist_folder"), list):
         netlist_folder, error = _required_folder(params, "netlist_folder", "Cadence 网表文件夹")
@@ -399,7 +413,7 @@ def _run_smt_layout_impl(root: Path, params: dict[str, object]) -> dict[str, obj
         outline_bbox_mm=outline_bbox,
         outline_dxf_layer=str(params.get("outline_dxf_layer") or "").strip() or None,
     )
-    bom_by_ref, explicit_nc_by_ref, explicit_summary_used = _bom_by_ref(processed_bom)
+    bom_by_ref, explicit_nc_by_ref, explicit_non_nc_by_ref = _bom_by_ref(processed_bom, decision_manifest)
     netlist_parts: dict[str, str] | None = None
     if netlist_folder is not None:
         parse_net_file(netlist_folder)
@@ -411,13 +425,14 @@ def _run_smt_layout_impl(root: Path, params: dict[str, object]) -> dict[str, obj
         bom_refs=set(bom_by_ref),
         netlist_refs=set(netlist_parts) if netlist_parts is not None else None,
         explicit_nc_refs=set(explicit_nc_by_ref),
-        explicit_summary_used=explicit_summary_used,
+        explicit_non_nc_refs=set(explicit_non_nc_by_ref),
+        decision_manifest_used=decision_manifest is not None,
     )
     components = [
         _component_payload(
             component,
             bom_by_ref.get(component.ref.upper()),
-            explicit_nc_by_ref.get(component.ref.upper()),
+            explicit_nc_by_ref.get(component.ref.upper()) or explicit_non_nc_by_ref.get(component.ref.upper()),
             evidence,
         )
         for component in parsed_components
@@ -450,8 +465,10 @@ def _run_smt_layout_impl(root: Path, params: dict[str, object]) -> dict[str, obj
             "candidate_refs": sorted(evidence.candidate_refs, key=natural_key),
             "unverified_refs": sorted(evidence.unverified_refs, key=natural_key),
             "conflict_refs": sorted(evidence.conflict_refs, key=natural_key),
+            "non_nc_refs": sorted(evidence.non_nc_refs, key=natural_key),
             "inference_mode": evidence.inference_mode,
-            "explicit_summary_used": evidence.explicit_summary_used,
+            "decision_manifest_used": evidence.decision_manifest_used,
+            "explicit_summary_used": False,
         },
         "sanity": sanity,
         "fai_table": fai_table,

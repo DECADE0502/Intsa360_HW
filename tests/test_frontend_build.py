@@ -510,24 +510,28 @@ class FrontendBuildTests(unittest.TestCase):
 
     def test_bom_conflict_review_supports_user_selected_variants(self) -> None:
         wizard = (ROOT / "frontend" / "src" / "tools" / "BomProcessWizard.tsx").read_text(encoding="utf-8")
+        choices = (ROOT / "frontend" / "src" / "tools" / "bomConflictChoices.ts").read_text(encoding="utf-8")
 
         self.assertIn("merge_conflicts", wizard)
         self.assertIn("conflict_choices", wizard)
         self.assertIn('pres?.reason === "part_property_conflicts"', wizard)
         self.assertIn("conflicts.length", wizard)
         self.assertIn("onApply", wizard)
-        self.assertIn("onSplit", wizard)
-        self.assertIn("CConflict", wizard)
         self.assertIn("conflictChoices", wizard)
+        for action in ("select_variant", "split_refs", "move_non_smt", "return_to_capture"):
+            self.assertIn(action, choices)
+            self.assertIn(action, wizard)
+        self.assertIn("conflictChoiceComplete", wizard)
 
     def test_bom_conflict_review_supports_recommended_merge_without_manual_choices(self) -> None:
         wizard = (ROOT / "frontend" / "src" / "tools" / "BomProcessWizard.tsx").read_text(encoding="utf-8")
 
         self.assertIn("applyRecommendedMerge", wizard)
         self.assertIn("onRecommendedMerge", wizard)
-        self.assertIn("采用全部推荐并继续", wizard)
+        self.assertIn("采纳高置信推荐", wizard)
         self.assertIn("buildRecommendedConflictChoices", wizard)
         self.assertIn("conflict_choices: choices", wizard)
+        self.assertIn("剩余 ${unresolved.length} 项需要人工处理", wizard)
 
     def test_bom_process_wizard_uses_unified_placement_review_for_shields(self) -> None:
         wizard = (ROOT / "frontend" / "src" / "tools" / "BomProcessWizard.tsx").read_text(encoding="utf-8")
@@ -536,9 +540,12 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn('pres.reason === "placement_review"', wizard)
         self.assertIn("placement_resolutions", wizard)
         self.assertNotIn("confirm_shields", wizard)
-        self.assertIn('{ key: "shield", label: "屏蔽支架" }', placement)
-        self.assertIn("屏蔽支架、NC、等级、位号类型、硬件版本敏感物料", wizard)
-        self.assertNotIn("屏蔽支架/屏蔽罩", wizard)
+        self.assertIn('{ label: "屏蔽支架", value: "bracket" }', placement)
+        self.assertIn('{ label: "屏蔽罩", value: "cover" }', placement)
+        self.assertIn('{ label: "其他", value: "other" }', placement)
+        self.assertIn("value={resolution.subtype}", placement)
+        self.assertNotIn("value={resolution.subtype || undefined}", placement)
+        self.assertIn("支架自动进入贴片区；屏蔽罩自动作为范围排除", placement)
         self.assertIn("按审查结果继续", placement)
 
     def test_bom_wizard_does_not_treat_successful_merge_summary_as_pending_conflict(self) -> None:
@@ -555,20 +562,22 @@ class FrontendBuildTests(unittest.TestCase):
 
     def test_bom_process_review_uses_horizontal_workspace(self) -> None:
         wizard = (ROOT / "frontend" / "src" / "tools" / "BomProcessWizard.tsx").read_text(encoding="utf-8")
+        placement = (ROOT / "frontend" / "src" / "tools" / "PlacementReview.tsx").read_text(encoding="utf-8")
         css = (ROOT / "frontend" / "src" / "styles.css").read_text(encoding="utf-8")
 
-        self.assertIn("process-grid", wizard)
         self.assertIn("conflict-main", wizard)
         self.assertIn("conflict-workbench", wizard)
         self.assertIn("activeConflictCode", wizard)
         self.assertIn("conflict-index-list", wizard)
         self.assertIn("renderFullRefs", wizard)
-        self.assertIn(".process-grid", css)
         self.assertIn(".conflict-workbench", css)
         self.assertIn(".conflict-index-list", css)
-        self.assertIn(".placement-workbench", css)
-        self.assertIn(".placement-field-compare", css)
-        self.assertIn(".variant-field--wide", css)
+        self.assertIn("placement-dual-workbench", placement)
+        self.assertIn("placement-evidence-pane", placement)
+        self.assertIn("placement-zone-smt", css)
+        self.assertIn("placement-zone-non_smt", css)
+        self.assertIn("placement-raw-grid", css)
+        self.assertIn("placement-edit-grid", css)
         self.assertIn("grid-template-columns", css)
 
     def test_bom_wizard_does_not_blank_when_risk_step_has_no_process_file(self) -> None:

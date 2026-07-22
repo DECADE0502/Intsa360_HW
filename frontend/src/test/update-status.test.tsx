@@ -23,6 +23,11 @@ function idleStatus() {
     interrupted: false,
     job_id: "",
     log_tail: [],
+    started_at: "",
+    updated_at: "",
+    detail_current: 0,
+    detail_total: 0,
+    detail_unit: "",
     message: "",
     phase: "idle",
     progress: 0,
@@ -145,5 +150,57 @@ describe("UpdateStatus", () => {
     } finally {
       releasePoll?.();
     }
+  });
+
+  it("shows elapsed time, file counts, and recent update activity", async () => {
+    const started = new Date(Date.now() - 65_000).toISOString();
+    const status = {
+      ...runningStatus(),
+      cancellable: false,
+      detail_current: 42,
+      detail_total: 100,
+      detail_unit: "files",
+      log_tail: ["正在复核候选版本文件。", "正在校验复制后的完整版本。"],
+      message: "正在校验复制后的完整版本。",
+      phase: "committing",
+      progress: 77,
+      started_at: started,
+      updated_at: new Date().toISOString(),
+    };
+    server.use(
+      http.get("/api/update/check", () =>
+        HttpResponse.json({
+          can_update: false,
+          display_remote: "0.5.3",
+          download_strategy: "none",
+          error: "",
+          expected_sha256: "",
+          has_update: false,
+          installed_runtime: true,
+          integrity_status: "verified",
+          integrity_verified: true,
+          message: "已是最新版本。",
+          minimum_launcher_version: "",
+          notice_status: "ok",
+          remote_revision: "a".repeat(40),
+          remote_revision_status: "same",
+          remote_status: "ok",
+          remote_version: "0.5.3",
+          revision: "a".repeat(40),
+          status: "ok",
+          update_notice: {},
+          update_reason: "up_to_date",
+          version: "0.5.3",
+        }),
+      ),
+      http.get("/api/update/status", () => HttpResponse.json(status)),
+    );
+
+    renderWithProviders(<UpdateStatus version="0.5.3" />);
+
+    expect(await screen.findByText("执行明细")).toBeInTheDocument();
+    expect(screen.getByText(/已用时 1 分/)).toBeInTheDocument();
+    expect(screen.getByText("文件校验 42 / 100")).toBeInTheDocument();
+    expect(screen.getAllByText("正在校验复制后的完整版本。").length).toBeGreaterThan(0);
   });
 });

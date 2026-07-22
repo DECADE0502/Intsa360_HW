@@ -4,14 +4,23 @@ import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { HttpResponse, http } from "msw";
 
 import { SmtLayoutPane } from "../tools/SmtLayoutPane";
 import { renderWithProviders } from "./render";
+import { server } from "./server";
 
 
 describe("SMT layout pane skeleton", () => {
   beforeEach(() => {
     window.localStorage.clear();
+    server.use(
+      http.get("/api/assets", () => HttpResponse.json({
+        status: "ok",
+        groups: { processed_bom: [] },
+        summary: { processed_bom: 0 },
+      })),
+    );
   });
 
   afterEach(() => {
@@ -49,7 +58,7 @@ describe("SMT layout pane skeleton", () => {
     expect(screen.getByRole("button", { name: "选择 PLM/OA BOM" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "选择网表目录" })).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "SMT 资料文件夹" })).not.toBeInTheDocument();
-    expect(container.querySelectorAll('input[type="file"]')).toHaveLength(3);
+    expect(container.querySelectorAll('input[type="file"]')).toHaveLength(4);
   });
 
   it("uploads selected sources and runs with server-side paths", async () => {
@@ -106,7 +115,7 @@ describe("SMT layout pane skeleton", () => {
 
     await user.upload(inputs[0], [new File(["VERSION=2.0\nUUNITS=MM\n"], "XY.txt"), new File(["dxf"], "outline.dxf")]);
     await user.upload(inputs[1], new File(["bom"], "PLM.xlsx"));
-    await user.upload(inputs[2], [new File(["net"], "pstxnet.dat"), new File(["parts"], "pstxprt.dat")]);
+    await user.upload(inputs[3], [new File(["net"], "pstxnet.dat"), new File(["parts"], "pstxprt.dat")]);
     await user.click(screen.getByRole("button", { name: "开始分析" }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/tools/smt_layout/run", expect.anything()));

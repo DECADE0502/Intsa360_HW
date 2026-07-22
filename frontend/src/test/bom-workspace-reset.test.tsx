@@ -169,7 +169,7 @@ describe("BOM workspace reset", () => {
     await waitFor(() => expect(riskBody?.bom).toBe(newBom));
   });
 
-  it("keeps recommended conflict choices after processing succeeds", async () => {
+  it("persists only high-confidence conflict recommendations and leaves manual conflicts unresolved", async () => {
     const processedBom = "C:/outputs/board_merged.xlsx";
     window.localStorage.setItem(
       STORAGE_KEY,
@@ -219,11 +219,13 @@ describe("BOM workspace reset", () => {
     const user = userEvent.setup();
 
     renderWithProviders(<BomProcessWizard />);
-    await user.click(await screen.findByRole("button", { name: "采用全部推荐并继续" }));
+    await user.click(await screen.findByRole("button", { name: "采纳高置信推荐" }));
 
     await waitFor(() => {
       const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) || "{}");
-      expect(saved.data?.conflictChoices).toEqual({ P1: 1, P2: 0 });
+      expect(saved.data?.conflictChoices).toEqual({
+        P1: { action: "select_variant", variant_index: 1 },
+      });
     }, { timeout: 3000 });
   });
 });

@@ -52,9 +52,9 @@ def _source_bom() -> bytes:
 def _process_material_source_bom() -> bytes:
     workbook = Workbook()
     sheet = workbook.active
-    sheet.append(["Reference", "Part Number", "Value", "Model", "Description", "Name", "Unit"])
-    sheet.append(["TP5", "TP-PN", "", "PROBE-A", "测试点 探针", "探针", "pcs"])
-    sheet.append(["R1", "R-PN", "10K", "R0402", "普通贴片电阻", "电阻", "pcs"])
+    sheet.append(["Reference", "Part Number", "Value", "Model", "Description", "Name", "Unit", "PCB Footprint"])
+    sheet.append(["TP5", "TP-PN", "", "PROBE-A", "测试点 探针", "探针", "pcs", "TESTPOINT_TP0P4"])
+    sheet.append(["R1", "R-PN", "10K", "R0402", "普通贴片电阻", "电阻", "pcs", "R0402"])
     buffer = io.BytesIO()
     workbook.save(buffer)
     workbook.close()
@@ -69,10 +69,23 @@ def _mutation_headers(client: TestClient) -> dict[str, str]:
 
 def _placement_resolution(group: dict[str, object], action: str) -> dict[str, object]:
     inferred = group.get("inferred_fields") if isinstance(group.get("inferred_fields"), dict) else {}
+    role = str(group.get("role") or "unknown")
+    destination = "smt" if action == "keep" else "non_smt"
+    subtype = ""
+    exclusion_kind = ""
+    if role == "shield":
+        subtype = "bracket" if destination == "smt" else "cover"
+        exclusion_kind = "" if destination == "smt" else "scope_excluded"
+    elif destination == "non_smt":
+        exclusion_kind = "process_only" if role in {"test_point", "short_symbol", "mounting_hole", "fiducial"} else "user_excluded"
     return {
-        "action": action,
-        "part_number": str(inferred.get("part_number") or ""),
+        "destination": destination,
+        "exclusion_kind": exclusion_kind,
+        "role": role,
+        "subtype": subtype,
+        "part_number_override": str(inferred.get("part_number") or ""),
         "field_patch": {},
+        "decision_source": "user",
     }
 
 
@@ -114,7 +127,9 @@ def test_bom_process_confirmation_package_and_history_flow(tmp_path: Path) -> No
         assert conflict["code"] == "P1"
 
         params["merge_conflicts"] = True
-        params["conflict_choices"] = {"P1": conflict["recommended_index"]}
+        params["conflict_choices"] = {
+            "P1": {"action": "select_variant", "variant_index": 0}
+        }
         completed = client.post("/api/v1/tools/bom_process/run", json=params, headers=headers)
         assert completed.status_code == 200, completed.text
         result = completed.json()
@@ -170,14 +185,16 @@ def test_e2e_rejected_shield_stays_out_of_plm_and_keeps_raw_nc_name(tmp_path: Pa
         conflict_review = client.post("/api/v1/tools/bom_process/run", json=params, headers=headers)
         conflict = conflict_review.json()["conflicts"][0]
         params["merge_conflicts"] = True
-        params["conflict_choices"] = {"P1": conflict["recommended_index"]}
+        params["conflict_choices"] = {
+            "P1": {"action": "select_variant", "variant_index": 0}
+        }
         completed = client.post("/api/v1/tools/bom_process/run", json=params, headers=headers)
         assert completed.status_code == 200, completed.text
         result = completed.json()
         assert result["status"] == "ok"
 
         plm_path = next(Path(path) for path in result["outputs"] if path.endswith("_PLM_BOM.xlsx"))
-        nc_path = next(Path(path) for path in result["outputs"] if path.endswith("_NC未贴汇总.xlsx"))
+        nc_path = Path(result["non_smt_summary"])
         plm = load_workbook(plm_path, data_only=True)
         nc = load_workbook(nc_path, data_only=True)
         try:
@@ -244,12 +261,12 @@ def test_e2e_partnumber_tp_default_nc(tmp_path: Path) -> None:
             process_group["key"]: _placement_resolution(process_group, "exclude")
         }
         result = client.post("/api/v1/tools/bom_process/run", json=params, headers=headers).json()
-        nc_path = next(Path(path) for path in result["outputs"] if path.endswith("_NC未贴汇总.xlsx"))
+        nc_path = Path(result["non_smt_summary"])
         nc = load_workbook(nc_path, data_only=True)
         try:
             rows = list(nc.active.iter_rows(min_row=2, values_only=True))
         finally:
             nc.close()
         tp = next(row for row in rows if row[1] == "TP5")
-        assert str(tp[7]).startswith("用户确认不装（疑似工艺件）")
-        assert tp[8] == "process_default"
+        assert tp[7] == "非贴片工艺项"
+        assert tp[8] == "process_only"

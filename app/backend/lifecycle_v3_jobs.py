@@ -16,6 +16,7 @@ TERMINAL_PHASES = {"completed", "failed", "cancelled"}
 PRECOMMIT_PHASES = {"queued", "downloading", "verifying", "staging"}
 _JOB_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 _JOB_LOCK = threading.Lock()
+_LOG_TAIL_LIMIT = 20
 
 
 def atomic_json(path: Path, value: Mapping[str, Any]) -> None:
@@ -62,14 +63,25 @@ def write_job(root: Path, job_id: str, **updates: object) -> dict[str, object]:
             current = {}
         if not isinstance(current, dict):
             current = {}
+        logs = [
+            item
+            for item in current.get("log_tail", [])
+            if isinstance(item, str) and item.strip()
+        ]
+        next_message = str(updates.get("message") or "").strip()
+        if next_message and (not logs or logs[-1] != next_message):
+            logs.append(next_message)
         current.update(updates)
+        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         current.update(
             {
                 "schema": 3,
                 "job_id": job_id,
-                "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "updated_at": now,
+                "log_tail": logs[-_LOG_TAIL_LIMIT:],
             }
         )
+        current.setdefault("started_at", now)
         phase = str(current.get("phase") or "queued")
         current["running"] = phase not in TERMINAL_PHASES
         current["done"] = phase == "completed"

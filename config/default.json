@@ -11,21 +11,64 @@
     "material_code_shapes": [
       {
         "id": "digits",
+        "kind": "internal",
         "pattern": "^\\d{6,20}$",
         "note": "纯数字内部编码"
       },
       {
         "id": "dotted",
+        "kind": "internal",
         "pattern": "^[A-Za-z][A-Za-z0-9]{0,7}\\.[A-Za-z0-9][A-Za-z0-9._-]{2,}$",
         "note": "带点分段编码"
       },
-        {
-          "id": "vendor_mpn",
-          "pattern": "^[A-Za-z][A-Za-z0-9]{1,15}[-_][A-Za-z0-9][A-Za-z0-9-_/.]{2,}$",
-          "note": "厂商 MPN"
-        }
+      {
+        "id": "vendor_mpn",
+        "kind": "mpn",
+        "pattern": "^(?=.*\\d)[A-Za-z][A-Za-z0-9]{1,15}[-_][A-Za-z0-9][A-Za-z0-9-_/.]{2,}$",
+        "note": "厂商 MPN"
+      }
     ],
-    "nc_keywords": ["NC", "DNP", "DNI", "No Load", "NOFIT", "不贴", "未贴", "空贴"]
+    "nc_keywords": ["NC", "DNP", "DNI", "No Load", "NOFIT", "不贴", "未贴", "空贴"],
+    "process_keywords": {
+      "strong": [
+        "测试点", "跳线", "短接", "安装孔", "定位孔", "光学定位点", "基准点", "拼板MARK",
+        "TEST POINT", "JUMPER", "SHORT", "MOUNTING HOLE", "FIDUCIAL"
+      ],
+      "ambiguous": [
+        "铜柱", "螺柱", "螺母柱", "支柱", "结构件", "螺丝", "螺钉", "螺母", "垫片", "华司",
+        "散热片", "导热垫", "屏蔽罩", "SCREW", "STANDOFF"
+      ],
+      "material_whitelist": ["跳线电阻", "零欧电阻", "JUMPER RESISTOR", "ZERO OHM RESISTOR"]
+    },
+    "forced_review_roles": [
+      {"prefix": "SH", "role": "shield"}
+    ],
+    "role_hints": {
+      "test_point": {
+        "reference_prefixes": ["TP", "Z_TP"],
+        "library_keywords": ["TESTPOINT", "TEST POINT", "TP0P", "测试点"]
+      },
+      "short_symbol": {
+        "reference_prefixes": ["JP"],
+        "library_keywords": ["SHORT_", "SHORTING", "SHORT", "SHOR", "JUMPER"]
+      },
+      "mounting_hole": {
+        "reference_prefixes": ["H", "MH"],
+        "library_keywords": ["MOUNTINGHOLE", "MOUNTING HOLE", "HOLE", "GND孔", "安装孔", "定位孔"]
+      },
+      "fiducial": {
+        "reference_prefixes": ["FID", "MARK", "MK"],
+        "library_keywords": ["FIDUCIAL", "MARK点", "光学定位点", "基准点"]
+      },
+      "smt_mechanical": {
+        "reference_prefixes": ["MTG", "H", "MH"],
+        "library_keywords": ["SMTSO", "SMT NUT", "SMT_NUT", "STANDOFF", "铜柱", "螺柱", "螺母柱"]
+      }
+    },
+    "weak_part_number_values": [
+      "TP", "TESTPOINT", "TEST POINT", "SHORT", "JUMPER", "GND", "MOUNTINGHOLE",
+      "MOUNTING HOLE", "FIDUCIAL", "NO_CONNECT", "RES_NP", "CAP_NP"
+    ]
   },
   "update": {
     "schema": 3,

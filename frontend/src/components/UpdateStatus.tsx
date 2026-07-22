@@ -44,6 +44,22 @@ function formatBytes(value?: number) {
   return `${(value / 1024 / 1024).toFixed(value >= 100 * 1024 * 1024 ? 0 : 1)} MB`;
 }
 
+function secondsSince(value: string | undefined, now: number) {
+  if (!value) return 0;
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return 0;
+  return Math.max(0, Math.floor((now - timestamp) / 1000));
+}
+
+function formatDuration(seconds: number) {
+  if (seconds < 60) return `${seconds} 秒`;
+  const minutes = Math.floor(seconds / 60);
+  const remain = seconds % 60;
+  if (minutes < 60) return `${minutes} 分 ${remain} 秒`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours} 小时 ${minutes % 60} 分`;
+}
+
 export function UpdateStatus({ version }: { version: string }) {
   const { message } = App.useApp();
   const [detaching, setDetaching] = useState(false);
@@ -64,6 +80,7 @@ export function UpdateStatus({ version }: { version: string }) {
 
   const [progressOpen, setProgressOpen] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatusInfo | null>(null);
+  const [statusClock, setStatusClock] = useState(() => Date.now());
   const updatePollRef = useRef<number | null>(null);
 
   function applyCheckResult(info: UpdateCheck, openNotice: boolean) {
@@ -144,6 +161,13 @@ export function UpdateStatus({ version }: { version: string }) {
     };
   }, [progressOpen]);
 
+  useEffect(() => {
+    if (!progressOpen) return;
+    setStatusClock(Date.now());
+    const timer = window.setInterval(() => setStatusClock(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [progressOpen]);
+
   const updateFinished = updateStatus?.done || updateStatus?.failed || updateStatus?.phase === "cancelled";
 
   async function onCheckUpdate() {
@@ -183,6 +207,7 @@ export function UpdateStatus({ version }: { version: string }) {
     setUpdateStatus(null);
     try {
       const started = await startUpdate();
+      const startedAt = new Date().toISOString();
       window.localStorage.removeItem(UPDATE_ACK_KEY);
       setUpdateStatus({
         status: "ok",
@@ -195,7 +220,12 @@ export function UpdateStatus({ version }: { version: string }) {
         progress: 0,
         step: "queued",
         message: started.message || "更新任务已创建。",
-        log_tail: [],
+        log_tail: [started.message || "更新任务已创建。"],
+        started_at: startedAt,
+        updated_at: startedAt,
+        detail_current: 0,
+        detail_total: 0,
+        detail_unit: "",
         cancellable: true,
         bytes_total: 0,
         bytes_downloaded: 0,
@@ -235,6 +265,10 @@ export function UpdateStatus({ version }: { version: string }) {
   function openWindowsApps() {
     window.location.href = "ms-settings:appsfeatures";
   }
+
+  const elapsedSeconds = secondsSince(updateStatus?.started_at, statusClock);
+  const statusAgeSeconds = secondsSince(updateStatus?.updated_at, statusClock);
+  const recentActivity = (updateStatus?.log_tail || []).slice(-8);
 
   async function onDetach() {
     setDetaching(true);
@@ -379,11 +413,30 @@ export function UpdateStatus({ version }: { version: string }) {
             <Text type="secondary">{updateStatus?.message || "准备中..."}</Text>
           )}
         </Paragraph>
+        <div className="update-progress-meta">
+          {updateStatus?.started_at ? <Text type="secondary">已用时 {formatDuration(elapsedSeconds)}</Text> : null}
+          {updateStatus?.updated_at ? (
+            <Text type={statusAgeSeconds >= 20 ? "warning" : "secondary"}>
+              状态更新于 {formatDuration(statusAgeSeconds)}前
+            </Text>
+          ) : null}
+          {updateStatus?.detail_total ? (
+            <Text type="secondary">
+              {updateStatus.detail_unit === "files" ? "文件校验" : "当前进度"} {updateStatus.detail_current} / {updateStatus.detail_total}
+            </Text>
+          ) : null}
+        </div>
         {updateStatus?.phase === "downloading" ? (
           <Paragraph type="secondary" style={{ marginBottom: 8 }}>
             {formatBytes(updateStatus.bytes_downloaded)} / {formatBytes(updateStatus.bytes_total)}
             {updateStatus.bytes_per_second ? ` · ${formatBytes(updateStatus.bytes_per_second)}/s` : ""}
           </Paragraph>
+        ) : null}
+        {recentActivity.length ? (
+          <div className="update-activity">
+            <Text strong>执行明细</Text>
+            <pre className="update-log">{recentActivity.join("\n")}</pre>
+          </div>
         ) : null}
         {updateStatus?.failed && updateStatus.rolled_back ? (
           <Alert type="warning" showIcon message="新版本未生效，平台已恢复到更新前版本。" />

@@ -2,8 +2,8 @@
   "conflict_codes": ["C.C1105M21", "C.C1225M21", "C.C2106M21"],
   "recommendations": {
     "C.C1105M21": {
-      "expected_confidence": "low",
-      "expected_reason": "multiple_complete_candidates",
+      "expected_confidence": "none",
+      "expected_reason": "numeric_or_version_conflict",
       "high_confidence": false,
       "manual_choice_required": true,
       "allowed_signatures": [
@@ -24,17 +24,10 @@
       ]
     },
     "C.C1225M21": {
-      "expected_confidence": "high",
-      "expected_reason": "grade_only_conflict",
-      "high_confidence": true,
-      "manual_choice_required": false,
-      "selected_signature": {
-        "model": "RES_0402_10K",
-        "description": "THICK_FILM_RESISTOR 10K 0402",
-        "name": "RESISTOR",
-        "grade": "优选",
-        "unit": "ea"
-      },
+      "expected_confidence": "none",
+      "expected_reason": "grade_conflict",
+      "high_confidence": false,
+      "manual_choice_required": true,
       "allowed_signatures": [
         {
           "model": "RES_0402_10K",
@@ -53,17 +46,10 @@
       ]
     },
     "C.C2106M21": {
-      "expected_confidence": "high",
-      "expected_reason": "truncation_prefix_completion",
-      "high_confidence": true,
-      "manual_choice_required": false,
-      "selected_signature": {
-        "model": "EMMC_BGA153_64G",
-        "description": "eMMC BGA153 64GB",
-        "name": "EMMC",
-        "grade": "优选",
-        "unit": "ea"
-      },
+      "expected_confidence": "none",
+      "expected_reason": "numeric_or_version_conflict",
+      "high_confidence": false,
+      "manual_choice_required": true,
       "allowed_signatures": [
         {
           "model": "EMMC_BGA153",

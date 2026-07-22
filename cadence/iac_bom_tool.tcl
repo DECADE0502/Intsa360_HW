@@ -24,11 +24,11 @@ namespace eval ::IAC {
     if {![array exists PLUGIN_LIFECYCLE]} { array set PLUGIN_LIFECYCLE {} }
     variable EXPORT_SEQUENCE 0
     variable PROP_NAMES {
-        "Color" "Designator" "Graphic ID" "Implementation" "Implementation Path" "Implementation Type"
+        "Color" "Designator" "Graphic" "Graphic ID" "ID" "Implementation" "Implementation Path" "Implementation Type"
         "Location X-Coordinate" "Location Y-Coordinate" "Name" "Part Number" "Part Reference" "Part Type"
         "PCB Footprint" "PCB\u5c01\u88c5" "Power Pins Visible" "Primitive" "Reference" "Source Library" "Source Package"
-        "Source Part" "SPLIT_INST" "SWAP_INFO" "Value" "\u7b49\u7ea7" "\u89c4\u683c\u578b\u53f7"
-        "\u5668\u4ef6\u63cf\u8ff0\uff08\u65b0\u6574\u7406\uff09" "\u7269\u6599\u540d\u79f0" "\u5185\u5bb9" "Description"
+        "Source Part" "SPLIT_INST" "SWAP_INFO" "Value" "OriginalSymbolOrigin" "\u7b49\u7ea7" "\u7b49\u7ea7\u5907\u6ce8" "\u89c4\u683c\u578b\u53f7"
+        "\u5668\u4ef6\u63cf\u8ff0\uff08\u65e7\uff09" "\u5668\u4ef6\u63cf\u8ff0\uff08\u65b0\u6574\u7406\uff09" "\u7269\u6599\u540d\u79f0" "\u5185\u5bb9" "Description"
         "\u7269\u6599\u4f18\u9009\u7b49\u7ea7" "Manufacturer" "\u5236\u9020\u5546" "Datasheet" "datasheet"
         "\u7533\u8bf7\u4eba" "\u65f6\u95f4" "Implementation Designator"
     }

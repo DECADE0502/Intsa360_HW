@@ -125,12 +125,18 @@ def signature_from_oracle(signature: dict[str, object]) -> tuple[str, str, str, 
 
 
 def derive_conflict_reason(signatures: set[tuple[str, str, str, str, str]]) -> str:
-    for model, description, *_ in signatures:
-        for other_model, other_description, *_ in signatures:
-            if (model, description) != (other_model, other_description) and other_model.startswith(model) and other_description.startswith(description):
-                return "truncation_prefix_completion"
-    if len({(model, description, name, unit) for model, description, name, _, unit in signatures}) == 1:
-        return "grade_only_conflict"
+    models = {model for model, _, _, _, _ in signatures if model}
+    descriptions = {description for _, description, _, _, _ in signatures if description}
+    grades = {grade for _, _, _, grade, _ in signatures if grade}
+    for values in (models, descriptions):
+        if len(values) > 1 and any(re.search(r"\d", value) for value in values):
+            return "numeric_or_version_conflict"
+    if len(models) > 1:
+        return "model_or_manufacturer_conflict"
+    if len(grades) > 1:
+        return "grade_conflict"
+    if len(descriptions) > 1:
+        return "full_description_conflict"
     return "multiple_complete_candidates"
 
 

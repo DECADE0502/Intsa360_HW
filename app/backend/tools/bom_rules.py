@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from typing import Mapping
 
 from app.backend.tools.common import qty_matches
 from app.backend.tools.bom_classify import default_nc_value_re
@@ -12,7 +13,7 @@ NC_VALUE_RE = default_nc_value_re()
 _MECH_KW = ["螺丝", "螺钉", "螺母", "垫片", "华司", "铜柱", "支柱", "定位孔", "安装孔", "MOUNTINGHOLE", "散热片", "导热垫"]
 _TP_PREFIX = ("TP", "JP", "Z_TP", "FID", "MK", "MH")
 _TP_KW = ["测试点", "跳线", "FIDUCIAL", "基准", "拼板", "工艺边", "MARK点"]
-_VERSION_SENSITIVE_RE = re.compile(r"\b(E?MMC|LP?DDR\d*[A-Z0-9]*)\b|DDR", re.IGNORECASE)
+_VERSION_SENSITIVE_RE = re.compile(r"E?MMC|UFS|NAND|LP?DDR\d*[A-Z0-9]*|DDR", re.IGNORECASE)
 _PREFIX_EXPECT = {"C": "电容", "R": "电阻", "L": "电感"}
 _CODE_PREFIX_TYPE = {"L": "电感", "C": "电容", "R": "电阻"}
 
@@ -45,6 +46,22 @@ def _looks_like_shield_bracket(row: dict[str, object]) -> bool:
     refs = [str(ref).upper() for ref in row.get("refs") or []]
     text = f"{row.get('part_number','')} {row.get('model','')} {row.get('description','')} {row.get('name','')}".upper()
     return any(ref.startswith("SH") for ref in refs) or "屏蔽支架" in text or "SHIELD BRACKET" in text
+
+
+def _decision_list(decisions: list[dict[str, object]] | None) -> list[Mapping[str, object]]:
+    return [item for item in decisions or [] if isinstance(item, Mapping)]
+
+
+def _decision_codes(decisions: list[Mapping[str, object]]) -> list[str]:
+    codes: set[str] = set()
+    for decision in decisions:
+        snapshot = decision.get("material_snapshot")
+        if not isinstance(snapshot, Mapping):
+            continue
+        code = str(snapshot.get("part_number") or "").strip()
+        if code:
+            codes.add(code)
+    return sorted(codes)
 
 
 def _version_sensitive_parts(rows: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -99,6 +116,7 @@ def find_type_mismatches(rows: list[dict[str, object]]) -> list[dict[str, str]]:
 def evaluate_bom_risks(
     rows: list[dict[str, object]],
     review_summary: dict[str, object] | None = None,
+    placement_decisions: list[dict[str, object]] | None = None,
 ) -> list[dict[str, str]]:
     """Evaluate reusable BOM risk rules without depending on a tool engine."""
 
@@ -109,17 +127,94 @@ def evaluate_bom_risks(
     pcb = sorted({row["part_number"] for row in rows if _looks_like_pcb(row)})
     findings.append({"name": "PCB 裸板", "status": "ok" if pcb else "warn", "message": "找到 " + ", ".join(pcb) if pcb else "未发现 PCB 裸板项（PCBA BOM 通常应包含裸板）"})
 
-    brackets = sorted({row["part_number"] for row in rows if _looks_like_shield_bracket(row)})
-    findings.append({"name": "屏蔽支架", "status": "ok" if brackets else "info", "message": "找到 " + ", ".join(brackets) if brackets else "未发现屏蔽支架（如设计需要请确认）"})
+    decisions = _decision_list(placement_decisions)
+    if placement_decisions is None:
+        findings.append({
+            "name": "屏蔽支架",
+            "status": "info",
+            "message": "未提供 BOM 决策清单，无法仅凭 SH 位号或描述确认屏蔽支架。",
+        })
+    else:
+        brackets = [
+            decision
+            for decision in decisions
+            if str(decision.get("role") or "") == "shield"
+            and str(decision.get("subtype") or "") == "bracket"
+            and str(decision.get("destination") or "") == "smt"
+        ]
+        bracket_codes = _decision_codes(brackets)
+        findings.append({
+            "name": "屏蔽支架",
+            "status": "ok" if brackets else "info",
+            "message": (
+                "决策清单已确认：" + (", ".join(bracket_codes) if bracket_codes else f"{len(brackets)} 组")
+                if brackets
+                else "决策清单中没有确认进入贴片区的屏蔽支架；屏蔽罩不会通过此项检查。"
+            ),
+        })
 
     nc_refs = [ref for row in rows if _nc_row(row) for ref in (row.get("refs") or [])]
     findings.append({"name": "NC/未贴器件", "status": "warn" if nc_refs else "ok", "message": f"混入 {len(nc_refs)} 个：" + ",".join(nc_refs[:15]) if nc_refs else "无"})
 
-    mechanical = sorted({row["part_number"] for row in rows if any(key.upper() in blob(row).upper() for key in _MECH_KW)})
-    findings.append({"name": "机构件/螺丝/孔", "status": "warn" if mechanical else "ok", "message": "混入：" + ", ".join(mechanical) if mechanical else "无"})
+    if placement_decisions is None:
+        findings.append({"name": "机构件/螺丝/孔", "status": "info", "message": "未提供决策清单，不按描述自动判断机构件是否混入。"})
+        findings.append({"name": "测试点/跳线/工艺", "status": "info", "message": "未提供决策清单，不按位号前缀重新推导工艺项。"})
+    else:
+        smt_mechanical = [
+            decision for decision in decisions
+            if str(decision.get("role") or "") == "smt_mechanical"
+            and str(decision.get("destination") or "") == "smt"
+        ]
+        process_roles = {"test_point", "short_symbol", "mounting_hole", "fiducial"}
+        smt_process = [
+            decision for decision in decisions
+            if str(decision.get("role") or "") in process_roles
+            and str(decision.get("destination") or "") == "smt"
+        ]
+        non_smt_process = [
+            decision for decision in decisions
+            if str(decision.get("role") or "") in process_roles
+            and str(decision.get("destination") or "") == "non_smt"
+        ]
+        findings.append({
+            "name": "贴片机械件",
+            "status": "info" if smt_mechanical else "ok",
+            "message": f"已确认进入贴片区 {len(smt_mechanical)} 组。" if smt_mechanical else "无",
+        })
+        findings.append({
+            "name": "测试点/跳线/工艺",
+            "status": "info" if smt_process or non_smt_process else "ok",
+            "message": f"贴片区 {len(smt_process)} 组，非贴片区 {len(non_smt_process)} 组；结果来自决策清单。" if smt_process or non_smt_process else "无",
+        })
 
-    test_points = sorted({ref for row in rows for ref in (row.get("refs") or []) if ref.upper().startswith(_TP_PREFIX)}) + sorted({row["part_number"] for row in rows if any(key.upper() in blob(row).upper() for key in _TP_KW)})
-    findings.append({"name": "测试点/跳线/工艺", "status": "info" if test_points else "ok", "message": "发现：" + ", ".join(test_points[:15]) if test_points else "无"})
+        bom_refs = {str(ref).strip().upper() for row in rows for ref in row.get("refs") or [] if str(ref).strip()}
+        smt_refs = {
+            str(ref).strip().upper()
+            for decision in decisions
+            if str(decision.get("destination") or "") == "smt"
+            for ref in decision.get("refs") or []
+            if str(ref).strip()
+        }
+        non_smt_refs = {
+            str(ref).strip().upper()
+            for decision in decisions
+            if str(decision.get("destination") or "") == "non_smt"
+            for ref in decision.get("refs") or []
+            if str(ref).strip()
+        }
+        leaked = sorted(bom_refs & non_smt_refs)
+        missing = sorted(smt_refs - bom_refs)
+        consistent = not leaked and not missing
+        details = []
+        if leaked:
+            details.append("非贴片位号混入：" + ",".join(leaked[:15]))
+        if missing:
+            details.append("贴片位号缺失：" + ",".join(missing[:15]))
+        findings.append({
+            "name": "BOM/决策清单一致性",
+            "status": "ok" if consistent else "warn",
+            "message": "一致" if consistent else "；".join(details),
+        })
 
     counts = Counter(ref for row in rows for ref in (row.get("refs") or []))
     duplicates = sorted(ref for ref, count in counts.items() if count > 1)
@@ -146,9 +241,9 @@ def evaluate_bom_risks(
     sensitive = _version_sensitive_parts(rows)
     if sensitive:
         codes = sorted({str(row.get("part_number") or "").strip() for row in sensitive if str(row.get("part_number") or "").strip()})
-        findings.append({"name": "硬件版本敏感物料", "status": "info", "message": "发现 eMMC/DDR 相关物料：" + ", ".join(codes[:10]) + "；请注意核对硬件版本号、容量/速率和替代关系"})
+        findings.append({"name": "硬件版本敏感物料", "status": "info", "message": "发现 eMMC/DDR/NAND/UFS 相关物料：" + ", ".join(codes[:10]) + "；请注意核对硬件版本号、容量/速率和替代关系"})
     else:
-        findings.append({"name": "硬件版本敏感物料", "status": "ok", "message": "未发现 eMMC/DDR 相关物料"})
+        findings.append({"name": "硬件版本敏感物料", "status": "ok", "message": "未发现 eMMC/DDR/NAND/UFS 相关物料"})
     if review_summary:
         kept = int(review_summary.get("kept_groups") or 0)
         excluded = int(review_summary.get("excluded_groups") or 0)

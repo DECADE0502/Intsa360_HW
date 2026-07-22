@@ -67,7 +67,11 @@ describe("HistoryBomPicker", () => {
     await user.click(screen.getByRole("button", { name: "使用所选 BOM" }));
 
     expect(onChange).toHaveBeenCalledOnce();
-    expect(onChange).toHaveBeenCalledWith(ASSET_PATH);
+    expect(onChange).toHaveBeenCalledWith(ASSET_PATH, expect.objectContaining({
+      id: "asset-1",
+      path: ASSET_PATH,
+      format: "PLM",
+    }));
   });
 
   it("reports asset loading failures instead of leaving an unhandled rejection", async () => {

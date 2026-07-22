@@ -79,6 +79,38 @@ def test_successful_run_promotes_inputs_and_outputs_in_one_store(tmp_path: Path)
     UUID(reusable[0]["id"])
 
 
+def test_processed_bom_asset_exposes_contract_matched_decision_manifest(tmp_path: Path) -> None:
+    root = _runtime(tmp_path)
+    output_dir = root / "data" / "outputs" / "bom"
+    output_dir.mkdir(parents=True)
+    bom = output_dir / "BOARD_A_PLM_BOM.xlsx"
+    manifest = output_dir / "renamed-machine-readable-output.json"
+    bom.write_bytes(b"processed")
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "rule_version": "2.0.0",
+                "source_fingerprint": "source",
+                "placements": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    history.record(
+        root,
+        "bom_process",
+        "BOM 处理",
+        {},
+        {"status": "ok", "outputs": [str(bom), str(manifest)]},
+    )
+
+    reusable = assets.list_assets(root)["groups"]["processed_bom"]
+
+    assert reusable[0]["path"] == str(bom)
+    assert reusable[0]["decision_manifest"] == str(manifest)
+
+
 def test_legacy_json_history_migration_is_idempotent_and_keeps_subdirectories(tmp_path: Path) -> None:
     root = _runtime(tmp_path)
     first = root / "data" / "outputs" / "alpha" / "BOARD_PLM_BOM.xlsx"

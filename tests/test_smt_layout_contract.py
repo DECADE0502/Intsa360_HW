@@ -41,7 +41,9 @@ def _full_payload() -> dict[str, object]:
             "candidate_refs": ["R2"],
             "unverified_refs": ["R3"],
             "conflict_refs": [],
+            "non_nc_refs": [],
             "inference_mode": "without_netlist",
+            "decision_manifest_used": False,
             "explicit_summary_used": False,
         },
         "sanity": {

@@ -34,6 +34,25 @@ LIFECYCLE_JOB_PHASES = (
 )
 _TERMINAL_PHASES = {"completed", "failed", "cancelled"}
 _SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+_UPDATE_MESSAGE_TRANSLATIONS = {
+    "Update task created.": "更新任务已创建。",
+    "Verifying staged runtime files.": "正在复核候选版本文件。",
+    "Copying the candidate runtime into the installation.": "正在复制候选版本到安装目录。",
+    "Verifying copied runtime files.": "正在校验复制后的完整版本。",
+    "Existing runtime found; verifying identical content.": "检测到同版本目录，正在确认内容一致。",
+    "Candidate runtime files copied and verified.": "新版本文件已复制并通过完整性校验。",
+    "Preparing rollback protection and checking Cadence integration.": "正在建立回滚保护并检查 Cadence 集成状态。",
+    "Rollback protection is ready; stopping the previous backend.": "回滚保护已就绪，正在停止旧版后台服务。",
+    "Activating the verified runtime pointer.": "正在原子切换到已验证的新版本。",
+    "Deploying Cadence integration from the active runtime.": "正在从新版本部署 Cadence 集成。",
+    "Starting and verifying the activated backend.": "正在启动并验证新版本后台服务。",
+    "Update completed and the new runtime passed verification.": "更新完成，新版本已通过启动验证。",
+    "Update completed; deferred cleanup will be retried later.": "更新已完成；旧版本清理将在后续自动重试。",
+}
+_UPDATE_MESSAGE_PREFIX_TRANSLATIONS = {
+    "Update failed and the previous runtime was restored: ": "更新失败，已恢复到更新前版本：",
+    "Update failed and rollback also failed: ": "更新失败且自动回滚失败：",
+}
 
 
 def _update_backend(root: Path):
@@ -94,6 +113,17 @@ def _number(value: object, default: int = 0) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) else default
 
 
+def _localize_update_message(value: object, default: str = "") -> str:
+    message = _string(value, default)
+    translated = _UPDATE_MESSAGE_TRANSLATIONS.get(message)
+    if translated:
+        return translated
+    for prefix, localized in _UPDATE_MESSAGE_PREFIX_TRANSLATIONS.items():
+        if message.startswith(prefix):
+            return localized + message[len(prefix):]
+    return message
+
+
 def _update_check_payload(root: Path, raw: dict[str, object]) -> dict[str, object]:
     remote_status = _string(raw.get("remote_status"), "error")
     error = _string(raw.get("error"))
@@ -149,7 +179,12 @@ def _update_status_payload(raw: dict[str, object]) -> dict[str, object]:
     done = phase == "completed"
     failed = phase == "failed"
     cancelled = phase == "cancelled"
-    log_tail = raw.get("log_tail")
+    raw_log_tail = raw.get("log_tail")
+    log_tail = (
+        [_localize_update_message(item) for item in raw_log_tail]
+        if isinstance(raw_log_tail, list) and all(isinstance(item, str) for item in raw_log_tail)
+        else []
+    )
     return {
         "status": "ok",
         "job_id": _string(raw.get("job_id")),
@@ -160,8 +195,13 @@ def _update_status_payload(raw: dict[str, object]) -> dict[str, object]:
         "phase": phase,
         "progress": max(0, min(100, _number(raw.get("progress"), 0))),
         "step": _string(raw.get("step"), phase),
-        "message": _string(raw.get("message"), "当前没有正在执行的更新任务。"),
-        "log_tail": list(log_tail) if isinstance(log_tail, list) and all(isinstance(item, str) for item in log_tail) else [],
+        "message": _localize_update_message(raw.get("message"), "当前没有正在执行的更新任务。"),
+        "log_tail": log_tail,
+        "started_at": _string(raw.get("started_at")),
+        "updated_at": _string(raw.get("updated_at")),
+        "detail_current": _number(raw.get("detail_current"), 0),
+        "detail_total": _number(raw.get("detail_total"), 0),
+        "detail_unit": _string(raw.get("detail_unit")),
         "cancellable": bool(raw.get("cancellable")) if running else False,
         "bytes_total": _number(raw.get("bytes_total"), 0),
         "bytes_downloaded": _number(raw.get("bytes_downloaded"), 0),

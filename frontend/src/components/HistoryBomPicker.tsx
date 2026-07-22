@@ -6,7 +6,7 @@ import { toUserMessage } from "../api/errors";
 
 type Props = {
   value?: string;
-  onChange: (path: string) => void;
+  onChange: (path: string, asset?: AssetItem) => void;
   placeholder?: string;
   disabled?: boolean;
 };
@@ -49,7 +49,9 @@ export function HistoryBomPicker({ value, onChange, placeholder = "从历史记�
   }
 
   function confirmSelection() {
-    if (draftValue !== (value || "")) onChange(draftValue);
+    if (draftValue !== (value || "")) {
+      onChange(draftValue, assets.find((asset) => asset.path === draftValue));
+    }
     setOpen(false);
   }
 

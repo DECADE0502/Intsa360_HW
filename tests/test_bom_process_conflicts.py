@@ -82,7 +82,7 @@ class BomProcessConflictTests(unittest.TestCase):
             self.assertEqual(result["status"], "ok")
             self.assertEqual(result["summary"]["placement_review"]["kept_groups"], 1)
             plm_path = next(Path(path) for path in result["outputs"] if path.endswith("_PLM_BOM.xlsx"))
-            nc_path = next(Path(path) for path in result["outputs"] if path.endswith("_NC未贴汇总.xlsx"))
+            nc_path = Path(result["non_smt_summary"])
             plm = load_workbook(plm_path, data_only=True)
             nc = load_workbook(nc_path, data_only=True)
             try:
@@ -107,7 +107,7 @@ class BomProcessConflictTests(unittest.TestCase):
             wb = Workbook()
             ws = wb.active
             ws.append(["Reference", "Part Number", "Value", "PCB Footprint", "Source Package"])
-            ws.append(["LINK1", "", "Short_L1", "sp2-L1", "Short_L3"])
+            ws.append(["JP1", "", "Short_L1", "sp2-L1", "Short_L3"])
             wb.save(source)
 
             params: dict[str, object] = {"source_bom": str(source), "formats": ["plm"], "name": "NO_STUFF"}
@@ -127,15 +127,15 @@ class BomProcessConflictTests(unittest.TestCase):
             result = run_bom_process(root, params)
 
             self.assertEqual(result["status"], "ok")
-            nc_path = next(Path(path) for path in result["outputs"] if path.endswith("_NC未贴汇总.xlsx"))
+            nc_path = Path(result["non_smt_summary"])
             nc = load_workbook(nc_path, data_only=True)
             try:
                 rows = list(nc.active.iter_rows(min_row=2, values_only=True))
             finally:
                 nc.close()
-            self.assertEqual(rows[0][1], "LINK1")
-            self.assertEqual(rows[0][7], "用户确认不装（疑似工艺件）")
-            self.assertEqual(rows[0][8], "process_default")
+            self.assertEqual(rows[0][1], "JP1")
+            self.assertEqual(rows[0][7], "非贴片工艺项")
+            self.assertEqual(rows[0][8], "process_only")
 
     def test_parsed_source_can_filter_shields_without_reopening_workbook(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -313,9 +313,9 @@ class BomProcessConflictTests(unittest.TestCase):
             source = root / "source.xlsx"
             wb = Workbook()
             ws = wb.active
-            ws.append(["Reference", "Part Number", "Value", "Description", "Name"])
-            ws.append(["SH1", "SH-PN", "", "屏蔽支架", "屏蔽支架"])
-            ws.append(["TP5", "TP-PN", "", "测试点 探针", "探针"])
+            ws.append(["Reference", "Part Number", "Value", "Description", "Name", "PCB Footprint"])
+            ws.append(["SH1", "SH-PN", "", "屏蔽支架", "屏蔽支架", "SHIELD_BRACKET"])
+            ws.append(["TP5", "TP-PN", "", "测试点 探针", "探针", "TESTPOINT_TP0P4"])
             wb.save(source)
             params = {"source_bom": str(source), "formats": ["plm"], "name": "FLOW"}
 
@@ -368,7 +368,7 @@ class BomProcessConflictTests(unittest.TestCase):
             with self.subTest(first=first, second=second):
                 recommendation = bom_process._conflict_recommendation(variants(first, second))
 
-                self.assertEqual(recommendation["reason"], "conflicting_candidate_values")
+                self.assertEqual(recommendation["reason"], "numeric_or_version_conflict")
                 self.assertFalse(recommendation["high_confidence"])
                 self.assertTrue(recommendation["manual_choice_required"])
 
@@ -389,7 +389,7 @@ class BomProcessConflictTests(unittest.TestCase):
 
                 recommendation = bom_process._conflict_recommendation(variants)
 
-                self.assertEqual(recommendation["reason"], "conflicting_candidate_values")
+                self.assertEqual(recommendation["reason"], "numeric_or_version_conflict")
                 self.assertFalse(recommendation["high_confidence"])
                 self.assertTrue(recommendation["manual_choice_required"])
 
@@ -546,26 +546,24 @@ class BomProcessConflictTests(unittest.TestCase):
             self.assertEqual(conflict["reason"], expected["expected_reason"], code)
             self.assertEqual(conflict["high_confidence"], expected["high_confidence"], code)
             self.assertEqual(conflict["manual_choice_required"], expected["manual_choice_required"], code)
-            selected = conflict["recommended_signature"]
-            selected_payload = {
-                "model": selected["model"],
-                "description": selected["desc"],
-                "name": selected["name"],
-                "grade": selected["grade"],
-                "unit": selected["unit"],
-            }
-            self.assertIn(conflict["recommended_index"], range(len(conflict["variants"])))
-            self.assertIn(
-                json.dumps(selected_payload, ensure_ascii=False, sort_keys=True),
-                actual_signatures,
-                code,
-            )
             if expected["high_confidence"]:
+                selected = conflict["recommended_signature"]
+                selected_payload = {
+                    "model": selected["model"],
+                    "description": selected["desc"],
+                    "name": selected["name"],
+                    "grade": selected["grade"],
+                    "unit": selected["unit"],
+                }
+                self.assertIn(conflict["recommended_index"], range(len(conflict["variants"])))
                 self.assertEqual(
                     selected_payload,
                     expected["selected_signature"],
                     code,
                 )
+            else:
+                self.assertIsNone(conflict["recommended_index"])
+                self.assertIsNone(conflict["recommended_signature"])
 
     def test_bulk_recommendation_merges_only_high_confidence_golden_groups(self) -> None:
         expectations = json.loads((FIXTURES / "expected_recommendations.json").read_text(encoding="utf-8"))
@@ -606,7 +604,7 @@ class BomProcessConflictTests(unittest.TestCase):
             conflict = bom_process.detect_part_conflicts(rows)[0]
             records = bom_process.build_records(parsed, merge_conflicts=True)
 
-        self.assertEqual(conflict["confidence"], "low")
+        self.assertEqual(conflict["confidence"], "none")
         self.assertEqual(conflict["reason"], "complementary_incomplete_candidates")
         self.assertEqual(len(records), 2)
         self.assertNotIn(
@@ -654,7 +652,6 @@ class BomProcessConflictTests(unittest.TestCase):
                     "conflict_choices": {},
                 },
             )
-            recommended_index = result["conflicts"][0]["recommended_index"]
             resolved = run_bom_process(
                 root,
                 {
@@ -663,20 +660,20 @@ class BomProcessConflictTests(unittest.TestCase):
                     "parent_code": "203010100819",
                     "name": "TEST",
                     "merge_conflicts": True,
-                    "conflict_choices": {"P1": recommended_index},
+                    "conflict_choices": {"P1": 1},
                 },
             )
 
         self.assertEqual(result["status"], "needs_confirmation")
         self.assertEqual(result["reason"], "part_property_conflicts")
         self.assertEqual(result["conflict_count"], 1)
-        self.assertEqual(result["conflicts"][0]["confidence"], "low")
+        self.assertEqual(result["conflicts"][0]["confidence"], "none")
         self.assertEqual(resolved["status"], "ok")
         p1_rows = [row for row in resolved["preview"]["rows"] if row[0] == "P1"]
         self.assertEqual(len(p1_rows), 1)
         self.assertEqual(p1_rows[0][1:3], ["M2", "D2"])
 
-    def test_low_confidence_conflict_still_exposes_a_deterministic_recommendation(self) -> None:
+    def test_manual_conflict_does_not_invent_a_deterministic_recommendation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "source.xlsx"
             make_source(source)
@@ -684,21 +681,12 @@ class BomProcessConflictTests(unittest.TestCase):
             rows, _ = bom_process.load_source(source)
             conflict = bom_process.detect_part_conflicts(rows)[0]
 
-        self.assertEqual(conflict["confidence"], "low")
+        self.assertEqual(conflict["confidence"], "none")
         self.assertTrue(conflict["manual_choice_required"])
-        self.assertEqual(conflict["recommended_index"], 1)
-        self.assertEqual(
-            conflict["recommended_signature"],
-            {
-                "name": "电阻",
-                "model": "M2",
-                "desc": "D2",
-                "grade": "优选",
-                "unit": "",
-            },
-        )
+        self.assertIsNone(conflict["recommended_index"])
+        self.assertIsNone(conflict["recommended_signature"])
 
-    def test_recommended_api_merge_finishes_a_grade_only_conflict(self) -> None:
+    def test_grade_only_conflict_requires_an_explicit_variant_choice(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             source = root / "grade-only.xlsx"
@@ -720,10 +708,23 @@ class BomProcessConflictTests(unittest.TestCase):
                     "conflict_choices": {},
                 },
             )
+            resolved = run_bom_process(
+                root,
+                {
+                    "source_bom": str(source),
+                    "formats": ["plm"],
+                    "parent_code": "203010100819",
+                    "name": "TEST",
+                    "merge_conflicts": True,
+                    "conflict_choices": {"P1": 1},
+                },
+            )
 
-        self.assertEqual(result["status"], "ok")
-        self.assertEqual(result["summary"]["records"], 1)
-        self.assertEqual(result["preview"]["rows"][0][5], "优选")
+        self.assertEqual(result["status"], "needs_confirmation")
+        self.assertEqual(result["conflicts"][0]["reason"], "grade_conflict")
+        self.assertEqual(resolved["status"], "ok")
+        self.assertEqual(resolved["summary"]["records"], 1)
+        self.assertEqual(resolved["preview"]["rows"][0][5], "优选")
 
     def test_manual_choice_preserves_the_selected_unit(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

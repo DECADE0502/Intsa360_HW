@@ -102,27 +102,72 @@ function Remove-IncomingTree {
   Remove-Item -LiteralPath $incoming -Recurse -Force
 }
 
+function Set-WorkerProgress {
+  param(
+    [Parameter(Mandatory=$true)][int]$Progress,
+    [Parameter(Mandatory=$true)][string]$Message,
+    [int]$DetailCurrent = 0,
+    [int]$DetailTotal = 0
+  )
+  $additional = @{
+    cancellable = $false
+    worker_pid = $PID
+    detail_current = [Math]::Max(0, $DetailCurrent)
+    detail_total = [Math]::Max(0, $DetailTotal)
+    detail_unit = $(if ($DetailTotal -gt 0) { "files" } else { "" })
+  }
+  Set-HwV3JobPhase -StateRoot $StateRoot -JobId $JobId -Phase "committing" -Progress $Progress `
+    -Message $Message -Additional $additional | Out-Null
+}
+
+function Get-WorkerTreeSha256 {
+  param(
+    [Parameter(Mandatory=$true)][string]$Path,
+    [Parameter(Mandatory=$true)][int]$StartProgress,
+    [Parameter(Mandatory=$true)][int]$EndProgress,
+    [Parameter(Mandatory=$true)][string]$Message
+  )
+  $state = [pscustomobject]@{ progress = $StartProgress - 1 }
+  $callback = {
+    param([int]$Processed, [int]$Total)
+    $ratio = if ($Total -gt 0) { [Math]::Min(1.0, $Processed / [double]$Total) } else { 1.0 }
+    $overall = $StartProgress + [int][Math]::Floor(($EndProgress - $StartProgress) * $ratio)
+    if ($overall -gt [int]$state.progress) {
+      Set-WorkerProgress -Progress $overall -Message $Message -DetailCurrent $Processed -DetailTotal $Total
+      $state.progress = $overall
+    }
+  }.GetNewClosure()
+  return Get-HwV3TreeSha256 -Path $Path -ProgressCallback $callback
+}
+
 function Copy-StagedRuntime {
+  Set-WorkerProgress -Progress 70 -Message "Verifying staged runtime files."
   Assert-HwV3RuntimeTree -Path $StageRoot -ExpectedVersion $ExpectedVersion -ExpectedRevision $ExpectedRevision `
     -RequireCadence:(-not $SkipCadence) | Out-Null
-  if ((Get-HwV3TreeSha256 -Path $StageRoot) -cne $ExpectedTreeSha256) {
+  if ((Get-WorkerTreeSha256 -Path $StageRoot -StartProgress 70 -EndProgress 73 `
+        -Message "Verifying staged runtime files.") -cne $ExpectedTreeSha256) {
     throw "Staged runtime tree SHA256 does not match the verified release."
   }
+  Set-WorkerProgress -Progress 74 -Message "Copying the candidate runtime into the installation."
   Remove-IncomingTree
   New-Item -ItemType Directory -Force -Path $incoming | Out-Null
   $robocopy = Get-HwV3RobocopyPath
   & $robocopy $StageRoot $incoming /MIR /COPY:DAT /DCOPY:DAT /R:2 /W:1 /XJ /NFL /NDL /NJH /NJS | Out-Null
   $copyExit = $LASTEXITCODE
   if ($copyExit -ge 8) { throw "Runtime copy failed with robocopy exit code $copyExit." }
+  Set-WorkerProgress -Progress 75 -Message "Verifying copied runtime files."
   Assert-HwV3RuntimeTree -Path $incoming -ExpectedVersion $ExpectedVersion -ExpectedRevision $ExpectedRevision `
     -RequireCadence:(-not $SkipCadence) | Out-Null
-  if ((Get-HwV3TreeSha256 -Path $incoming) -cne $ExpectedTreeSha256) {
+  if ((Get-WorkerTreeSha256 -Path $incoming -StartProgress 75 -EndProgress 78 `
+        -Message "Verifying copied runtime files.") -cne $ExpectedTreeSha256) {
     throw "Copied runtime tree SHA256 does not match the staged runtime."
   }
   if (Test-Path -LiteralPath $newRuntime -PathType Container) {
+    Set-WorkerProgress -Progress 79 -Message "Existing runtime found; verifying identical content."
     Assert-HwV3RuntimeTree -Path $newRuntime -ExpectedVersion $ExpectedVersion -ExpectedRevision $ExpectedRevision `
       -RequireCadence:(-not $SkipCadence) | Out-Null
-    if ((Get-HwV3TreeSha256 -Path $newRuntime) -cne $ExpectedTreeSha256) {
+    if ((Get-WorkerTreeSha256 -Path $newRuntime -StartProgress 79 -EndProgress 80 `
+          -Message "Existing runtime found; verifying identical content.") -cne $ExpectedTreeSha256) {
       throw "An existing runtime directory has the requested identity but different content."
     }
     Remove-IncomingTree
@@ -141,6 +186,7 @@ function Copy-StagedRuntime {
       }
     }
   }
+  Set-WorkerProgress -Progress 80 -Message "Candidate runtime files copied and verified."
 }
 
 function Write-ProtectedTransactionSnapshot {
@@ -262,16 +308,16 @@ try {
   if (-not (Test-Path -LiteralPath (Join-Path $InstallRoot "Insta360_HW.exe") -PathType Leaf)) {
     throw "Stable launcher is missing from the installation root."
   }
-  Set-HwV3JobPhase -StateRoot $StateRoot -JobId $JobId -Phase "committing" -Progress 70 `
-    -Message "Preparing a verified versioned runtime." -Additional @{ cancellable = $false; worker_pid = $PID } | Out-Null
   Write-WorkerJournal -Phase "preparing_runtime"
   Copy-StagedRuntime
   Write-WorkerJournal -Phase "runtime_ready"
   Invoke-HwV3Fault -FaultAt $FaultAt -Point "runtime_ready"
 
+  Set-WorkerProgress -Progress 81 -Message "Preparing rollback protection and checking Cadence integration."
   Initialize-ProtectedRecovery
   Initialize-CadenceSnapshot
   Write-WorkerJournal -Phase "recovery_armed"
+  Set-WorkerProgress -Progress 83 -Message "Rollback protection is ready; stopping the previous backend."
   Set-RecoveryRegistration
   if (-not $NoRestart) {
     Stop-HwV3Service -RuntimeRoot $oldRuntime -StateRoot $StateRoot
@@ -279,20 +325,20 @@ try {
   }
   Invoke-HwV3Fault -FaultAt $FaultAt -Point "service_stopped"
 
-  Set-HwV3JobPhase -StateRoot $StateRoot -JobId $JobId -Phase "switching" -Progress 82 `
-    -Message "Activating the verified runtime pointer." -Additional @{ cancellable = $false } | Out-Null
+  Set-HwV3JobPhase -StateRoot $StateRoot -JobId $JobId -Phase "switching" -Progress 86 `
+    -Message "Activating the verified runtime pointer." -Additional @{ cancellable = $false; detail_current = 0; detail_total = 0; detail_unit = "" } | Out-Null
   Commit-RuntimePointer
   Write-WorkerJournal -Phase "pointer_committed"
   Invoke-HwV3Fault -FaultAt $FaultAt -Point "pointer_committed"
 
-  Set-HwV3JobPhase -StateRoot $StateRoot -JobId $JobId -Phase "integrating" -Progress 89 `
-    -Message "Deploying Cadence integration from the active runtime." -Additional @{ cancellable = $false } | Out-Null
+  Set-HwV3JobPhase -StateRoot $StateRoot -JobId $JobId -Phase "integrating" -Progress 91 `
+    -Message "Deploying Cadence integration from the active runtime." -Additional @{ cancellable = $false; detail_current = 0; detail_total = 0; detail_unit = "" } | Out-Null
   Deploy-NewCadenceIntegration
   Write-WorkerJournal -Phase "integration_deployed"
   Invoke-HwV3Fault -FaultAt $FaultAt -Point "integration_deployed"
 
-  Set-HwV3JobPhase -StateRoot $StateRoot -JobId $JobId -Phase "verifying_runtime" -Progress 95 `
-    -Message "Starting and verifying the activated backend." -Additional @{ cancellable = $false } | Out-Null
+  Set-HwV3JobPhase -StateRoot $StateRoot -JobId $JobId -Phase "verifying_runtime" -Progress 96 `
+    -Message "Starting and verifying the activated backend." -Additional @{ cancellable = $false; detail_current = 0; detail_total = 0; detail_unit = "" } | Out-Null
   if (-not $NoRestart) { Start-HwV3Service -RuntimeRoot $newRuntime -StateRoot $StateRoot }
   Invoke-HwV3Fault -FaultAt $FaultAt -Point "runtime_verified"
   Write-ProtectedTransactionSnapshot -Outcome "completed"

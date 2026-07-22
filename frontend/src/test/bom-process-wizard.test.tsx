@@ -17,23 +17,36 @@ import { renderWithProviders } from "./render";
 function group(overrides: Partial<PlacementGroup> = {}): PlacementGroup {
   return {
     key: "material-a",
+    group_id: "material-a",
     row_numbers: [12],
+    source_rows: [12],
     refs: ["X1"],
+    physical_refs: ["X1"],
     position_count: 1,
     state: "suspected_material",
     category: "suspected_material",
     confidence: "strong",
     recommended_action: "keep",
+    suggested_destination: "smt",
+    exclusion_kind: "",
     suggested_code: "PART-100",
+    suggested_mpn: "",
     sh_review: false,
     rule_id: "R5",
+    rule_version: "placement-v2",
+    identity_status: "identity_candidate_internal",
+    role: "electronic",
+    role_confidence: "strong",
+    blocking_reasons: [],
+    decision_fingerprint: "fingerprint-a",
     evidence: [{
       kind: "code_shape",
       field: "value",
       value: "PART-100",
       polarity: "material+",
       strength: "strong",
-      display: "Value 命中编码形状（厂商 MPN）",
+      priority: 1,
+      display: "Value 符合内部编码形态",
     }],
     original_fields: { part_number: "", value: "PART-100", name: "", model: "", desc: "" },
     inferred_fields: { part_number: "PART-100", value: "PART-100", name: "结构件", model: "", desc: "" },
@@ -41,114 +54,143 @@ function group(overrides: Partial<PlacementGroup> = {}): PlacementGroup {
   };
 }
 
-describe("BOM placement review", () => {
-  it("seeds inferred fields without silently accepting the recommendation", () => {
+function patch(overrides: Partial<PlacementResolution["field_patch"]> = {}): PlacementResolution["field_patch"] {
+  return {
+    name: "结构件",
+    model: "",
+    desc: "",
+    grade: "",
+    unit: "",
+    manufacturer: "",
+    pcb_footprint: "",
+    pcb_package: "",
+    ...overrides,
+  };
+}
+
+function resolution(overrides: Partial<PlacementResolution> = {}): PlacementResolution {
+  return {
+    destination: "",
+    exclusion_kind: "",
+    role: "electronic",
+    subtype: "",
+    part_number_override: "PART-100",
+    field_patch: patch(),
+    decision_source: "user",
+    ...overrides,
+  };
+}
+
+describe("BOM placement review v2", () => {
+  it("prefills inferred fields without silently accepting a destination", () => {
     const item = group();
     const seeded = seedPlacementResolutions([item], {});
 
-    expect(seeded[item.key].part_number).toBe("PART-100");
+    expect(seeded[item.key].part_number_override).toBe("PART-100");
     expect(seeded[item.key].field_patch.name).toBe("结构件");
-    expect(seeded[item.key].action).toBe("");
-    expect(placementResolutionsComplete([item], seeded, ["suspected_material"])).toBe(false);
+    expect(seeded[item.key].destination).toBe("");
+    expect(placementResolutionsComplete([item], seeded)).toBe(false);
   });
 
-  it("sanitizes stale workspace placeholders without discarding valid manual decisions", () => {
+  it("discards legacy action-only workspace decisions after the rule upgrade", () => {
+    const item = group();
+    const legacy = { action: "exclude", part_number: "OLD" } as unknown as PlacementResolution;
+    const seeded = seedPlacementResolutions([item], { [item.key]: legacy });
+
+    expect(seeded[item.key].destination).toBe("");
+    expect(seeded[item.key].part_number_override).toBe("PART-100");
+    expect(seeded[item.key].decision_source).toBe("user");
+  });
+
+  it("automatically reuses only an exact history resolution", () => {
     const item = group({
-      original_fields: { part_number: "", value: "PART-100", name: "", model: "", desc: "{" },
-      inferred_fields: { part_number: "PART-100", value: "PART-100", name: "", model: "", desc: "" },
-      evidence: [{
-        kind: "placeholder_residue",
-        field: "desc",
-        value: "{",
-        polarity: "neutral",
-        strength: "strong",
-        display: "描述含 Capture 占位残渣",
-      }],
+      history_exact_resolution: resolution({ destination: "smt", decision_source: "user" }),
     });
-    const stale: PlacementResolution = {
-      action: "keep",
-      part_number: "\ufffd",
-      field_patch: { name: "手工名称", model: "", desc: "{", grade: "A", unit: "PCS" },
-      decision_source: "manual",
-    };
+    const seeded = seedPlacementResolutions([item], {});
 
-    const seeded = seedPlacementResolutions([item], { [item.key]: stale });
-
-    expect(seeded[item.key]).toEqual({
-      ...stale,
-      part_number: "PART-100",
-      field_patch: { name: "手工名称", model: "", desc: "", grade: "A", unit: "PCS" },
-    });
-    expect(seeded[item.key].action).toBe("keep");
-    expect(seeded[item.key].decision_source).toBe("manual");
+    expect(seeded[item.key].destination).toBe("smt");
+    expect(seeded[item.key].decision_source).toBe("history_exact");
     expect(placementResolutionComplete(item, seeded[item.key])).toBe(true);
   });
 
-  it("requires a code and descriptive metadata before a kept group is complete", () => {
-    const item = group({ inferred_fields: { part_number: "PART-100", name: "", model: "", desc: "" } });
-    const resolution: PlacementResolution = {
-      action: "keep",
-      part_number: "PART-100",
-      field_patch: { name: "", model: "", desc: "", grade: "", unit: "" },
-    };
+  it("requires an internal code and descriptive field for the SMT zone", () => {
+    const item = group({ inferred_fields: { part_number: "", name: "", model: "", desc: "" } });
+    const selected = resolution({
+      destination: "smt",
+      part_number_override: "",
+      field_patch: patch({ name: "", model: "", desc: "" }),
+    });
 
-    expect(placementResolutionComplete(item, resolution)).toBe(false);
-    resolution.field_patch.desc = "焊接结构件";
-    expect(placementResolutionComplete(item, resolution)).toBe(true);
+    expect(placementResolutionComplete(item, selected)).toBe(false);
+    selected.part_number_override = "PART-100";
+    expect(placementResolutionComplete(item, selected)).toBe(false);
+    selected.field_patch.desc = "焊接结构件";
+    expect(placementResolutionComplete(item, selected)).toBe(true);
   });
 
-  it("requires visiting the insufficient-data tab before accepting its default", async () => {
-    const user = userEvent.setup();
-    const material = group();
+  it("requires a concrete exclusion kind for the non-SMT zone", () => {
+    const item = group();
+    const selected = resolution({ destination: "non_smt" });
+
+    expect(placementResolutionComplete(item, selected)).toBe(false);
+    selected.exclusion_kind = "process_only";
+    expect(placementResolutionComplete(item, selected)).toBe(true);
+  });
+
+  it("forces SH to choose a shield subtype and keeps bracket and cover semantics distinct", () => {
+    const shield = group({
+      refs: ["SH1"],
+      physical_refs: ["SH1"],
+      sh_review: true,
+      role: "shield",
+      state: "material@shield",
+      suggested_destination: null,
+    });
+
+    expect(placementResolutionComplete(shield, resolution({ destination: "smt", role: "shield" }))).toBe(false);
+    expect(placementResolutionComplete(shield, resolution({ destination: "smt", role: "shield", subtype: "bracket" }))).toBe(true);
+    expect(placementResolutionComplete(shield, resolution({
+      destination: "non_smt",
+      exclusion_kind: "scope_excluded",
+      role: "shield",
+      subtype: "cover",
+    }))).toBe(true);
+    expect(placementResolutionComplete(shield, resolution({
+      destination: "non_smt",
+      exclusion_kind: "scope_excluded",
+      role: "shield",
+      subtype: "bracket",
+    }))).toBe(false);
+  });
+
+  it("leaves R8 unresolved instead of silently excluding it", () => {
     const insufficient = group({
       key: "insufficient-a",
       refs: ["X2"],
+      physical_refs: ["X2"],
       state: "insufficient_data",
       category: "insufficient_data",
       confidence: "weak",
-      recommended_action: "exclude",
+      recommended_action: null,
+      suggested_destination: null,
       suggested_code: "",
       rule_id: "R8",
-      original_fields: { part_number: "", value: "", name: "", model: "", desc: "{" },
+      identity_status: "identity_missing",
+      role: "unknown",
+      original_fields: { part_number: "", value: "", name: "", model: "", desc: "" },
       inferred_fields: { part_number: "", value: "", name: "", model: "", desc: "" },
     });
-    const onApply = vi.fn();
-    function Harness() {
-      const [resolutions, setResolutions] = useState(() => ({
-        ...seedPlacementResolutions([material, insufficient], {}),
-        [material.key]: {
-          ...seedPlacementResolutions([material], {})[material.key],
-          action: "keep" as const,
-          decision_source: "manual" as const,
-        },
-      }));
-      const [visitedTabs, setVisitedTabs] = useState<string[]>([]);
-      return (
-        <PlacementReview
-          groups={[material, insufficient]}
-          readonlyNc={{ count: 0, items: [] }}
-          resolutions={resolutions}
-          visitedTabs={visitedTabs}
-          onResolutionsChange={setResolutions}
-          onVisitedTabsChange={setVisitedTabs}
-          onApply={onApply}
-          onBack={vi.fn()}
-          running={false}
-        />
-      );
-    }
-    renderWithProviders(<Harness />);
+    const seeded = seedPlacementResolutions([insufficient], {});
 
-    await waitFor(() => expect(screen.getByRole("button", { name: /按审查结果继续/ })).toBeDisabled());
-    expect(screen.getByText(/还有 1 组未完成/)).toBeInTheDocument();
-    await user.click(screen.getByRole("tab", { name: /数据不足/ }));
-    await waitFor(() => expect(screen.getByRole("button", { name: /按审查结果继续/ })).toBeEnabled());
-    expect(onApply).not.toHaveBeenCalled();
+    expect(seeded[insufficient.key].destination).toBe("");
+    expect(seeded[insufficient.key].exclusion_kind).toBe("");
+    expect(placementResolutionComplete(insufficient, seeded[insufficient.key])).toBe(false);
   });
 
-  it("applies page recommendations only after the summary is confirmed", async () => {
+  it("lets the user confirm the suggested zone without moving out and back", async () => {
     const user = userEvent.setup();
     const item = group();
+    const onApply = vi.fn();
     function Harness() {
       const [resolutions, setResolutions] = useState(() => seedPlacementResolutions([item], {}));
       return (
@@ -156,10 +198,8 @@ describe("BOM placement review", () => {
           groups={[item]}
           readonlyNc={{ count: 0, items: [] }}
           resolutions={resolutions}
-          visitedTabs={["suspected_material"]}
           onResolutionsChange={setResolutions}
-          onVisitedTabsChange={vi.fn()}
-          onApply={vi.fn()}
+          onApply={onApply}
           onBack={vi.fn()}
           running={false}
         />
@@ -169,28 +209,25 @@ describe("BOM placement review", () => {
 
     const continueButton = screen.getByRole("button", { name: /按审查结果继续/ });
     expect(continueButton).toBeDisabled();
-    await user.click(screen.getByRole("button", { name: "采纳本页建议" }));
-    expect(screen.getByText("将纳入 1 组、确认不装 0 组。无推荐和已人工选择的组不会被改动。")).toBeInTheDocument();
-    expect(continueButton).toBeDisabled();
-    await user.click(screen.getByRole("button", { name: "确认采纳" }));
+    await user.click(screen.getByRole("button", { name: "确认 X1 保留在贴片区" }));
     await waitFor(() => expect(continueButton).toBeEnabled());
+    await user.click(continueButton);
+    expect(onApply).toHaveBeenCalledTimes(1);
   });
 
-  it("lets the user explicitly accept a recommendation", async () => {
+  it("batch applies only strong non-conflicting non-SH recommendations on the visible page", async () => {
     const user = userEvent.setup();
-    const item = group();
-    const onApply = vi.fn();
+    const safe = group();
+    const shield = group({ key: "shield", refs: ["SH1"], role: "shield", sh_review: true });
     function Harness() {
-      const [resolutions, setResolutions] = useState(() => seedPlacementResolutions([item], {}));
+      const [resolutions, setResolutions] = useState(() => seedPlacementResolutions([safe, shield], {}));
       return (
         <PlacementReview
-          groups={[item]}
+          groups={[safe, shield]}
           readonlyNc={{ count: 0, items: [] }}
           resolutions={resolutions}
-          visitedTabs={["suspected_material"]}
           onResolutionsChange={setResolutions}
-          onVisitedTabsChange={vi.fn()}
-          onApply={onApply}
+          onApply={vi.fn()}
           onBack={vi.fn()}
           running={false}
         />
@@ -198,51 +235,18 @@ describe("BOM placement review", () => {
     }
     renderWithProviders(<Harness />);
 
-    expect(screen.getByRole("button", { name: /按审查结果继续/ })).toBeDisabled();
-    await user.click(screen.getByText("纳入 BOM", { exact: true }));
-    await waitFor(() => expect(screen.getByRole("button", { name: /按审查结果继续/ })).toBeEnabled());
-    await user.click(screen.getByRole("button", { name: /按审查结果继续/ }));
-    expect(onApply).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole("button", { name: "采纳当前页安全建议" }));
+    expect(screen.getByText(/冲突项、SH 和弱证据项不会被批量处理/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "确认采纳" }));
+    await waitFor(() => expect(screen.getByText("已确认 1/2")).toBeInTheDocument());
+    expect(screen.getByText("还有 1 组未完成")).toBeInTheDocument();
   });
 
-  it("hides the no-recommendation warning after an explicit decision", () => {
-    const item = group({
-      state: "conflicting",
-      category: "conflicting",
-      recommended_action: null,
-      original_fields: { part_number: "PART-100", value: "NC", name: "器件", model: "M1", desc: "冲突项" },
-      inferred_fields: { part_number: "PART-100", value: "NC", name: "器件", model: "M1", desc: "冲突项" },
-    });
-    const resolution: PlacementResolution = {
-      action: "keep_as_is",
-      part_number: "PART-100",
-      field_patch: { name: "器件", model: "M1", desc: "冲突项", grade: "", unit: "" },
-      decision_source: "manual",
-    };
-
-    renderWithProviders(
-      <PlacementReview
-        groups={[item]}
-        readonlyNc={{ count: 0, items: [] }}
-        resolutions={{ [item.key]: resolution }}
-        visitedTabs={["conflicting"]}
-        onResolutionsChange={vi.fn()}
-        onVisitedTabsChange={vi.fn()}
-        onApply={vi.fn()}
-        onBack={vi.fn()}
-        running={false}
-      />,
-    );
-
-    expect(screen.queryByText("存在没有明确建议的项目")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /按审查结果继续/ })).toBeEnabled();
-  });
-
-  it("persists only the unified placement state in the workspace", () => {
+  it("persists only the unified v2 placement state in the workspace", () => {
     const source = readFileSync(resolve(process.cwd(), "src", "tools", "BomProcessWizard.tsx"), "utf-8");
     expect(source).toContain("placementResolutions: {} as Record<string, PlacementResolution>");
-    expect(source).toContain("placementVisitedTabs: [] as string[]");
     expect(source).toContain("placement_resolutions: placementResolutions");
+    expect(source).not.toContain("placementVisitedTabs");
     expect(source).not.toContain("missing_part_number_resolutions");
     expect(source).not.toContain("process_material_keeps");
     expect(source).not.toContain("confirm_shields");

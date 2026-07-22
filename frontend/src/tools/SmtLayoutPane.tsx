@@ -5,6 +5,7 @@ import {
   DeleteOutlined,
   DownloadOutlined,
   FileExcelOutlined,
+  FileTextOutlined,
   FolderOpenOutlined,
   PlayCircleOutlined,
   PrinterOutlined,
@@ -23,6 +24,7 @@ import styles from "./SmtLayoutPane.module.css";
 
 type SmtLayoutWorkspace = {
   historyBom: string;
+  historyDecisionManifest: string;
   result: SmtLayoutResponse | null;
   activeTab: string;
 };
@@ -94,14 +96,20 @@ function DirectorySource({ kind, title, buttonLabel, files, onFiles }: Directory
 
 function BomSource({
   file,
+  decisionFile,
   historyBom,
+  historyDecisionManifest,
   onFile,
+  onDecisionFile,
   onHistoryBom,
 }: {
   file?: File;
+  decisionFile?: File;
   historyBom: string;
+  historyDecisionManifest: string;
   onFile: (file?: File) => void;
-  onHistoryBom: (path: string) => void;
+  onDecisionFile: (file?: File) => void;
+  onHistoryBom: (path: string, decisionManifest?: string) => void;
 }) {
   return (
     <Card size="small" className="smt-layout-source-card">
@@ -109,9 +117,12 @@ function BomSource({
         <Typography.Text strong>可导入 PLM/OA 的成品 BOM（不含 NC）</Typography.Text>
         <HistoryBomPicker
           value={historyBom}
-          onChange={(path) => {
-            onHistoryBom(path);
-            if (path) onFile(undefined);
+          onChange={(path, asset) => {
+            onHistoryBom(path, asset?.decision_manifest || "");
+            if (path) {
+              onFile(undefined);
+              onDecisionFile(undefined);
+            }
           }}
         />
         <Upload
@@ -120,7 +131,8 @@ function BomSource({
           fileList={file ? [{ uid: "bom", name: file.name, status: "done" as const }] : []}
           beforeUpload={(next) => {
             onFile(next);
-            onHistoryBom("");
+            onDecisionFile(undefined);
+            onHistoryBom("", "");
             return false;
           }}
           onRemove={() => {
@@ -130,6 +142,26 @@ function BomSource({
         >
           <Button aria-label="选择 PLM/OA BOM" icon={<FileExcelOutlined />}>选择 PLM/OA BOM</Button>
         </Upload>
+        <Upload
+          accept=".json"
+          maxCount={1}
+          fileList={decisionFile ? [{ uid: "decision", name: decisionFile.name, status: "done" as const }] : []}
+          beforeUpload={(next) => {
+            onDecisionFile(next);
+            return false;
+          }}
+          onRemove={() => {
+            onDecisionFile(undefined);
+            return true;
+          }}
+        >
+          <Button aria-label="选择 BOM 决策清单" icon={<FileTextOutlined />}>选择决策清单（推荐）</Button>
+        </Upload>
+        {historyBom ? (
+          <Typography.Text type={historyDecisionManifest ? "success" : "secondary"}>
+            {historyDecisionManifest ? "已自动关联同次处理的决策清单" : "该历史记录没有 v2 决策清单，将按位号差集推导候选 NC"}
+          </Typography.Text>
+        ) : null}
       </Space>
     </Card>
   );
@@ -455,8 +487,10 @@ function NcLayoutTab({
   const confirmedCount = ncSummary?.confirmed_refs?.length ?? ncSummary?.refs?.length ?? 0;
   const candidateCount = ncSummary?.candidate_refs?.length ?? 0;
   const unverifiedCount = ncSummary?.unverified_refs?.length ?? 0;
+  const nonNcCount = ncSummary?.non_nc_refs?.length ?? 0;
   const conflictRefs = ncSummary?.conflict_refs ?? [];
   const hasNetlistEvidence = ncSummary?.inference_mode === "with_netlist";
+  const usedDecisionManifest = Boolean(ncSummary?.decision_manifest_used);
 
   return (
     <div className="smt-nc-tab">
@@ -464,12 +498,13 @@ function NcLayoutTab({
         <Alert
           type={unverifiedCount ? "warning" : "info"}
           showIcon
-          message={hasNetlistEvidence ? "网表已交叉验证" : "未提供网表，当前结果为候选 NC"}
+          message={usedDecisionManifest ? "已使用 BOM 决策清单" : hasNetlistEvidence ? "网表已交叉验证" : "未提供决策清单和网表，当前结果为候选 NC"}
           description={(
             <Space wrap>
               <Tag color="red">确定 NC {confirmedCount}</Tag>
               <Tag color="gold">候选 NC {candidateCount}</Tag>
               <Tag color="blue">待确认 {unverifiedCount}</Tag>
+              {nonNcCount ? <Tag>已确认其他非贴片项 {nonNcCount}</Tag> : null}
             </Space>
           )}
         />
@@ -609,6 +644,7 @@ export function SmtLayoutPane() {
     "smt_layout",
     {
       historyBom: "",
+      historyDecisionManifest: "",
       result: null,
       activeTab: "nc",
     },
@@ -616,8 +652,10 @@ export function SmtLayoutPane() {
   );
   const [smtFiles, setSmtFiles] = useState<File[]>([]);
   const [bomFile, setBomFile] = useState<File | undefined>();
+  const [decisionFile, setDecisionFile] = useState<File | undefined>();
   const [netlistFiles, setNetlistFiles] = useState<File[]>([]);
   const [historyBom, setHistoryBom] = useState(workspace.historyBom || "");
+  const [historyDecisionManifest, setHistoryDecisionManifest] = useState(workspace.historyDecisionManifest || "");
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
   const [selectedRef, setSelectedRef] = useState("");
@@ -626,8 +664,8 @@ export function SmtLayoutPane() {
   );
 
   useEffect(() => {
-    setWorkspace((current) => ({ ...current, historyBom }));
-  }, [historyBom, setWorkspace]);
+    setWorkspace((current) => ({ ...current, historyBom, historyDecisionManifest }));
+  }, [historyBom, historyDecisionManifest, setWorkspace]);
 
   useEffect(() => {
     if (!sanityAvailable && workspace.activeTab === "sanity") {
@@ -655,14 +693,18 @@ export function SmtLayoutPane() {
     setRunning(true);
     setError("");
     try {
-      const [smtUpload, bomUpload, netlistUpload] = await Promise.all([
+      const [smtUpload, bomUpload, decisionUpload, netlistUpload] = await Promise.all([
         uploadFiles(smtFiles),
         historyBom || !bomFile ? Promise.resolve(null) : uploadFiles([bomFile]),
+        historyDecisionManifest || !decisionFile ? Promise.resolve(null) : uploadFiles([decisionFile]),
         netlistFiles.length ? uploadFiles(netlistFiles) : Promise.resolve(null),
       ]);
       const result = await runSmtLayout({
         smt_folder: smtUpload.folder,
         processed_bom: historyBom || bomUpload?.files[0]?.path || "",
+        ...((historyDecisionManifest || decisionUpload?.files[0]?.path) ? {
+          decision_manifest: historyDecisionManifest || decisionUpload?.files[0]?.path || "",
+        } : {}),
         ...(netlistUpload ? { netlist_folder: netlistUpload.folder } : {}),
       });
       setWorkspace((current) => ({ ...current, result }));
@@ -678,8 +720,10 @@ export function SmtLayoutPane() {
     setSelectedRef("");
     setSmtFiles([]);
     setBomFile(undefined);
+    setDecisionFile(undefined);
     setNetlistFiles([]);
     setHistoryBom("");
+    setHistoryDecisionManifest("");
     resetWorkspace();
   }
 
@@ -736,9 +780,15 @@ export function SmtLayoutPane() {
         />
         <BomSource
           file={bomFile}
+          decisionFile={decisionFile}
           historyBom={historyBom}
+          historyDecisionManifest={historyDecisionManifest}
           onFile={setBomFile}
-          onHistoryBom={setHistoryBom}
+          onDecisionFile={setDecisionFile}
+          onHistoryBom={(path, decisionManifest) => {
+            setHistoryBom(path);
+            setHistoryDecisionManifest(decisionManifest || "");
+          }}
         />
         <DirectorySource
           kind="netlist"

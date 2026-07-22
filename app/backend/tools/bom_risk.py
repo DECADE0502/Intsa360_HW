@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.backend.tools import bom_process
+from app.backend.tools.bom_decisions import load_decision_manifest
 from app.backend.tools.bom_rules import evaluate_bom_risks, find_type_mismatches
 from app.backend.tools.common import (
     USER_INPUT_EXCEPTIONS,
@@ -22,10 +23,19 @@ def _run_bom_risk_check_impl(root: Path, params: dict[str, object]) -> dict[str,
         return _error("bom_risk_check", error)
 
     rows = _read_bom_rows(bom, require_refs=False)
+    manifest_path: Path | None = None
+    placement_decisions: list[dict[str, object]] | None = None
+    if str(params.get("decision_manifest") or "").strip():
+        manifest_path, manifest_error = _required_file(params, "decision_manifest", "BOM 决策清单")
+        if manifest_error:
+            return _error("bom_risk_check", manifest_error)
+        assert manifest_path is not None
+        placement_decisions = [dict(item) for item in load_decision_manifest(manifest_path).placements]
     review_summary = params.get("review_summary")
     findings = evaluate_bom_risks(
         rows,
         review_summary if isinstance(review_summary, dict) else None,
+        placement_decisions,
     )
     positions = sum(len(row.get("refs") or []) for row in rows)
     parts = len({row["part_number"] for row in rows if row.get("part_number")})
@@ -61,6 +71,7 @@ def _run_bom_risk_check_impl(root: Path, params: dict[str, object]) -> dict[str,
     result["risk_report"] = {
         "label": bom.name,
         "source_file": str(bom),
+        "decision_manifest": str(manifest_path) if manifest_path else "",
         "findings": findings,
         "stats": {"数据行": len(rows), "位号数": positions, "料号数": parts},
         "grade_flags": grade_flags,

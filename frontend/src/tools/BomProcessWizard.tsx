@@ -10,6 +10,7 @@ import {
   Input,
   List,
   Result,
+  Select,
   Space,
   Steps,
   Table,
@@ -19,6 +20,7 @@ import {
   Upload,
 } from "antd";
 import {
+  CopyOutlined,
   DownloadOutlined,
   FileTextOutlined,
   InboxOutlined,
@@ -34,7 +36,12 @@ import { useToolWorkspace } from "../state/toolWorkspace";
 import { packageDownloadName } from "../utils/downloadName";
 import { outputHref } from "../utils/outputHref";
 import { riskStatusText } from "../utils/statusText";
-import { buildRecommendedConflictChoices } from "./bomConflictChoices";
+import {
+  buildRecommendedConflictChoices,
+  conflictChoiceComplete,
+  normalizeConflictChoice,
+  type ConflictChoice,
+} from "./bomConflictChoices";
 import {
   PlacementReview,
   seedPlacementResolutions,
@@ -47,7 +54,7 @@ export type { PlacementResolution } from "./PlacementReview";
 const { Dragger } = Upload;
 const ASSETS_UPDATED_EVENT = "insta360_hw:assets-updated";
 const CONFIG =
-  "{Item}\\t{Quantity}\\t{Reference}\\t{Part Number}\\t{Value}\\t{规格型号}\\t{器件描述（新整理）}\\t{物料名称}\\t{等级}\\t{PCB Footprint}\\t{PCB封装}\\t{Part Type}\\t{Part Reference}\\t{Source Package}\\t{Source Part}";
+  "{Item}\\t{Quantity}\\t{Reference}\\t{Part Number}\\t{Value}\\t{规格型号}\\t{器件描述（新整理）}\\t{器件描述（旧）}\\t{物料名称}\\t{等级}\\t{等级备注}\\t{制造商}\\t{datasheet}\\t{PCB Footprint}\\t{PCB封装}\\t{Part Type}\\t{Part Reference}\\t{Name}\\t{Designator}\\t{Color}\\t{Source Library}\\t{Source Package}\\t{Source Part}\\t{Implementation}\\t{Implementation Path}\\t{Implementation Type}\\t{Primitive}\\t{Graphic}\\t{ID}\\t{OriginalSymbolOrigin}\\t{Power Pins Visible}\\t{Location X-Coordinate}\\t{Location Y-Coordinate}\\t{SPLIT_INST}\\t{SWAP_INFO}";
 
 function notifyAssetsUpdated() {
   window.dispatchEvent(new Event(ASSETS_UPDATED_EVENT));
@@ -98,9 +105,8 @@ export function BomProcessWizard() {
       extras: [] as Extra[],
       pres: null as any,
       rres: null as any,
-      conflictChoices: {} as Record<string, number>,
+      conflictChoices: {} as Record<string, ConflictChoice | number>,
       placementResolutions: {} as Record<string, PlacementResolution>,
-      placementVisitedTabs: [] as string[],
     },
     { heavyKeys: ["pres", "rres"] },
   );
@@ -121,12 +127,11 @@ export function BomProcessWizard() {
   const [rres, setRres] = useState<any>(hasPresetInvocation ? null : workspace.rres || null);
   const [rrun, setRrun] = useState(false);
   const [running, setRunning] = useState(false);
-  const [conflictChoices, setConflictChoices] = useState<Record<string, number>>(hasPresetInvocation ? {} : (workspace.conflictChoices as Record<string, number>) || {});
+  const [conflictChoices, setConflictChoices] = useState<Record<string, ConflictChoice | number>>(
+    hasPresetInvocation ? {} : (workspace.conflictChoices as Record<string, ConflictChoice | number>) || {},
+  );
   const [placementResolutions, setPlacementResolutions] = useState<Record<string, PlacementResolution>>(
     hasPresetInvocation ? {} : (workspace.placementResolutions as Record<string, PlacementResolution>) || {},
-  );
-  const [placementVisitedTabs, setPlacementVisitedTabs] = useState<string[]>(
-    hasPresetInvocation || !Array.isArray(workspace.placementVisitedTabs) ? [] : (workspace.placementVisitedTabs as string[]),
   );
 
   useEffect(() => {
@@ -142,9 +147,8 @@ export function BomProcessWizard() {
       rres,
       conflictChoices,
       placementResolutions,
-      placementVisitedTabs,
     });
-  }, [stage, sp, name, pcode, pdesc, fmts, extras, pres, rres, conflictChoices, placementResolutions, placementVisitedTabs]);
+  }, [stage, sp, name, pcode, pdesc, fmts, extras, pres, rres, conflictChoices, placementResolutions]);
 
   useEffect(() => {
     if (pres?.reason !== "placement_review") return;
@@ -164,7 +168,6 @@ export function BomProcessWizard() {
       setRres(null);
       setConflictChoices({});
       setPlacementResolutions({});
-      setPlacementVisitedTabs([]);
       message.success("已接收文件");
       setStage("review");
     } catch (e: any) {
@@ -211,13 +214,22 @@ export function BomProcessWizard() {
     if (rres?.source_file === riskSource) return;
     setRres(null);
     setRrun(true);
-    runTool("bom_risk_check", { bom: riskSource, review_summary: pres?.summary?.placement_review })
+    runTool("bom_risk_check", {
+      bom: riskSource,
+      decision_manifest: pres?.decision_manifest || "",
+      review_summary: pres?.summary?.placement_review,
+    })
       .then((result) => setRres({ ...result, source_file: result?.source_file || riskSource }))
       .catch((e) => setRres({ status: "error", error: toUserMessage(e), source_file: riskSource }))
       .finally(() => setRrun(false));
   }, [stage, riskSource, rres?.source_file, rrun]);
 
   async function applyMerge(merge: boolean) {
+    const conflicts = Array.isArray(pres?.conflicts) ? pres.conflicts : [];
+    if (merge && !conflicts.every((conflict: any) => conflictChoiceComplete(conflict, conflictChoices[conflict.code]))) {
+      message.warning("仍有编码冲突未完成决议，请逐项确认后继续。");
+      return;
+    }
     setRres(null);
     setRrun(false);
     setRunning(true);
@@ -248,15 +260,13 @@ export function BomProcessWizard() {
   async function applyRecommendedMerge() {
     const conflicts = Array.isArray(pres?.conflicts) ? pres.conflicts : [];
     const choices = buildRecommendedConflictChoices(conflicts, conflictChoices);
-    if (Object.keys(choices).length !== conflicts.length) {
-      setPres({
-        ...pres,
-        status: "error",
-        error: "部分编码冲突缺少可保留的原始候选，请返回重新导出 BOM。",
-      });
+    const unresolved = conflicts.filter((conflict: any) => !conflictChoiceComplete(conflict, choices[conflict.code]));
+    setConflictChoices(choices);
+    if (unresolved.length) {
+      const adopted = conflicts.length - unresolved.length;
+      message.info(`已采纳 ${adopted} 项高置信决议，剩余 ${unresolved.length} 项需要人工处理。`);
       return;
     }
-    setConflictChoices(choices);
     setRres(null);
     setRrun(false);
     setRunning(true);
@@ -362,7 +372,6 @@ export function BomProcessWizard() {
     setRunning(false);
     setConflictChoices({});
     setPlacementResolutions({});
-    setPlacementVisitedTabs([]);
     const cleanUrl = `${window.location.pathname}?tool=bom_process`;
     window.history.replaceState({}, "", cleanUrl);
     if (options.successMessage) message.success(options.successMessage);
@@ -408,11 +417,8 @@ export function BomProcessWizard() {
           setConflictChoices={setConflictChoices}
           onRecommendedMerge={applyRecommendedMerge}
           onApply={() => applyMerge(true)}
-          onSplit={() => applyMerge(false)}
           placementResolutions={placementResolutions}
           setPlacementResolutions={setPlacementResolutions}
-          placementVisitedTabs={placementVisitedTabs}
-          setPlacementVisitedTabs={setPlacementVisitedTabs}
           onApplyPlacementReview={applyPlacementReview}
           onNext={() => setStage("risk")}
           onBack={() => {
@@ -436,7 +442,6 @@ export function BomProcessWizard() {
             setRres(null);
             setConflictChoices({});
             setPlacementResolutions({});
-            setPlacementVisitedTabs([]);
             resetWorkspace();
             setStage("review");
           }}
@@ -466,13 +471,64 @@ function SourceView({ presetSource, onFile, onUsePreset }: any) {
         </p>
         <p>点击或拖拽 Capture 导出的 BOM 文件</p>
       </Dragger>
+      <CaptureExportConfig />
     </>
+  );
+}
+
+function CaptureExportConfig() {
+  const { message } = App.useApp();
+  const [copied, setCopied] = useState(false);
+
+  async function copyConfig() {
+    let copied = false;
+    try {
+      if (navigator.clipboard?.writeText) {
+        copied = await Promise.race<boolean>([
+          navigator.clipboard.writeText(CONFIG).then(() => true),
+          new Promise((resolve) => window.setTimeout(() => resolve(false), 500)),
+        ]);
+      }
+    } catch {
+      copied = false;
+    }
+    if (!copied) {
+      const fallback = document.createElement("textarea");
+      fallback.value = CONFIG;
+      fallback.setAttribute("readonly", "");
+      fallback.style.position = "fixed";
+      fallback.style.opacity = "0";
+      document.body.appendChild(fallback);
+      fallback.select();
+      copied = typeof document.execCommand === "function" && document.execCommand("copy");
+      fallback.remove();
+    }
+    if (copied) {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } else {
+      message.error("复制失败，请选中文本后手动复制。");
+    }
+  }
+
+  return (
+    <div className="capture-export-config">
+      <div className="capture-export-config-head">
+        <div>
+          <Typography.Text strong>Capture 手动导出字段</Typography.Text>
+          <Typography.Text type="secondary">粘贴到 Header 和 Combined property string</Typography.Text>
+        </div>
+        <Button icon={<CopyOutlined />} onClick={() => void copyConfig()}>
+          {copied ? "已复制" : "复制字段"}
+        </Button>
+      </div>
+      <Input.TextArea readOnly value={CONFIG} autoSize={{ minRows: 3, maxRows: 5 }} />
+    </div>
   );
 }
 
 function ReviewView(props: any) {
   const { sp, name, setName, pcode, setPcode, pdesc, setPdesc, fmts, setFmts, extras, setExtras, onClear, onNext } = props;
-  const [copied, setCopied] = useState(false);
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
       <Alert type="success" showIcon message="文件已接收" description={<Typography.Text code>{sp}</Typography.Text>} />
@@ -494,21 +550,7 @@ function ReviewView(props: any) {
           {
             key: "cfg",
             label: "Capture 导出配置",
-            children: (
-              <Space direction="vertical" style={{ width: "100%" }}>
-                <Input.TextArea readOnly value={CONFIG} autoSize />
-                <Button
-                  size="small"
-                  onClick={() => {
-                    navigator.clipboard.writeText(CONFIG);
-                    setCopied(true);
-                    setTimeout(() => setCopied(false), 1500);
-                  }}
-                >
-                  {copied ? "已复制" : "复制配置"}
-                </Button>
-              </Space>
-            ),
+            children: <CaptureExportConfig />,
           },
         ]}
       />
@@ -531,11 +573,8 @@ function ProcessView({
   setConflictChoices,
   onRecommendedMerge,
   onApply,
-  onSplit,
   placementResolutions,
   setPlacementResolutions,
-  placementVisitedTabs,
-  setPlacementVisitedTabs,
   onApplyPlacementReview,
   onNext,
   onBack,
@@ -549,10 +588,10 @@ function ProcessView({
       <PlacementReview
         groups={pres.groups || []}
         readonlyNc={pres.readonly_nc || { count: 0, items: [] }}
+        readonlyGroups={pres.readonly_groups || []}
+        qualityReport={pres.quality_report}
         resolutions={placementResolutions}
-        visitedTabs={placementVisitedTabs}
         onResolutionsChange={setPlacementResolutions}
-        onVisitedTabsChange={setPlacementVisitedTabs}
         onApply={onApplyPlacementReview}
         onBack={onBack}
         running={running}
@@ -563,10 +602,11 @@ function ProcessView({
   const s = pres.summary || {};
   const conflicts = pres.conflicts || [];
   const hasC = hasBomConflicts(pres);
-  const allDone = !hasC || conflicts.every((c: any) => conflictChoices[c.code] !== undefined);
+  const allDone = !hasC || conflicts.every((c: any) => conflictChoiceComplete(c, conflictChoices[c.code]));
   const activeConflict = conflicts.find((c: any) => c.code === activeConflictCode) || conflicts[0];
-  const selectedCount = conflicts.filter((c: any) => conflictChoices[c.code] !== undefined).length;
+  const selectedCount = conflicts.filter((c: any) => conflictChoiceComplete(c, conflictChoices[c.code])).length;
   const lowConfidenceCount = conflicts.filter((c: any) => !c.high_confidence).length;
+  const highConfidenceCount = conflicts.length - lowConfidenceCount;
 
   return (
     <div className="process-grid">
@@ -593,16 +633,13 @@ function ProcessView({
           {hasC ? (
             <Space direction="vertical" style={{ width: "100%" }}>
               <Typography.Text type="secondary">
-                系统已为全部 {conflicts.length} 项给出原始候选推荐，其中 {lowConfidenceCount} 项为低置信推荐；可一键采用，也可逐项修改。
+                仅有 {highConfidenceCount} 项满足安全合并条件，可批量采纳；其余 {lowConfidenceCount} 项必须逐项处理。
               </Typography.Text>
-              <Button type="primary" block onClick={onRecommendedMerge}>
-                采用全部推荐并继续
+              <Button block disabled={!highConfidenceCount} onClick={onRecommendedMerge}>
+                采纳高置信推荐
               </Button>
               <Button type="primary" block disabled={!allDone} onClick={onApply}>
-                按所选项合并
-              </Button>
-              <Button block onClick={onSplit}>
-                不合并，保留差异
+                按全部决议继续处理
               </Button>
             </Space>
           ) : (
@@ -631,7 +668,7 @@ function ProcessView({
               <div className="conflict-workbench">
                 <div className="conflict-index-list">
                   {conflicts.map((c: any, idx: number) => {
-                    const selected = conflictChoices[c.code];
+                    const choice = normalizeConflictChoice(c, conflictChoices[c.code]);
                     const variants = c.variants || [];
                     return (
                       <button
@@ -641,7 +678,7 @@ function ProcessView({
                         onClick={() => setActiveConflictCode(c.code)}
                       >
                         <span className="conflict-index-code">{idx + 1}. {c.code}</span>
-                        <span className="conflict-index-meta">{variants.length} 项 · {selected === undefined ? "未选择" : `保留第 ${selected + 1} 项`}</span>
+                        <span className="conflict-index-meta">{variants.length} 项 · {conflictChoiceLabel(c, choice)}</span>
                       </button>
                     );
                   })}
@@ -649,8 +686,11 @@ function ProcessView({
                 <div className="conflict-detail-pane">
                   <CConflict
                     c={activeConflict}
-                    selected={conflictChoices[activeConflict?.code]}
-                    onSelect={(index: number) => setConflictChoices((p: any) => ({ ...p, [activeConflict.code]: index }))}
+                    choice={normalizeConflictChoice(activeConflict || {}, conflictChoices[activeConflict?.code])}
+                    onChange={(choice: ConflictChoice) => setConflictChoices((current: Record<string, ConflictChoice | number>) => ({
+                      ...current,
+                      [activeConflict.code]: choice,
+                    }))}
                   />
                 </div>
               </div>
@@ -843,8 +883,56 @@ function DeliverView({ pres, rres, name, onDownload, onFinish, onReset }: any) {
   );
 }
 
-function CConflict({ c, selected, onSelect }: any) {
+function conflictChoiceLabel(c: any, choice?: ConflictChoice) {
+  if (!choice) return "未决议";
+  if (choice.action === "select_variant") return `采用候选 ${choice.variant_index + 1}`;
+  if (choice.action === "split_refs") {
+    return conflictChoiceComplete(c, choice) ? "已拆组改码" : "拆组待填写";
+  }
+  if (choice.action === "move_non_smt") {
+    return conflictChoiceComplete(c, choice) ? `移出 ${choice.variant_indices.length} 项` : "移出项待选择";
+  }
+  return "返回 Capture 修正";
+}
+
+function CConflict({ c, choice, onChange }: { c: any; choice?: ConflictChoice; onChange: (choice: ConflictChoice) => void }) {
   const variants = c?.variants || [];
+  const selected = choice?.action === "select_variant" ? choice.variant_index : undefined;
+  const splitAssignments = choice?.action === "split_refs" ? choice.assignments : [];
+  const moved = choice?.action === "move_non_smt" ? choice.variant_indices : [];
+
+  function beginSplit() {
+    const existing = new Map(splitAssignments.map((item) => [item.variant_index, item.part_number]));
+    onChange({
+      action: "split_refs",
+      assignments: variants.map((_: any, index: number) => ({
+        variant_index: index,
+        part_number: existing.get(index) || "",
+      })),
+    });
+  }
+
+  function updateSplitCode(index: number, partNumber: string) {
+    const existing = new Map(splitAssignments.map((item) => [item.variant_index, item.part_number]));
+    existing.set(index, partNumber);
+    onChange({
+      action: "split_refs",
+      assignments: variants.map((_: any, variantIndex: number) => ({
+        variant_index: variantIndex,
+        part_number: existing.get(variantIndex) || "",
+      })),
+    });
+  }
+
+  function toggleMoved(index: number, checked: boolean) {
+    const next = checked ? [...moved, index] : moved.filter((value) => value !== index);
+    onChange({
+      action: "move_non_smt",
+      variant_indices: Array.from(new Set(next)).sort((left, right) => left - right),
+      exclusion_kind: choice?.action === "move_non_smt" ? choice.exclusion_kind : "scope_excluded",
+    });
+  }
+
   return (
     <div>
       <div className="conflict-detail-head">
@@ -852,8 +940,60 @@ function CConflict({ c, selected, onSelect }: any) {
           <Typography.Text type="secondary">当前编码</Typography.Text>
           <Typography.Title level={4} style={{ margin: 0 }}>{c?.code}</Typography.Title>
         </div>
-        <Tag color={selected === undefined ? "orange" : "blue"}>{selected === undefined ? "待选择" : `已保留第 ${selected + 1} 项`}</Tag>
+        <Tag color={conflictChoiceComplete(c, choice) ? "blue" : "orange"}>{conflictChoiceLabel(c, choice)}</Tag>
       </div>
+      <Alert
+        type={c?.high_confidence ? "info" : "warning"}
+        showIcon
+        message={c?.high_confidence ? "该冲突满足安全合并规则，可采用推荐候选。" : "该冲突涉及关键属性差异，必须由用户明确处理。"}
+        description={c?.reason ? `判定原因：${c.reason}` : undefined}
+      />
+      <div className="conflict-action-toolbar">
+        <Button onClick={beginSplit} type={choice?.action === "split_refs" ? "primary" : "default"}>按位号拆组并改码</Button>
+        <Button
+          onClick={() => onChange({ action: "move_non_smt", variant_indices: [], exclusion_kind: "scope_excluded" })}
+          type={choice?.action === "move_non_smt" ? "primary" : "default"}
+        >
+          移到非贴片区
+        </Button>
+        <Button danger onClick={() => onChange({ action: "return_to_capture" })}>返回 Capture 修正</Button>
+      </div>
+      {choice?.action === "split_refs" ? (
+        <div className="conflict-action-panel">
+          <Typography.Text strong>为每组位号填写唯一的新料号</Typography.Text>
+          {variants.map((variant: any, index: number) => (
+            <label key={index} className="conflict-split-row">
+              <span>候选 {index + 1} · {(variant.refs || []).join("、") || "无位号"}</span>
+              <Input
+                aria-label={`候选 ${index + 1} 新料号`}
+                value={splitAssignments.find((item) => item.variant_index === index)?.part_number || ""}
+                onChange={(event) => updateSplitCode(index, event.target.value)}
+                placeholder="填写新的内部料号"
+              />
+            </label>
+          ))}
+        </div>
+      ) : null}
+      {choice?.action === "move_non_smt" ? (
+        <div className="conflict-action-panel">
+          <div className="conflict-exclusion-row">
+            <Typography.Text strong>选择需要移出的变体</Typography.Text>
+            <Select
+              aria-label="移出原因"
+              value={choice.exclusion_kind}
+              options={[
+                { value: "scope_excluded", label: "不属于当前 PCBA / SMT 范围" },
+                { value: "user_excluded", label: "用户确认排除" },
+              ]}
+              onChange={(exclusion_kind) => onChange({ ...choice, exclusion_kind })}
+            />
+          </div>
+          <Typography.Text type="secondary">至少保留一个完整候选，或明确将全部变体移出贴片区。</Typography.Text>
+        </div>
+      ) : null}
+      {choice?.action === "return_to_capture" ? (
+        <Alert type="warning" showIcon message="该项不会在平台内合并" description="请返回 Capture 修正属性并重新导出，当前流程不能继续交付。" />
+      ) : null}
       <div className="variant-list">
         {variants.map((v: any, i: number) => (
           <div key={i} className={`variant-card ${selected === i ? "is-selected" : ""}`}>
@@ -869,9 +1009,14 @@ function CConflict({ c, selected, onSelect }: any) {
                 <Tag>{v.grade || "未分级"}</Tag>
                 <Tag color="purple">数量 {v.count ?? "-"}</Tag>
               </Space>
-              <Button size="small" type={selected === i ? "primary" : "default"} onClick={() => onSelect(i)}>
-                {selected === i ? "已保留" : "保留此项"}
-              </Button>
+              <Space>
+                {choice?.action === "move_non_smt" ? (
+                  <Checkbox checked={moved.includes(i)} onChange={(event) => toggleMoved(i, event.target.checked)}>移出贴片区</Checkbox>
+                ) : null}
+                <Button size="small" type={selected === i ? "primary" : "default"} onClick={() => onChange({ action: "select_variant", variant_index: i })}>
+                  {selected === i ? "已采用完整候选" : "采用此完整候选"}
+                </Button>
+              </Space>
             </div>
             <div className="variant-fields">
               <div className="variant-field variant-field--wide">

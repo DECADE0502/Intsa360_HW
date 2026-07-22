@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 
@@ -32,6 +33,21 @@ def _write_xy(path: Path, top: int, bottom: int) -> list[str]:
         rows.append(f"{ref} ! {index + 1} ! {index + 2} ! 0 ! {mirror} ! R0402")
     path.write_text("\n".join(rows) + "\n", encoding="utf-8")
     return refs
+
+
+def _write_decisions(path: Path, placements: list[dict[str, object]]) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "rule_version": "2.0.0",
+                "source_fingerprint": "smt-layout-test",
+                "placements": placements,
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
 
 
 def _inputs(tmp_path: Path, *, top: int = 1, bottom: int = 1) -> tuple[Path, Path, list[str]]:
@@ -140,7 +156,7 @@ def test_smt_layout_uses_netlist_to_separate_confirmed_nc_and_unverified_xy(tmp_
     assert refs[2] in {item["ref"] for item in result["sanity"]["missing_bom"]}
 
 
-def test_smt_layout_processed_bom_wins_over_explicit_nc_summary(tmp_path: Path) -> None:
+def test_smt_layout_does_not_discover_nc_from_a_companion_filename(tmp_path: Path) -> None:
     smt, bom, refs = _inputs(tmp_path)
     _write_bom(bom, [refs[0]])
     _write_bom(tmp_path / "BOARD_NC未贴汇总.xlsx", refs)
@@ -149,9 +165,65 @@ def test_smt_layout_processed_bom_wins_over_explicit_nc_summary(tmp_path: Path) 
 
     status_by_ref = {item["ref"]: item["status"] for item in result["components"]}
     assert status_by_ref[refs[0]] == "installed"
-    assert status_by_ref[refs[1]] == "nc"
-    assert result["nc_summary"]["conflict_refs"] == [refs[0]]
-    assert result["nc_summary"]["explicit_summary_used"] is True
+    assert status_by_ref[refs[1]] == "candidate_nc"
+    assert result["nc_summary"]["conflict_refs"] == []
+    assert result["nc_summary"]["decision_manifest_used"] is False
+    assert result["nc_summary"]["explicit_summary_used"] is False
+
+
+def test_smt_layout_uses_manifest_for_nc_and_ignores_other_non_smt_items(tmp_path: Path) -> None:
+    smt, bom, refs = _inputs(tmp_path, top=3, bottom=0)
+    _write_bom(bom, [refs[0]])
+    decisions = tmp_path / "decisions.json"
+    _write_decisions(
+        decisions,
+        [
+            {
+                "refs": [refs[0]],
+                "destination": "smt",
+                "exclusion_kind": "",
+                "role": "electronic",
+                "subtype": "",
+                "decision_fingerprint": "installed",
+                "material_snapshot": {"part_number": "PN-1"},
+            },
+            {
+                "refs": [refs[1]],
+                "destination": "non_smt",
+                "exclusion_kind": "process_only",
+                "role": "test_point",
+                "subtype": "",
+                "decision_fingerprint": "process",
+                "material_snapshot": {"part_number": ""},
+            },
+            {
+                "refs": [refs[2]],
+                "destination": "non_smt",
+                "exclusion_kind": "nc",
+                "role": "electronic",
+                "subtype": "",
+                "decision_fingerprint": "nc",
+                "material_snapshot": {"part_number": "PN-NC"},
+            },
+        ],
+    )
+
+    result = run_smt_layout(
+        tmp_path,
+        {
+            "smt_folder": str(smt),
+            "processed_bom": str(bom),
+            "decision_manifest": str(decisions),
+        },
+    )
+
+    status_by_ref = {item["ref"]: item["status"] for item in result["components"]}
+    assert status_by_ref[refs[1]] == "non_smt"
+    assert status_by_ref[refs[2]] == "nc"
+    assert result["nc_summary"]["confirmed_refs"] == [refs[2]]
+    assert result["nc_summary"]["candidate_refs"] == []
+    assert result["nc_summary"]["non_nc_refs"] == [refs[1]]
+    assert result["nc_summary"]["decision_manifest_used"] is True
 
 
 def test_smt_layout_registered_in_capabilities() -> None:

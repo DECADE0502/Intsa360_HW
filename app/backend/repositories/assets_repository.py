@@ -28,6 +28,19 @@ def _json_object(value: str) -> dict[str, object]:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def _is_bom_decision_manifest(path: Path) -> bool:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return False
+    return (
+        isinstance(payload, dict)
+        and payload.get("schema_version") == 2
+        and isinstance(payload.get("placements"), list)
+        and bool(str(payload.get("rule_version") or "").strip())
+    )
+
+
 def _asset_from_row(row: sqlite3.Row) -> Asset:
     return Asset(
         id=row["id"],
@@ -227,6 +240,25 @@ class AssetsRepository:
                 ORDER BY a.created_at DESC, ro.ordinal ASC, a.rowid DESC
                 """
             ).fetchall()
+            candidate_manifests = connection.execute(
+                """
+                SELECT ro.run_id, a.relative_path
+                FROM run_outputs ro
+                JOIN assets a ON a.id = ro.asset_id
+                WHERE LOWER(a.format) = 'json'
+                ORDER BY ro.ordinal ASC
+                """
+            ).fetchall()
+
+        manifest_by_run: dict[str, str] = {}
+        for candidate in candidate_manifests:
+            run_id = str(candidate["run_id"] or "")
+            if not run_id or run_id in manifest_by_run:
+                continue
+            relative = str(candidate["relative_path"] or "")
+            path = self.resolve(relative)
+            if path is not None and path.is_file() and _is_bom_decision_manifest(path):
+                manifest_by_run[run_id] = str(self.display_data_dir / relative)
 
         results: list[dict[str, object]] = []
         seen: set[str] = set()
@@ -265,6 +297,7 @@ class AssetsRepository:
                     "source_tool_name": row["tool_name"] or "",
                     "time": row["run_created_at"] or row["created_at"],
                     "summary": _json_object(row["summary_json"] or "{}"),
+                    "decision_manifest": manifest_by_run.get(str(row["run_id"] or ""), ""),
                 }
             )
         return results

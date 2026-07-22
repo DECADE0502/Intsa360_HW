@@ -156,6 +156,27 @@ class UpdateApiV2Tests(unittest.TestCase):
         self.assertIn("Cadence", removal["error"])
         self.assertIn("缺少", removal["error"])
 
+    def test_update_status_exposes_granular_progress_metadata(self) -> None:
+        payload = update_api._update_status_payload({
+            "phase": "committing",
+            "progress": 76,
+            "message": "Verifying copied runtime files.",
+            "log_tail": ["Verifying staged runtime files.", "Verifying copied runtime files."],
+            "started_at": "2026-07-22T01:02:03Z",
+            "updated_at": "2026-07-22T01:03:04Z",
+            "detail_current": 42,
+            "detail_total": 100,
+            "detail_unit": "files",
+        })
+
+        self.assertEqual(payload["message"], "正在校验复制后的完整版本。")
+        self.assertEqual(payload["log_tail"], ["正在复核候选版本文件。", "正在校验复制后的完整版本。"])
+        self.assertEqual(payload["started_at"], "2026-07-22T01:02:03Z")
+        self.assertEqual(payload["updated_at"], "2026-07-22T01:03:04Z")
+        self.assertEqual(payload["detail_current"], 42)
+        self.assertEqual(payload["detail_total"], 100)
+        self.assertEqual(payload["detail_unit"], "files")
+
     def test_atomic_json_retries_transient_replace_access_denial(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "state" / "job.json"

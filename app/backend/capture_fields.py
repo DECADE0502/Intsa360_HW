@@ -2,6 +2,7 @@ from __future__ import annotations
 
 CAPTURE_VISIBLE_PROPERTIES = [
     "Color",
+    "datasheet",
     "Designator",
     "Graphic",
     "ID",
@@ -11,6 +12,7 @@ CAPTURE_VISIBLE_PROPERTIES = [
     "Location X-Coordinate",
     "Location Y-Coordinate",
     "Name",
+    "OriginalSymbolOrigin",
     "Part Number",
     "Part Reference",
     "Part Type",
@@ -26,9 +28,12 @@ CAPTURE_VISIBLE_PROPERTIES = [
     "SWAP_INFO",
     "Value",
     "等级",
+    "等级备注",
     "规格型号",
+    "器件描述（旧）",
     "器件描述（新整理）",
     "物料名称",
+    "制造商",
 ]
 
 PLM_TEMPLATE_HEADERS = [
@@ -78,4 +83,3 @@ FIELD_DEFAULTS = {
     "mrp": "是",
     "jump_level": "否",
 }
-

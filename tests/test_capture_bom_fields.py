@@ -18,11 +18,11 @@ TCL_TEMPLATE = ROOT / "cadence" / "iac_bom_tool.tcl"
 FRONTEND_WIZARD = ROOT / "frontend" / "src" / "tools" / "BomProcessWizard.tsx"
 
 VISIBLE_CAPTURE_FIELDS = [
-    "Color", "Designator", "Graphic", "ID", "Implementation", "Implementation Path", "Implementation Type",
-    "Location X-Coordinate", "Location Y-Coordinate", "Name", "Part Number", "Part Reference", "Part Type",
+    "Color", "datasheet", "Designator", "Graphic", "ID", "Implementation", "Implementation Path", "Implementation Type",
+    "Location X-Coordinate", "Location Y-Coordinate", "Name", "OriginalSymbolOrigin", "Part Number", "Part Reference", "Part Type",
     "PCB Footprint", "PCB封装", "Power Pins Visible", "Primitive", "Reference", "Source Library",
-    "Source Package", "Source Part", "SPLIT_INST", "SWAP_INFO", "Value", "等级", "规格型号",
-    "器件描述（新整理）", "物料名称",
+    "Source Package", "Source Part", "SPLIT_INST", "SWAP_INFO", "Value", "等级", "等级备注", "规格型号",
+    "器件描述（旧）", "器件描述（新整理）", "物料名称", "制造商",
 ]
 
 PLM_HEADERS = [
@@ -73,10 +73,42 @@ class CaptureBomFieldTests(unittest.TestCase):
         text = FRONTEND_WIZARD.read_text(encoding="utf-8")
         expected = (
             "{Item}\\\\t{Quantity}\\\\t{Reference}\\\\t{Part Number}\\\\t{Value}\\\\t{规格型号}"
-            "\\\\t{器件描述（新整理）}\\\\t{物料名称}\\\\t{等级}\\\\t{PCB Footprint}\\\\t{PCB封装}"
-            "\\\\t{Part Type}\\\\t{Part Reference}\\\\t{Source Package}\\\\t{Source Part}"
+            "\\\\t{器件描述（新整理）}\\\\t{器件描述（旧）}\\\\t{物料名称}\\\\t{等级}\\\\t{等级备注}"
+            "\\\\t{制造商}\\\\t{datasheet}\\\\t{PCB Footprint}\\\\t{PCB封装}\\\\t{Part Type}"
+            "\\\\t{Part Reference}\\\\t{Name}\\\\t{Designator}\\\\t{Color}\\\\t{Source Library}\\\\t{Source Package}"
+            "\\\\t{Source Part}\\\\t{Implementation}\\\\t{Implementation Path}\\\\t{Implementation Type}"
+            "\\\\t{Primitive}\\\\t{Graphic}\\\\t{ID}\\\\t{OriginalSymbolOrigin}\\\\t{Power Pins Visible}"
+            "\\\\t{Location X-Coordinate}\\\\t{Location Y-Coordinate}\\\\t{SPLIT_INST}\\\\t{SWAP_INFO}"
         )
         self.assertIn(expected, text)
+
+    def test_parser_retains_capture_trace_fields_and_uses_old_description_as_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "capture.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.append([
+                "Reference", "Part Number", "器件描述（新整理）", "器件描述（旧）", "制造商",
+                "datasheet", "Color", "Source Library", "Implementation Path", "OriginalSymbolOrigin",
+            ])
+            ws.append([
+                "R1", "PN-001", "", "旧版电阻描述", "Vendor-A", "resistor.pdf",
+                "Default", "LIB-A", "RES_NP/Normal", "390,985",
+            ])
+            wb.save(source)
+
+            parsed = bom_process.parse_source(source)
+
+            self.assertEqual(len(parsed.raw_rows), 1)
+            row = parsed.raw_rows[0]
+            self.assertEqual(row["desc"], "旧版电阻描述")
+            self.assertEqual(row["old_desc"], "旧版电阻描述")
+            self.assertEqual(row["manufacturer"], "Vendor-A")
+            self.assertEqual(row["datasheet"], "resistor.pdf")
+            self.assertEqual(row["color"], "Default")
+            self.assertEqual(row["source_library"], "LIB-A")
+            self.assertEqual(row["implementation_path"], "RES_NP/Normal")
+            self.assertEqual(row["original_symbol_origin"], "390,985")
 
     def test_converter_preserves_visible_capture_properties_in_raw_xlsx(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

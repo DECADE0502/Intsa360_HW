@@ -53,7 +53,8 @@ def test_e2e_smt_layout_full_flow(tmp_path: Path) -> None:
     assert payload["nc_summary"]["unverified_refs"] == ["TP1"]
     assert payload["nc_summary"]["conflict_refs"] == []
     assert payload["nc_summary"]["inference_mode"] == "with_netlist"
-    assert payload["nc_summary"]["explicit_summary_used"] is True
+    assert payload["nc_summary"]["decision_manifest_used"] is False
+    assert payload["nc_summary"]["explicit_summary_used"] is False
     assert "R99" in {item["ref"] for item in payload["sanity"]["missing_layout"]}
     assert payload["fai_table"]["headers"][0:2] == ["位号", "面"]
     assert len(payload["fai_table"]["rows"]) == 20

@@ -231,6 +231,7 @@ export type AssetItem = {
   source_tool_name?: string;
   time?: string;
   summary?: Record<string, unknown> | unknown;
+  decision_manifest?: string;
 };
 
 export type AssetsPayload = {
@@ -384,7 +385,7 @@ export type SmtComponent = {
   description: string;
   model: string;
   grade: string;
-  status: "installed" | "nc" | "candidate_nc" | "unverified" | "missing_bom" | "missing_layout";
+  status: "installed" | "nc" | "candidate_nc" | "unverified" | "non_smt" | "missing_bom" | "missing_layout";
   high_risk: boolean;
 };
 
@@ -418,6 +419,7 @@ export type SmtSanity = {
 export type SmtLayoutParams = {
   smt_folder: string;
   processed_bom: string;
+  decision_manifest?: string;
   netlist_folder?: string;
   outline_bbox_mm?: [number, number, number, number];
   outline_dxf_layer?: string;
@@ -430,7 +432,9 @@ export type SmtNcSummary = {
   candidate_refs: string[];
   unverified_refs: string[];
   conflict_refs: string[];
+  non_nc_refs: string[];
   inference_mode: "with_netlist" | "without_netlist";
+  decision_manifest_used: boolean;
   explicit_summary_used: boolean;
 };
 
@@ -584,9 +588,14 @@ export type UpdateStatusInfo = {
   phase: LifecycleJobPhase;
   progress: number;
   step: string;
-  message: string;
-  log_tail: string[];
-  cancellable: boolean;
+    message: string;
+    log_tail: string[];
+    started_at: string;
+    updated_at: string;
+    detail_current: number;
+    detail_total: number;
+    detail_unit: string;
+    cancellable: boolean;
   bytes_total: number;
   bytes_downloaded: number;
   bytes_per_second: number;

@@ -747,6 +747,13 @@ def test_worker_switches_pointer_without_replacing_previous_runtime(tmp_path: Pa
     assert old_runtime.is_dir()
     assert (install_root / Path(new_relative)).is_dir()
     assert (install_root / "Insta360_HW.exe").read_bytes() == b"launcher"
+    job = json.loads((state_root / "lifecycle" / "v3" / "jobs" / (("1" * 32) + ".json")).read_text(encoding="utf-8-sig"))
+    assert job["message"] == "Update completed and the new runtime passed verification."
+    assert "Verifying staged runtime files." in job["log_tail"]
+    assert "Copying the candidate runtime into the installation." in job["log_tail"]
+    assert "Verifying copied runtime files." in job["log_tail"]
+    assert job["started_at"]
+    assert job["updated_at"]
 
 
 @pytest.mark.skipif(

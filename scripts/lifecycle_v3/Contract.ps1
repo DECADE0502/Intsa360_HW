@@ -512,14 +512,23 @@ function Get-HwV3FileSha256WithRetry {
 }
 
 function Get-HwV3TreeSha256 {
-  param([Parameter(Mandatory=$true)][string]$Path)
+  param(
+    [Parameter(Mandatory=$true)][string]$Path,
+    [scriptblock]$ProgressCallback = $null
+  )
   $root = Get-HwV3FullPath -Path $Path -Label "TreeRoot"
   $records = New-Object System.Collections.Generic.List[string]
-  foreach ($file in Get-ChildItem -LiteralPath $root -Recurse -Force -File) {
+  $files = @(Get-ChildItem -LiteralPath $root -Recurse -Force -File)
+  $total = $files.Count
+  $processed = 0
+  foreach ($file in $files) {
     $relative = $file.FullName.Substring($root.Length).TrimStart([char[]]"\/").Replace("\", "/")
     $digest = Get-HwV3FileSha256WithRetry -Path $file.FullName
     $records.Add($relative + "`t" + [string]$file.Length + "`t" + $digest + "`n") | Out-Null
+    $processed += 1
+    if ($null -ne $ProgressCallback) { & $ProgressCallback $processed $total }
   }
+  if ($null -ne $ProgressCallback -and $total -eq 0) { & $ProgressCallback 0 0 }
   $items = $records.ToArray()
   [Array]::Sort($items, [System.StringComparer]::Ordinal)
   $bytes = (New-Object System.Text.UTF8Encoding($false)).GetBytes([string]::Concat($items))
@@ -542,12 +551,27 @@ function Set-HwV3JobPhase {
   $current = Read-HwV3Json -Path $path
   $value = [ordered]@{}
   if ($null -ne $current) { foreach ($property in $current.PSObject.Properties) { $value[$property.Name] = $property.Value } }
+  $logs = New-Object System.Collections.Generic.List[string]
+  if ($null -ne $current -and $null -ne $current.PSObject.Properties["log_tail"]) {
+    foreach ($item in @($current.log_tail)) {
+      if (-not [string]::IsNullOrWhiteSpace([string]$item)) { $logs.Add([string]$item) | Out-Null }
+    }
+  }
+  if (-not [string]::IsNullOrWhiteSpace($Message) -and
+      ($logs.Count -eq 0 -or $logs[$logs.Count - 1] -cne $Message)) {
+    $logs.Add($Message) | Out-Null
+  }
+  $now = (Get-Date).ToUniversalTime().ToString("o")
   $value["schema"] = 3
   $value["job_id"] = $id
   $value["phase"] = $Phase
   $value["progress"] = [Math]::Max(0, [Math]::Min(100, $Progress))
   $value["message"] = $Message
-  $value["updated_at"] = (Get-Date).ToUniversalTime().ToString("o")
+  $value["updated_at"] = $now
+  if (-not $value.Contains("started_at") -or [string]::IsNullOrWhiteSpace([string]$value["started_at"])) {
+    $value["started_at"] = $now
+  }
+  $value["log_tail"] = @($logs.ToArray() | Select-Object -Last 20)
   $value["running"] = $Phase -notin @("completed", "failed", "cancelled")
   $value["done"] = $Phase -eq "completed"
   $value["failed"] = $Phase -eq "failed"

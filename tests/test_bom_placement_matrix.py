@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 import pytest
+from openpyxl import Workbook
 
 from app.backend.tools.bom_classify import (
     analyze_placement,
@@ -61,43 +62,56 @@ def test_nonstandard_reference_prefix_does_not_block_a_valid_material(ref: str) 
 
 @pytest.mark.parametrize("field", ["value", "model", "desc", "name", "source_part", "source_package"])
 def test_code_candidates_are_collected_from_all_supported_fields(field: str) -> None:
-    row = make_row(**{field: "ZXCV-A7-55", "pcb_footprint": "PKG_100"})
+    row = make_row(**{field: "AB.CD1234", "pcb_footprint": "PKG_100"})
     result = classify(row, classification_config())
 
     assert result.state == "suspected_material"
-    assert result.confidence == "strong"
-    assert result.suggested_code == "ZXCV-A7-55"
+    assert result.confidence == "medium"
+    assert result.suggested_code == "AB.CD1234"
     assert any(item.kind == "code_shape" and item.field == field for item in result.evidence)
     assert all(any("\u4e00" <= char <= "\u9fff" for char in item.display) for item in result.evidence)
 
 
 @pytest.mark.parametrize("prefix", ["MTG", "TP", "JP", "H", "CUSTOM", "X"])
 def test_reference_prefix_never_changes_material_recommendation(prefix: str) -> None:
-    row = make_row(refs=(f"{prefix}17",), value="ZXCV-A7-55", pcb_footprint="PKG_100")
+    row = make_row(refs=(f"{prefix}17",), value="AB.CD1234", pcb_footprint="PKG_100")
     result = classify(row, classification_config())
 
     assert result.state == "suspected_material"
     assert result.recommended_action == "keep"
 
 
-def test_process_keyword_beats_code_shape_without_using_reference_prefix() -> None:
+def test_process_description_without_role_corroboration_cannot_exclude() -> None:
     row = make_row(refs=("ANY17",), value="SHORT_L2", desc="JUMPER test link")
     result = classify(row, classification_config())
 
-    assert result.state == "suspected_process"
-    assert result.recommended_action == "exclude"
+    assert result.state == "suspected_material"
+    assert result.recommended_action is None
 
 
-@pytest.mark.parametrize("description", ["镀金测试点", "PCB安装孔", "焊接铜柱", "M3螺母柱结构件"])
-def test_valid_coded_process_or_mechanical_items_require_review(description: str) -> None:
+@pytest.mark.parametrize("description", ["镀金测试点", "PCB安装孔"])
+def test_valid_code_with_description_only_process_text_is_a_conflict(description: str) -> None:
     result = classify(
         make_row(part_number="P-ALPHA-01", desc=description),
         classification_config(),
     )
 
-    assert result.state == "suspected_process"
-    assert result.recommended_action == "exclude"
+    assert result.state == "conflicting"
+    assert result.recommended_action is None
+    assert result.rule_id == "R4D"
     assert result.requires_review is True
+
+
+@pytest.mark.parametrize("description", ["焊接铜柱", "M3螺母柱结构件"])
+def test_valid_code_with_ambiguous_mechanical_text_is_material_review(description: str) -> None:
+    result = classify(
+        make_row(part_number="P-ALPHA-01", desc=description),
+        classification_config(),
+    )
+
+    assert result.state == "suspected_material"
+    assert result.recommended_action is None
+    assert result.rule_id == "R4A"
 
 
 def test_jumper_resistor_phrase_remains_a_confirmed_material() -> None:
@@ -126,13 +140,15 @@ def test_vendor_mpn_with_long_prefix_remains_a_material_candidate() -> None:
     )
 
     assert result.state == "suspected_material"
-    assert result.recommended_action == "keep"
-    assert result.suggested_code == candidate
+    assert result.recommended_action is None
+    assert result.suggested_code == ""
+    assert result.suggested_mpn == candidate
+    assert result.identity_status == "identity_candidate_mpn"
 
 
 def test_process_value_beats_capture_library_object_that_looks_like_a_code() -> None:
     row = make_row(
-        refs=("ANY17",),
+        refs=("JP17",),
         value="SHORT_L2",
         source_package="Short_L3",
         source_part="Short_L3.Normal",
@@ -192,6 +208,17 @@ def test_path_misplaced_in_a_material_field_requires_conflict_review() -> None:
     )
 
 
+@pytest.mark.parametrize("field", ["source_library", "implementation_path", "datasheet"])
+def test_path_in_capture_diagnostic_field_is_valid(field: str) -> None:
+    result = classify(
+        make_row(part_number="P-ALPHA-01", desc="普通器件", **{field: r"Z:\\cadence\\library\\part.olb"}),
+        classification_config(),
+    )
+
+    assert result.state == "confirmed_material"
+    assert not any(item.kind == "field_misplacement" for item in result.evidence)
+
+
 @pytest.mark.parametrize("value", ["NC", "DNP", "NC/备用", "No Load", "dnp（本版）"])
 def test_valid_code_with_pure_nc_value_is_system_nc(value: str) -> None:
     # 器件库自带编码 + Value 整格为 NC 标记，是 Capture 最常见的 NC 表达，
@@ -249,7 +276,7 @@ def test_placeholder_only_row_is_reviewed_as_insufficient_data() -> None:
 
     assert result.state == "insufficient_data"
     assert result.requires_review is True
-    assert result.recommended_action == "exclude"
+    assert result.recommended_action is None
     assert analysis.review_groups[0].inferred_fields["desc"] == ""
 
 
@@ -260,10 +287,10 @@ def test_blank_code_shield_is_reviewed_once_in_shield_category() -> None:
     assert len(analysis.review_groups) == 1
     group = analysis.review_groups[0]
     assert group.category == "shield"
-    assert group.classification.recommended_action == "keep"
+    assert group.classification.recommended_action is None
 
 
-def test_sh_reference_does_not_override_process_evidence() -> None:
+def test_coded_sh_material_outweighs_lower_priority_process_metadata() -> None:
     row = make_row(
         refs=("SH12",),
         part_number="P-ALPHA-01",
@@ -276,27 +303,42 @@ def test_sh_reference_does_not_override_process_evidence() -> None:
     assert len(analysis.review_groups) == 1
     group = analysis.review_groups[0]
     assert group.category == "shield"
-    assert group.classification.state == "suspected_process"
-    assert group.classification.recommended_action == "exclude"
+    assert group.classification.state == "conflicting"
+    assert group.classification.recommended_action is None
+    assert group.classification.rule_id == "R3C"
     assert any(item.kind == "process_keyword" for item in group.classification.evidence)
 
 
-def test_multi_unit_references_share_one_review_decision() -> None:
-    rows = [
-        make_row(2, ("U1A",), value="ZXCV-A7-55", pcb_footprint="PKG_100"),
-        make_row(3, ("U1B",), value="ZXCV-A7-55", pcb_footprint="PKG_100"),
-        make_row(4, ("U1C",), value="ZXCV-A7-55", pcb_footprint="PKG_100"),
-    ]
-    normalized = [
-        build_normalized_row(row.row_number, (bom_process.normalize_ref(row.refs[0]),), {
-            field: row.value(field) for field in BASE_FIELDS
-        })
-        for row in rows
-    ]
-    analysis = analyze_placement(normalized, classification_config())
+def test_multi_unit_references_merge_only_with_matching_identity_and_package(tmp_path: Path) -> None:
+    path = tmp_path / "multi-unit.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(["Item", "Quantity", "Reference", "Part Number", "Value", "PCB Footprint"])
+    for index, ref in enumerate(("U1A", "U1B", "U1C"), start=1):
+        sheet.append([index, 1, ref, "MAT-0001", "IC", "BGA100"])
+    workbook.save(path)
+    workbook.close()
 
-    assert len(analysis.review_groups) == 1
-    assert analysis.review_groups[0].refs == ("U1",)
+    parsed = bom_process.parse_source(path)
+
+    assert {ref for row in parsed.normalized_rows for ref in row.refs} == {"U1"}
+    assert parsed.physical_parts[0].merge_kind == "multi_unit"
+    assert parsed.quality_report.payload()["code_counts"]["multi_unit_merged"] == 1
+
+
+def test_multi_unit_suffix_is_not_removed_without_matching_formal_identity(tmp_path: Path) -> None:
+    path = tmp_path / "multi-unit-weak.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(["Item", "Quantity", "Reference", "Part Number", "Value", "PCB Footprint"])
+    sheet.append([1, 1, "U1A", "", "VENDOR-A1", "BGA100"])
+    sheet.append([2, 1, "U1B", "", "VENDOR-A1", "BGA100"])
+    workbook.save(path)
+    workbook.close()
+
+    parsed = bom_process.parse_source(path)
+
+    assert {ref for row in parsed.normalized_rows for ref in row.refs} == {"U1A", "U1B"}
 
 
 def test_low_information_rows_do_not_collapse_into_one_resolution_group() -> None:
@@ -312,8 +354,8 @@ def test_low_information_rows_do_not_collapse_into_one_resolution_group() -> Non
 
 def test_code_only_rows_with_different_refs_do_not_share_one_resolution() -> None:
     rows = [
-        make_row(2, ("A1",), value="ZXCV-A7-55"),
-        make_row(8, ("B1",), value="ZXCV-A7-55"),
+        make_row(2, ("A1",), value="AB.CD1234"),
+        make_row(8, ("B1",), value="AB.CD1234"),
     ]
     analysis = analyze_placement(rows, classification_config())
 
@@ -323,15 +365,15 @@ def test_code_only_rows_with_different_refs_do_not_share_one_resolution() -> Non
 
 def test_group_fingerprint_is_stable_and_changes_with_content() -> None:
     original = analyze_placement(
-        [make_row(value="ZXCV-A7-55", pcb_footprint="PKG_100")],
+        [make_row(value="AB.CD1234", pcb_footprint="PKG_100")],
         classification_config(),
     ).review_groups[0]
     same = analyze_placement(
-        [make_row(value="ZXCV-A7-55", pcb_footprint="PKG_100")],
+        [make_row(value="AB.CD1234", pcb_footprint="PKG_100")],
         classification_config(),
     ).review_groups[0]
     changed = analyze_placement(
-        [make_row(value="ZXCV-A7-56", pcb_footprint="PKG_100")],
+        [make_row(value="AB.CD1235", pcb_footprint="PKG_100")],
         classification_config(),
     ).review_groups[0]
 
@@ -341,7 +383,7 @@ def test_group_fingerprint_is_stable_and_changes_with_content() -> None:
 
 def test_resolution_is_applied_by_content_key_and_preserves_excluded_snapshot() -> None:
     rows = [
-        make_row(2, ("A1",), value="ZXCV-A7-55", pcb_footprint="PKG_100"),
+        make_row(2, ("A1",), value="AB.CD1234", pcb_footprint="PKG_100"),
         make_row(3, ("B1",), desc="待确认结构件"),
     ]
     raw_rows = [
@@ -356,7 +398,7 @@ def test_resolution_is_applied_by_content_key_and_preserves_excluded_snapshot() 
     resolutions = {
         by_ref["A1"].key: {
             "action": "keep",
-            "part_number": "ZXCV-A7-55",
+            "part_number": "AB.CD1234",
             "field_patch": {"name": "结构件"},
         },
         by_ref["B1"].key: {
@@ -368,7 +410,7 @@ def test_resolution_is_applied_by_content_key_and_preserves_excluded_snapshot() 
 
     resolved, summary = apply_resolutions(parsed, analysis, resolutions)
 
-    assert resolved.raw_rows[0]["part_number"] == "ZXCV-A7-55"
+    assert resolved.raw_rows[0]["part_number"] == "AB.CD1234"
     assert resolved.raw_rows[0]["value"] == ""
     assert resolved.raw_rows[0]["_user_touched"] == ["name", "part_number", "value"]
     assert resolved.raw_rows[1]["desc"] == "待确认结构件"
@@ -379,7 +421,7 @@ def test_resolution_is_applied_by_content_key_and_preserves_excluded_snapshot() 
 
 
 def test_resolution_replay_is_idempotent() -> None:
-    row = make_row(value="ZXCV-A7-55", pcb_footprint="PKG_100")
+    row = make_row(value="AB.CD1234", pcb_footprint="PKG_100")
     raw = {field: row.value(field) for field in BASE_FIELDS}
     raw["reference"] = "X1"
     parsed = ParsedSource(Path("source.xlsx"), [raw], [row.row_number], (row,))
@@ -445,15 +487,15 @@ def test_real_capture_bom_has_generic_material_and_process_evidence() -> None:
     )
     assert any(
         group.classification.state == "suspected_material"
-        and group.classification.confidence == "strong"
-        and group.classification.recommended_action == "keep"
+        and group.classification.confidence == "medium"
+        and group.classification.recommended_action is None
         and any(item.kind == "code_shape" and item.shape_id == "vendor_mpn" for item in group.classification.evidence)
         for group in groups
     )
     assert any(
         group.category == "shield"
-        and group.classification.state == "suspected_process"
-        and group.classification.recommended_action == "exclude"
+        and group.classification.state == "conflicting"
+        and group.classification.recommended_action is None
         and any(item.kind == "process_keyword" for item in group.classification.evidence)
         for group in groups
     )

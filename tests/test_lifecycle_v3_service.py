@@ -17,7 +17,7 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from app.backend import lifecycle_v3, lifecycle_v3_process, update_api
+from app.backend import lifecycle_v3, lifecycle_v3_jobs, lifecycle_v3_process, update_api
 from app.backend.lifecycle_v3_archive import REQUIRED_RUNTIME_FILES
 
 
@@ -62,6 +62,21 @@ def test_v3_state_index_is_isolated_from_legacy_lifecycle_jobs(tmp_path: Path) -
     assert json.loads(legacy_latest.read_text(encoding="utf-8"))["job_id"] == "legacy-job"
     latest_v3 = state_root / "lifecycle" / "v3" / "jobs" / "latest.json"
     assert json.loads(latest_v3.read_text(encoding="utf-8"))["job_id"] == job_id
+
+
+def test_v3_job_status_keeps_timestamps_and_distinct_recent_activity(tmp_path: Path) -> None:
+    _, runtime, state_root = _installed_layout(tmp_path)
+    job_id = "e" * 32
+
+    with patch.dict(os.environ, {"INSTA360_HW_STATE_ROOT": str(state_root)}):
+        lifecycle_v3_jobs.write_job(runtime, job_id, phase="queued", progress=0, message="更新任务已创建。")
+        lifecycle_v3_jobs.write_job(runtime, job_id, phase="downloading", progress=10, message="正在下载运行包。")
+        lifecycle_v3_jobs.write_job(runtime, job_id, phase="downloading", progress=20, message="正在下载运行包。")
+        job = lifecycle_v3_jobs.read_job(runtime, job_id)
+    assert job is not None
+    assert job["started_at"]
+    assert job["updated_at"]
+    assert job["log_tail"] == ["更新任务已创建。", "正在下载运行包。"]
 
 
 def test_v3_payload_contract_includes_actual_service_launcher_dependencies() -> None:

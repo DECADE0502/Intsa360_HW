@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -21,6 +22,21 @@ def _write_bom(path: Path, rows: list[list[object]]) -> None:
     for row in rows:
         ws.append(row)
     wb.save(path)
+
+
+def _write_decisions(path: Path, placements: list[dict[str, object]]) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "rule_version": "2.0.0",
+                "source_fingerprint": "test-source",
+                "placements": placements,
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
 
 
 def _quantity_finding(quantity: object, refs: list[str]) -> dict[str, str]:
@@ -224,12 +240,81 @@ class BomRiskCheckTests(unittest.TestCase):
                     ["R1", "R-PN", "电阻", 1, "电阻", "10K", "正常"],
                 ],
             )
+            decisions = root / "decisions.json"
+            _write_decisions(
+                decisions,
+                [
+                    {
+                        "refs": ["SH1"],
+                        "destination": "smt",
+                        "exclusion_kind": "",
+                        "role": "shield",
+                        "subtype": "bracket",
+                        "decision_fingerprint": "shield-bracket",
+                        "material_snapshot": {"part_number": "SH-PN"},
+                    },
+                    {
+                        "refs": ["R1"],
+                        "destination": "smt",
+                        "exclusion_kind": "",
+                        "role": "electronic",
+                        "subtype": "",
+                        "decision_fingerprint": "resistor",
+                        "material_snapshot": {"part_number": "R-PN"},
+                    },
+                ],
+            )
 
-            result = run_bom_risk_check(root, {"bom": str(bom)})
+            result = run_bom_risk_check(root, {"bom": str(bom), "decision_manifest": str(decisions)})
 
             finding = next(item for item in result["risk_report"]["findings"] if item["name"] == "屏蔽支架")
             self.assertEqual(finding["status"], "ok")
             self.assertIn("SH-PN", finding["message"])
+
+    def test_shield_cover_does_not_satisfy_bracket_check(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bom = root / "processed.xlsx"
+            _write_bom(bom, [["R1", "R-PN", "电阻", 1, "电阻", "10K", "正常"]])
+            decisions = root / "decisions.json"
+            _write_decisions(
+                decisions,
+                [
+                    {
+                        "refs": ["SH1"],
+                        "destination": "non_smt",
+                        "exclusion_kind": "scope_excluded",
+                        "role": "shield",
+                        "subtype": "cover",
+                        "decision_fingerprint": "shield-cover",
+                        "material_snapshot": {"part_number": "SH-COVER"},
+                    },
+                    {
+                        "refs": ["R1"],
+                        "destination": "smt",
+                        "exclusion_kind": "",
+                        "role": "electronic",
+                        "subtype": "",
+                        "decision_fingerprint": "resistor",
+                        "material_snapshot": {"part_number": "R-PN"},
+                    },
+                ],
+            )
+
+            result = run_bom_risk_check(root, {"bom": str(bom), "decision_manifest": str(decisions)})
+
+            finding = next(item for item in result["risk_report"]["findings"] if item["name"] == "屏蔽支架")
+            self.assertEqual(finding["status"], "info")
+            self.assertIn("屏蔽罩不会通过", finding["message"])
+
+    def test_sh_prefix_and_description_are_not_used_without_decision_manifest(self) -> None:
+        findings = evaluate_bom_risks(
+            [{"part_number": "SH-PN", "description": "屏蔽支架", "refs": ["SH1"]}]
+        )
+
+        finding = next(item for item in findings if item["name"] == "屏蔽支架")
+        self.assertEqual(finding["status"], "info")
+        self.assertIn("无法仅凭 SH 位号或描述", finding["message"])
 
     def test_emmc_and_ddr_warn_about_hardware_version(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -240,6 +325,7 @@ class BomRiskCheckTests(unittest.TestCase):
                 [
                     ["U1", "EMMC-PN", "eMMC 128GB", 1, "eMMC", "KLMAG1JETD", "正常"],
                     ["U2", "DDR-PN", "LPDDR4X 8Gb", 1, "DDR", "MT53", "正常"],
+                    ["U3", "NAND-PN", "NAND FLASH 256Gb", 1, "NAND", "TC58", "正常"],
                 ],
             )
 
@@ -249,6 +335,7 @@ class BomRiskCheckTests(unittest.TestCase):
             self.assertEqual(finding["status"], "info")
             self.assertIn("EMMC-PN", finding["message"])
             self.assertIn("DDR-PN", finding["message"])
+            self.assertIn("NAND-PN", finding["message"])
             self.assertIn("硬件版本号", finding["message"])
 
     def test_risk_result_identifies_the_exact_processed_bom(self) -> None:
