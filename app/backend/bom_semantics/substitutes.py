@@ -194,7 +194,10 @@ def build_board_boms(source: NormalizedSource) -> tuple[BoardBOM, ...]:
         valid_group_keys = {
             (group.parent_code, group.group_code)
             for group in groups
-            if not group.validation_findings
+            if not any(
+                finding.severity == FindingSeverity.BLOCKER
+                for finding in group.validation_findings
+            )
         }
         for item in items:
             is_group_member = (

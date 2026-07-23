@@ -64,6 +64,16 @@ export type MetadataDiff = {
   material_code: string;
   old_variants: Array<Record<string, unknown>>;
   new_variants: Array<Record<string, unknown>>;
+  old_metadata?: Record<string, unknown>;
+  new_metadata?: Record<string, unknown>;
+  changed_fields?: string[];
+};
+
+export type BoardMetadataDiff = {
+  comparison_parent_code: string;
+  old: Record<string, unknown>;
+  new: Record<string, unknown>;
+  changed_fields: string[];
 };
 
 export type RawRowDiff = {
@@ -113,6 +123,7 @@ export type SemanticCompare = {
   raw_row_diff: RawRowDiff[];
   placement_diff: PlacementDiff[];
   substitute_diff: SubstituteDiff[];
+  board_metadata_diff: BoardMetadataDiff[];
   metadata_diff: MetadataDiff[];
   blockers: ValidationFinding[];
   warnings: ValidationFinding[];
@@ -127,6 +138,9 @@ export type BomCompareResponse = {
   action?: "inspect" | "compare" | "export";
   error?: string;
   message?: string;
+  can_export?: boolean;
+  needs_scope_confirmation?: boolean;
+  comparison_scope?: ComparisonScope;
   outputs?: string[];
   semantic?: SemanticCompare;
   source_inspections?: {
@@ -148,13 +162,44 @@ export type BomCompareParams = {
   format?: "report" | "json" | "plm" | "oa" | "ecr";
   template?: string;
   side?: "old" | "new";
+  scope_confirmation?: boolean;
+  parent_mappings?: Record<string, string>;
   reference_resolutions?: Record<string, unknown>;
+};
+
+export type ComparisonScopeEvidence = {
+  old_reference_count: number;
+  new_reference_count: number;
+  shared_reference_count: number;
+  reference_overlap: number;
+  old_material_count: number;
+  new_material_count: number;
+  shared_material_count: number;
+  material_overlap: number;
+};
+
+export type ComparisonScopePair = {
+  old_parent_code: string;
+  new_parent_code: string;
+  old_parent_description: string;
+  new_parent_description: string;
+  status: "exact" | "suggested" | "confirmed";
+  evidence: ComparisonScopeEvidence;
+};
+
+export type ComparisonScope = {
+  status: "exact" | "suggested" | "confirmed" | "unresolved";
+  needs_confirmation: boolean;
+  pairs: ComparisonScopePair[];
+  unresolved_old_parent_codes: string[];
+  unresolved_new_parent_codes: string[];
 };
 
 export const changeKindLabels: Record<string, string> = {
   unchanged: "无变化",
   metadata_only: "仅描述 / 元数据变化",
   substitute_priority_only: "仅替代优先级变化",
+  substitute_configuration_changed: "替代策略 / 方式变化",
   main_changed_refs_migrated: "主料变化并迁移位号",
   alternative_added: "新增替代料",
   alternative_removed: "删除替代料",
@@ -163,6 +208,7 @@ export const changeKindLabels: Record<string, string> = {
   reference_added: "位号新增",
   reference_removed: "位号删除",
   reference_migrated: "位号迁移",
+  reference_set_changed: "位号集合调整",
   material_added: "新增物料",
   material_removed: "删除物料",
   substitute_structure_invalid: "替代组结构错误",

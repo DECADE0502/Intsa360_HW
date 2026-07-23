@@ -14,6 +14,7 @@ import {
 } from "antd";
 import {
   ArrowLeftRight,
+  CheckCircle2,
   FileSpreadsheet,
   GitCompareArrows,
   Play,
@@ -38,6 +39,7 @@ import {
   changeKindLabels,
   type BomCompareResponse,
   type ChangeEvent,
+  type ComparisonScope,
   type RawRowDiff,
   type ValidationFinding,
 } from "./bomCompare/types";
@@ -63,29 +65,35 @@ function SourceSelector({
         <span>{label}</span>
         <small>{hint}</small>
       </div>
-      <HistoryBomPicker
-        value={historyPath}
-        onChange={(path) => {
-          onHistoryPath(path);
-          if (path) onFile(undefined);
-        }}
-      />
-      <Upload
-        accept=".xlsx,.xls"
-        maxCount={1}
-        fileList={file ? [{ uid: label, name: file.name, status: "done" as const }] : []}
-        beforeUpload={(next) => {
-          onFile(next);
-          onHistoryPath("");
-          return false;
-        }}
-        onRemove={() => {
-          onFile(undefined);
-          return true;
-        }}
-      >
-        <Button icon={<FileSpreadsheet size={16} />}>选择本地 BOM</Button>
-      </Upload>
+      <div className="bom-source-pickers">
+        <div className="bom-source-history">
+          <HistoryBomPicker
+            value={historyPath}
+            onChange={(path) => {
+              onHistoryPath(path);
+              if (path) onFile(undefined);
+            }}
+          />
+        </div>
+        <div className="bom-source-local">
+          <Upload
+            accept=".xlsx,.xls"
+            maxCount={1}
+            fileList={file ? [{ uid: label, name: file.name, status: "done" as const }] : []}
+            beforeUpload={(next) => {
+              onFile(next);
+              onHistoryPath("");
+              return false;
+            }}
+            onRemove={() => {
+              onFile(undefined);
+              return true;
+            }}
+          >
+            <Button icon={<FileSpreadsheet size={16} />}>选择本地 BOM</Button>
+          </Upload>
+        </div>
+      </div>
     </section>
   );
 }
@@ -235,13 +243,20 @@ function FindingList({ rows }: { rows: ValidationFinding[] }) {
     <div className="bom-finding-list">
       <div className="bom-finding-page">
         {visibleRows.map((finding, index) => {
+          const materialCodes = Array.isArray(finding.details?.material_codes)
+            ? finding.details.material_codes.filter((value) => typeof value === "string").join(", ")
+            : "";
           const target = [
             finding.details?.material_code,
+            materialCodes,
             finding.details?.group_code,
             finding.details?.main_code,
           ]
             .filter((value) => typeof value === "string" && value)
             .join(" / ");
+          const sourceParent = typeof finding.details?.source_parent_code === "string"
+            ? finding.details.source_parent_code
+            : "";
           return (
             <article
               key={`${finding.code}:${finding.parent_code}:${(page - 1) * pageSize + index}`}
@@ -254,6 +269,7 @@ function FindingList({ rows }: { rows: ValidationFinding[] }) {
                 <strong>{finding.message}</strong>
                 <span>
                   {finding.parent_code || "全局"} · {finding.code}
+                  {sourceParent ? ` · 来源父项 ${sourceParent}` : ""}
                   {target ? ` · ${target}` : ""}
                 </span>
                 {finding.references?.length ? <p>位号：{finding.references.join(", ")}</p> : null}
@@ -277,6 +293,74 @@ function FindingList({ rows }: { rows: ValidationFinding[] }) {
   );
 }
 
+function ScopeConfirmation({
+  scope,
+  running,
+  onConfirm,
+  onReset,
+}: {
+  scope: ComparisonScope;
+  running: boolean;
+  onConfirm: () => void;
+  onReset: () => void;
+}) {
+  const pair = scope.pairs.find((item) => item.status === "suggested");
+  if (!pair) {
+    return (
+      <Alert
+        type="warning"
+        showIcon
+        message="无法自动建立板卡对应关系"
+        description="当前文件包含多个未匹配父项。请先确认两份文件中的父项编码，或分别导出单板 BOM 后再比较。"
+        action={<Button onClick={onReset}>重新选择</Button>}
+      />
+    );
+  }
+  const evidence = pair.evidence;
+  return (
+    <section className="bom-scope-confirmation">
+      <div className="bom-scope-heading">
+        <div>
+          <span className="bom-kicker">比较范围确认</span>
+          <h3>这是同一块板的不同版本吗？</h3>
+          <p>父项编码不同，平台不会直接把整板判成删除和新增。确认后才按实际位号、料号和替代关系比较。</p>
+        </div>
+        <Tag color="gold">需要人工确认</Tag>
+      </div>
+      <div className="bom-scope-route">
+        <div>
+          <span>旧版父项</span>
+          <strong>{pair.old_parent_code}</strong>
+          <small>{pair.old_parent_description || "未提供父项描述"}</small>
+        </div>
+        <ArrowLeftRight aria-hidden size={20} />
+        <div>
+          <span>新版父项</span>
+          <strong>{pair.new_parent_code}</strong>
+          <small>{pair.new_parent_description || "未提供父项描述"}</small>
+        </div>
+      </div>
+      <div className="bom-scope-evidence">
+        <span>共享位号 <strong>{evidence.shared_reference_count}</strong></span>
+        <span>位号重合度 <strong>{Math.round(evidence.reference_overlap * 100)}%</strong></span>
+        <span>共享物料 <strong>{evidence.shared_material_count}</strong></span>
+        <span>物料重合度 <strong>{Math.round(evidence.material_overlap * 100)}%</strong></span>
+      </div>
+      <div className="bom-scope-actions">
+        <Button onClick={onReset}>不是，重新选择</Button>
+        <Button
+          type="primary"
+          loading={running}
+          icon={<CheckCircle2 size={16} />}
+          onClick={onConfirm}
+        >
+          确认按同一板卡不同版本对比
+        </Button>
+      </div>
+    </section>
+  );
+}
+
 export function BomComparePane({ tool }: { tool: ToolInfo }) {
   const [workspace, setWorkspace, resetWorkspace] = useToolWorkspace(
     "bom_compare",
@@ -297,6 +381,7 @@ export function BomComparePane({ tool }: { tool: ToolInfo }) {
   const [activeTab, setActiveTab] = useState(String(workspace.activeTab || "placement"));
   const [selectedReference, setSelectedReference] = useState(String(workspace.selectedReference || ""));
   const [running, setRunning] = useState(false);
+  const [lastPaths, setLastPaths] = useState<{ bom1: string; bom2: string } | null>(null);
 
   useEffect(() => {
     setWorkspace({ historyBom1, historyBom2, result, activeTab, selectedReference });
@@ -304,6 +389,7 @@ export function BomComparePane({ tool }: { tool: ToolInfo }) {
 
   const semantic = result?.semantic;
   const summary = semantic?.summary;
+  const boardMetadataDiff = semantic?.board_metadata_diff || [];
 
   async function sourcePaths() {
     const [leftUpload, rightUpload] = await Promise.all([
@@ -316,15 +402,36 @@ export function BomComparePane({ tool }: { tool: ToolInfo }) {
     };
   }
 
-  async function handleRun() {
-    if ((!historyBom1 && !bom1) || (!historyBom2 && !bom2)) {
+  async function handleRun(scopeConfirmation = false) {
+    const canReuseInspectionPaths = Boolean(
+      scopeConfirmation
+      && result?.source_inspections?.old.envelope.source_path
+      && result?.source_inspections?.new.envelope.source_path,
+    );
+    if (
+      !canReuseInspectionPaths
+      && ((!historyBom1 && !bom1) || (!historyBom2 && !bom2))
+    ) {
       setResult({ status: "error", tool: "bom_compare", error: "请先选择旧版和新版两份 BOM。" });
       return;
     }
     setRunning(true);
     try {
-      const paths = await sourcePaths();
-      const next = await runBomCompare({ action: "compare", ...paths });
+      const inspectionPaths = result?.source_inspections
+        ? {
+            bom1: result.source_inspections.old.envelope.source_path,
+            bom2: result.source_inspections.new.envelope.source_path,
+          }
+        : null;
+      const paths = scopeConfirmation
+        ? lastPaths || inspectionPaths || await sourcePaths()
+        : await sourcePaths();
+      setLastPaths(paths);
+      const next = await runBomCompare({
+        action: "compare",
+        ...paths,
+        ...(scopeConfirmation ? { scope_confirmation: true } : {}),
+      });
       setResult(next);
       setActiveTab(next.semantic?.blockers?.length ? "delivery" : "placement");
       setSelectedReference(next.semantic?.placement_diff?.[0]?.reference || "");
@@ -343,6 +450,7 @@ export function BomComparePane({ tool }: { tool: ToolInfo }) {
     setResult(null);
     setActiveTab("placement");
     setSelectedReference("");
+    setLastPaths(null);
     resetWorkspace();
   }
 
@@ -352,6 +460,7 @@ export function BomComparePane({ tool }: { tool: ToolInfo }) {
     setHistoryBom1(historyBom2);
     setHistoryBom2(historyBom1);
     setResult(null);
+    setLastPaths(null);
   }
 
   return (
@@ -403,7 +512,7 @@ export function BomComparePane({ tool }: { tool: ToolInfo }) {
             size="large"
             loading={running}
             icon={<Play size={17} fill="currentColor" />}
-            onClick={handleRun}
+            onClick={() => void handleRun(false)}
           >
             开始语义对比
           </Button>
@@ -422,13 +531,26 @@ export function BomComparePane({ tool }: { tool: ToolInfo }) {
         </div>
       ) : null}
 
+      {result?.status === "ok" && result.source_inspections ? (
+        <div className="bom-source-inspection-grid">
+          <SourceInspection label="旧版来源" inspection={result.source_inspections.old} />
+          <SourceInspection label="新版来源" inspection={result.source_inspections.new} />
+        </div>
+      ) : null}
+
+      {result?.status === "ok"
+        && result.needs_scope_confirmation
+        && result.comparison_scope ? (
+        <ScopeConfirmation
+          scope={result.comparison_scope}
+          running={running}
+          onConfirm={() => void handleRun(true)}
+          onReset={clearAll}
+        />
+      ) : null}
+
       {result?.status === "ok" && semantic && summary ? (
         <>
-          <div className="bom-source-inspection-grid">
-            <SourceInspection label="旧版来源" inspection={result.source_inspections?.old} />
-            <SourceInspection label="新版来源" inspection={result.source_inspections?.new} />
-          </div>
-
           <section className="bom-summary-strip" aria-label="对比摘要">
             <Metric label="旧版实际位号" value={summary.actual_reference_count_old} />
             <Metric label="新版实际位号" value={summary.actual_reference_count_new} />
@@ -482,8 +604,13 @@ export function BomComparePane({ tool }: { tool: ToolInfo }) {
               },
               {
                 key: "metadata",
-                label: `元数据 ${semantic.metadata_diff.length}`,
-                children: <MetadataDiff rows={semantic.metadata_diff} />,
+                label: `元数据 ${semantic.metadata_diff.length + boardMetadataDiff.length}`,
+                children: (
+                  <MetadataDiff
+                    rows={semantic.metadata_diff}
+                    boardRows={boardMetadataDiff}
+                  />
+                ),
               },
               {
                 key: "delivery",

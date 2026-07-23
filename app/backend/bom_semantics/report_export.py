@@ -16,6 +16,7 @@ REPORT_SHEETS = (
     "业务事件",
     "实际贴装差异",
     "替代关系差异",
+    "板级元数据差异",
     "普通字段差异",
     "原始行差异",
     "风险与阻断项",
@@ -138,21 +139,36 @@ def export_compare_report(result: CompareResult, path: Path) -> Path:
     substitutes = workbook.create_sheet(REPORT_SHEETS[3])
     _write_table(substitutes, ("status", "old", "new"), result.substitute_diff)
 
-    metadata = workbook.create_sheet(REPORT_SHEETS[4])
+    board_metadata = workbook.create_sheet(REPORT_SHEETS[4])
+    _write_table(
+        board_metadata,
+        ("comparison_parent_code", "changed_fields", "old", "new"),
+        result.board_metadata_diff,
+    )
+
+    metadata = workbook.create_sheet(REPORT_SHEETS[5])
     _write_table(
         metadata,
-        ("parent_code", "material_code", "old_variants", "new_variants"),
+        (
+            "parent_code",
+            "material_code",
+            "changed_fields",
+            "old_variants",
+            "new_variants",
+            "old_metadata",
+            "new_metadata",
+        ),
         result.metadata_diff,
     )
 
-    raw_rows = workbook.create_sheet(REPORT_SHEETS[5])
+    raw_rows = workbook.create_sheet(REPORT_SHEETS[6])
     _write_table(
         raw_rows,
         ("parent_code", "material_code", "status", "old_rows", "new_rows", "old_source_ids", "new_source_ids"),
         result.raw_row_diff,
     )
 
-    findings = workbook.create_sheet(REPORT_SHEETS[6])
+    findings = workbook.create_sheet(REPORT_SHEETS[7])
     _write_table(
         findings,
         ("级别", "代码", "父项编码", "位号", "消息", "详情", "来源"),

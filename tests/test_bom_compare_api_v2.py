@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from openpyxl import load_workbook
 
 from app.backend.main import create_app
 from app.backend.tools.bom_compare import run_bom_compare
@@ -96,3 +97,52 @@ def test_api_compare_records_semantic_summary_without_refresh(tmp_path: Path) ->
     assert history[0]["tool"] == "bom_compare"
     assert history[0]["summary"]["semantic"]["analysis_fingerprint"]
     assert history[0]["summary"]["semantic"]["substitute_group_count_new"] == 1
+
+
+def test_different_single_board_parent_requires_scope_confirmation(tmp_path: Path) -> None:
+    paths = _fixtures(tmp_path)
+    renamed = tmp_path / "renamed-parent.xlsx"
+    workbook = load_workbook(paths["ordinary"])
+    worksheet = workbook["BOM导入模版"]
+    for row in range(3, worksheet.max_row + 1):
+        worksheet.cell(row, 1).value = "BOARD-B"
+        worksheet.cell(row, 2).value = "Board B"
+    workbook.save(renamed)
+    workbook.close()
+
+    pending = run_bom_compare(
+        tmp_path,
+        {
+            "bom1": str(paths["ordinary"]),
+            "bom2": str(renamed),
+            "output_dir": str(tmp_path / "pending-outputs"),
+        },
+    )
+
+    assert pending["status"] == "ok"
+    assert pending["needs_scope_confirmation"] is True
+    assert pending["can_export"] is False
+    assert pending["outputs"] == []
+    assert "semantic" not in pending
+    pair = pending["comparison_scope"]["pairs"][0]
+    assert pair["old_parent_code"] == "BOARD-A"
+    assert pair["new_parent_code"] == "BOARD-B"
+    assert pair["status"] == "suggested"
+    assert pair["evidence"]["shared_reference_count"] == 2
+
+    confirmed = run_bom_compare(
+        tmp_path,
+        {
+            "bom1": str(paths["ordinary"]),
+            "bom2": str(renamed),
+            "scope_confirmation": True,
+            "output_dir": str(tmp_path / "confirmed-outputs"),
+        },
+    )
+
+    assert confirmed["status"] == "ok"
+    assert confirmed["needs_scope_confirmation"] is False
+    assert confirmed["comparison_scope"]["status"] == "confirmed"
+    assert confirmed["semantic"]["placement_diff"] == []
+    assert len(confirmed["semantic"]["board_metadata_diff"]) == 1
+    assert len(confirmed["outputs"]) == 3

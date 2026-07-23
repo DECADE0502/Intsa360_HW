@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from app.backend.bom_semantics.alignment import (
+    ComparisonScope,
+    align_old_boards,
+    resolve_comparison_scope,
+)
 from app.backend.bom_semantics.contracts import (
     BOM_COMPARE_SCHEMA_VERSION,
     BOM_SEMANTIC_MODEL_VERSION,
@@ -365,14 +370,36 @@ def _semantic_compare(
     old_source, new_source = _align_single_board_sources(old_path, new_path, params)
     old_inspection = _inspection(old_source)
     new_inspection = _inspection(new_source)
-    result = compare_board_boms(
+    raw_mappings = params.get("parent_mappings")
+    parent_mappings = (
+        {
+            str(old_parent): str(new_parent)
+            for old_parent, new_parent in raw_mappings.items()
+            if str(old_parent).strip() and str(new_parent).strip()
+        }
+        if isinstance(raw_mappings, dict)
+        else {}
+    )
+    scope = resolve_comparison_scope(
         old_inspection.boards,
+        new_inspection.boards,
+        confirmed=params.get("scope_confirmation") is True,
+        parent_mappings=parent_mappings,
+    )
+    if scope.needs_confirmation:
+        return old_inspection, new_inspection, None, scope
+    aligned_old_boards = align_old_boards(
+        old_inspection.boards,
+        scope.old_to_new,
+    )
+    result = compare_board_boms(
+        aligned_old_boards,
         new_inspection.boards,
         old_source_fingerprint=old_source.envelope.source_fingerprint,
         new_source_fingerprint=new_source.envelope.source_fingerprint,
         additional_findings=(*old_source.findings, *new_source.findings),
     )
-    return old_inspection, new_inspection, result
+    return old_inspection, new_inspection, result, scope
 
 
 def _semantic_summary(
@@ -420,6 +447,40 @@ def _compact_inspection_payload(inspection: SourceInspection) -> dict[str, objec
         ],
         "findings": [finding.payload() for finding in inspection.findings],
         "can_compare": inspection.can_compare,
+    }
+
+
+def _scope_pending_response(
+    old_inspection: SourceInspection,
+    new_inspection: SourceInspection,
+    scope: ComparisonScope,
+) -> dict[str, object]:
+    return {
+        "status": "ok",
+        "tool": "bom_compare",
+        "schema_version": BOM_COMPARE_SCHEMA_VERSION,
+        "model_version": BOM_SEMANTIC_MODEL_VERSION,
+        "action": "compare",
+        "message": "两份 BOM 的父项编码不同，请先确认比较范围。",
+        "needs_scope_confirmation": True,
+        "comparison_scope": scope.payload(),
+        "source_inspections": {
+            "old": _compact_inspection_payload(old_inspection),
+            "new": _compact_inspection_payload(new_inspection),
+        },
+        "can_export": False,
+        "outputs": [],
+        "summary": {
+            "semantic": {
+                "old_parent_codes": [
+                    board.parent_code for board in old_inspection.boards
+                ],
+                "new_parent_codes": [
+                    board.parent_code for board in new_inspection.boards
+                ],
+                "comparison_scope_status": scope.status,
+            }
+        },
     }
 
 
@@ -472,7 +533,13 @@ def _run_semantic_compare(
     if error or bom2 is None:
         return _error("bom_compare", error or "缺少新版 BOM 文件")
 
-    old_inspection, new_inspection, semantic = _semantic_compare(bom1, bom2, params)
+    old_inspection, new_inspection, semantic, scope = _semantic_compare(
+        bom1,
+        bom2,
+        params,
+    )
+    if semantic is None:
+        return _scope_pending_response(old_inspection, new_inspection, scope)
     output_dir = _output_dir(params, root, "bom_compare")
     timestamp = _timestamp()
     json_output = write_compare_result_json(
@@ -496,6 +563,8 @@ def _run_semantic_compare(
         "old": _compact_inspection_payload(old_inspection),
         "new": _compact_inspection_payload(new_inspection),
     }
+    legacy["needs_scope_confirmation"] = False
+    legacy["comparison_scope"] = scope.payload()
     legacy["can_export"] = semantic.can_export
     legacy["outputs"] = list(dict.fromkeys([
         *legacy.get("outputs", []),
@@ -529,7 +598,23 @@ def _run_export(root: Path, params: dict[str, object]) -> dict[str, object]:
     bom2, error = _required_file(params, "bom2", "新版 BOM 文件")
     if error or bom2 is None:
         return _error("bom_compare", error or "缺少新版 BOM 文件")
-    old_inspection, new_inspection, semantic = _semantic_compare(bom1, bom2, params)
+    old_inspection, new_inspection, semantic, scope = _semantic_compare(
+        bom1,
+        bom2,
+        params,
+    )
+    if semantic is None:
+        return {
+            "status": "error",
+            "tool": "bom_compare",
+            "schema_version": BOM_COMPARE_SCHEMA_VERSION,
+            "model_version": BOM_SEMANTIC_MODEL_VERSION,
+            "action": "export",
+            "error": "两份 BOM 的父项编码不同，请先在对比页面确认比较范围。",
+            "needs_scope_confirmation": True,
+            "comparison_scope": scope.payload(),
+            "outputs": [],
+        }
     output_dir = _output_dir(params, root, "bom_compare")
     timestamp = _timestamp()
     export_format = str(params.get("format") or "report").strip().casefold()
@@ -591,6 +676,7 @@ def _run_export(root: Path, params: dict[str, object]) -> dict[str, object]:
         "model_version": BOM_SEMANTIC_MODEL_VERSION,
         "action": "export",
         "format": export_format,
+        "comparison_scope": scope.payload(),
         "outputs": [str(path) for path in outputs],
         "summary": {
             "semantic": _semantic_summary(old_inspection, new_inspection, semantic),

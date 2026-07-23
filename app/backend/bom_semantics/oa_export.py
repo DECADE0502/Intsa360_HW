@@ -269,6 +269,7 @@ def _change_type(event: object) -> OAChangeType | None:
         "substitute",
         "alternative_added",
         "substitute_priority_only",
+        "substitute_configuration_changed",
         "main_changed_refs_migrated",
     }:
         return OAChangeType.SUBSTITUTE
@@ -279,6 +280,7 @@ def _change_type(event: object) -> OAChangeType | None:
         "reference_added",
         "reference_removed",
         "reference_migrated",
+        "reference_set_changed",
     }:
         return OAChangeType.QUANTITY_REFERENCE_MODIFIED
     return None

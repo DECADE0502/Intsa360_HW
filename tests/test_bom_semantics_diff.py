@@ -105,3 +105,78 @@ def test_complete_material_replacement_requires_old_material_to_exit(tmp_path: P
     assert replacement[0].oa_change_type == "更换(A换成B)"
     assert replacement[0].references == ("R1", "R2")
 
+
+def test_complete_replacement_allows_target_material_to_preexist(tmp_path: Path) -> None:
+    paths = _fixtures(tmp_path)
+    old_path = tmp_path / "target-preexists-old.xlsx"
+    new_path = tmp_path / "target-preexists-new.xlsx"
+    workbook = load_workbook(paths["ordinary"])
+    worksheet = workbook["BOM导入模版"]
+    worksheet["H3"] = 1
+    worksheet["I3"] = "R1"
+    worksheet["C4"] = "MAT-TARGET"
+    worksheet["D4"] = "电阻"
+    worksheet["E4"] = "10K"
+    worksheet["F4"] = "目标物料"
+    worksheet["H4"] = 1
+    worksheet["I4"] = "R2"
+    workbook.save(old_path)
+    worksheet["C3"] = "MAT-TARGET"
+    worksheet["H3"] = 2
+    worksheet["I3"] = "R1,R2"
+    worksheet.delete_rows(4)
+    workbook.save(new_path)
+    workbook.close()
+
+    result = compare_board_boms(_boards(old_path), _boards(new_path))
+
+    replacements = [
+        event for event in result.events
+        if event.kind == ChangeKind.REPLACEMENT
+    ]
+    assert len(replacements) == 1
+    assert replacements[0].references == ("R1",)
+    assert replacements[0].old_snapshot["material_code"] == "MAT-R"
+    assert replacements[0].new_snapshot["material_code"] == "MAT-TARGET"
+
+
+def test_same_material_reference_delta_is_one_reference_set_event(tmp_path: Path) -> None:
+    paths = _fixtures(tmp_path)
+    changed = tmp_path / "reference-set.xlsx"
+    workbook = load_workbook(paths["ordinary"])
+    worksheet = workbook["BOM导入模版"]
+    worksheet["I3"] = "R2,R3"
+    workbook.save(changed)
+    workbook.close()
+
+    result = compare_board_boms(_boards(paths["ordinary"]), _boards(changed))
+
+    events = [
+        event for event in result.events
+        if event.kind == ChangeKind.REFERENCE_SET_CHANGED
+    ]
+    assert len(events) == 1
+    assert events[0].references == ("R1", "R3")
+    assert not any(
+        event.kind in {ChangeKind.REFERENCE_ADDED, ChangeKind.REFERENCE_REMOVED}
+        for event in result.events
+    )
+
+
+def test_issue_method_only_change_is_visible_in_metadata(tmp_path: Path) -> None:
+    paths = _fixtures(tmp_path)
+    changed = tmp_path / "issue-method.xlsx"
+    workbook = load_workbook(paths["ordinary"])
+    worksheet = workbook["BOM导入模版"]
+    worksheet["Q3"] = "直接领料"
+    workbook.save(changed)
+    workbook.close()
+
+    result = compare_board_boms(_boards(paths["ordinary"]), _boards(changed))
+
+    assert len(result.metadata_diff) == 1
+    assert result.metadata_diff[0]["changed_fields"] == ["issue_method"]
+    assert any(
+        event.kind == ChangeKind.METADATA_ONLY
+        for event in result.events
+    )

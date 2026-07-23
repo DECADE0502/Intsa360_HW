@@ -71,6 +71,7 @@ class CompareResult:
     raw_row_diff: tuple[Mapping[str, object], ...] = ()
     placement_diff: tuple[Mapping[str, object], ...] = ()
     substitute_diff: tuple[Mapping[str, object], ...] = ()
+    board_metadata_diff: tuple[Mapping[str, object], ...] = ()
     metadata_diff: tuple[Mapping[str, object], ...] = ()
     blockers: tuple[ValidationFinding, ...] = ()
     warnings: tuple[ValidationFinding, ...] = ()
@@ -91,6 +92,9 @@ class CompareResult:
             "raw_row_diff": [dict(item) for item in self.raw_row_diff],
             "placement_diff": [dict(item) for item in self.placement_diff],
             "substitute_diff": [dict(item) for item in self.substitute_diff],
+            "board_metadata_diff": [
+                dict(item) for item in self.board_metadata_diff
+            ],
             "metadata_diff": [dict(item) for item in self.metadata_diff],
             "blockers": [finding.payload() for finding in self.blockers],
             "warnings": [finding.payload() for finding in self.warnings],

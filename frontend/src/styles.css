@@ -720,10 +720,10 @@ html, body, #root { margin: 0; height: 100%; }
 
 .bom-source-selector {
   min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(130px, 0.8fr) minmax(180px, 1.3fr) auto;
-  align-items: center;
-  gap: 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
   padding: 12px;
 }
 
@@ -741,6 +741,42 @@ html, body, #root { margin: 0; height: 100%; }
   margin-top: 2px;
   color: #7a8793;
   font-size: 11px;
+}
+
+.bom-source-pickers {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.bom-source-history,
+.bom-source-local,
+.bom-source-local .ant-upload-wrapper {
+  min-width: 0;
+  width: 100%;
+}
+
+.bom-source-local .ant-upload-select,
+.bom-source-local .ant-upload-select .ant-btn {
+  width: 100%;
+}
+
+.bom-source-local .ant-upload-list {
+  min-width: 0;
+  margin-top: 4px;
+}
+
+.bom-source-local .ant-upload-list-item {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.bom-source-local .ant-upload-list-item-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .bom-swap-button {
@@ -838,6 +874,82 @@ html, body, #root { margin: 0; height: 100%; }
   margin-top: 9px;
 }
 
+.bom-scope-confirmation {
+  border: 1px solid #d7b96c;
+  border-radius: 8px;
+  background: #fffdf6;
+  padding: 16px;
+}
+
+.bom-scope-heading,
+.bom-scope-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.bom-scope-heading h3,
+.bom-metadata-layers h3 {
+  margin: 3px 0 0;
+  font-size: 15px;
+}
+
+.bom-scope-heading p {
+  max-width: 780px;
+  margin: 5px 0 0;
+  color: #66727e;
+  line-height: 1.55;
+}
+
+.bom-scope-route {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.bom-scope-route > div {
+  min-width: 0;
+  border-left: 3px solid #cfaa44;
+  background: #fff;
+  padding: 10px 12px;
+}
+
+.bom-scope-route span,
+.bom-scope-route small {
+  display: block;
+  color: #79838d;
+  font-size: 11px;
+}
+
+.bom-scope-route strong {
+  display: block;
+  margin: 2px 0;
+  overflow-wrap: anywhere;
+  font-size: 15px;
+}
+
+.bom-scope-evidence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin-top: 12px;
+  color: #5b6670;
+  font-size: 12px;
+}
+
+.bom-scope-evidence strong {
+  color: #24313c;
+  font-variant-numeric: tabular-nums;
+}
+
+.bom-scope-actions {
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
 .bom-summary-strip {
   display: grid;
   grid-template-columns: repeat(6, minmax(116px, 1fr));
@@ -887,6 +999,16 @@ html, body, #root { margin: 0; height: 100%; }
 
 .bom-semantic-tabs .ant-tabs-tab {
   padding: 8px 2px;
+}
+
+.bom-metadata-layers {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.bom-metadata-layers h3 {
+  margin-bottom: 8px;
 }
 
 .bom-placement-workbench {
@@ -2083,7 +2205,7 @@ html, body, #root { margin: 0; height: 100%; }
   .bom-compare-header { flex-direction: column; }
   .bom-analysis-id { min-width: 0; text-align: left; }
   .bom-source-band { grid-template-columns: minmax(0, 1fr) 38px minmax(0, 1fr); }
-  .bom-source-selector { grid-template-columns: 1fr; align-content: start; }
+  .bom-source-selector { justify-content: flex-start; }
   .bom-source-actions {
     grid-column: 1 / -1;
     flex-direction: row;
@@ -2173,9 +2295,14 @@ html, body, #root { margin: 0; height: 100%; }
   .bom-source-band { grid-template-columns: 1fr; }
   .bom-swap-button { justify-self: center; transform: rotate(90deg); }
   .bom-source-selector + .bom-source-selector { border-top: 1px solid #dfe6ea; border-left: 0; }
+  .bom-source-pickers { grid-template-columns: 1fr; }
   .bom-source-actions { grid-column: auto; flex-direction: column; }
   .bom-source-inspection-grid { grid-template-columns: 1fr; }
   .bom-source-inspection + .bom-source-inspection { border-top: 1px solid #dce3e8; border-left: 0; }
+  .bom-scope-heading,
+  .bom-scope-actions { flex-direction: column; align-items: stretch; }
+  .bom-scope-route { grid-template-columns: 1fr; }
+  .bom-scope-route > svg { justify-self: center; transform: rotate(90deg); }
   .bom-summary-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .bom-semantic-metric:nth-child(n) { border-top: 0; }
   .bom-semantic-metric:nth-child(odd) { border-left: 0; }

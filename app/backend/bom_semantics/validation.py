@@ -122,6 +122,70 @@ def validate_substitute_members(
                     details={"group_code": group_code, "material_code": item.material_code},
                 )
             )
+
+    strategy_field_present = any(
+        "substitute_strategy" in row.raw_fields
+        for item in member_list
+        for row in item.source_rows
+    )
+    missing_strategy = (
+        [
+            (item, row)
+            for item in member_list
+            for row in item.source_rows
+            if not row.substitute_strategy.strip()
+        ]
+        if strategy_field_present
+        else []
+    )
+    if missing_strategy:
+        findings.append(
+            ValidationFinding(
+                code="substitute_strategy_missing",
+                severity=FindingSeverity.BLOCKER,
+                message="替代组成员缺少替代策略，不能生成可靠的 PLM/OA 变更。",
+                source_ids=tuple(row.source_id for _, row in missing_strategy),
+                parent_code=parent_code,
+                details={
+                    "group_code": group_code,
+                    "material_codes": sorted(
+                        {item.material_code for item, _ in missing_strategy}
+                    ),
+                },
+            )
+        )
+
+    mode_field_present = any(
+        "substitute_mode" in row.raw_fields
+        for item in member_list
+        for row in item.source_rows
+    )
+    missing_mode = (
+        [
+            (item, row)
+            for item in member_list
+            for row in item.source_rows
+            if not row.substitute_mode.strip()
+        ]
+        if mode_field_present
+        else []
+    )
+    if missing_mode:
+        findings.append(
+            ValidationFinding(
+                code="substitute_mode_missing",
+                severity=FindingSeverity.BLOCKER,
+                message="替代组成员缺少替代方式，不能生成可靠的 PLM/OA 变更。",
+                source_ids=tuple(row.source_id for _, row in missing_mode),
+                parent_code=parent_code,
+                details={
+                    "group_code": group_code,
+                    "material_codes": sorted(
+                        {item.material_code for item, _ in missing_mode}
+                    ),
+                },
+            )
+        )
     return tuple(findings)
 
 

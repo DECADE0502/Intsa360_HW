@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from typing import Iterable, Mapping, Sequence
@@ -29,19 +30,40 @@ class GroupMatch:
 
 def _row_snapshot(row: CanonicalRow) -> dict[str, object]:
     return {
+        "item": row.item,
         "parent_code": row.parent_code,
+        "source_parent_code": row.extra_fields.get(
+            "source_parent_code",
+            row.parent_code,
+        ),
+        "parent_description": row.parent_description,
+        "hardware_version": row.hardware_version,
         "material_code": row.material_code,
         "name": row.name,
+        "value": row.value,
         "model": row.model,
         "description": row.description,
         "unit": row.unit,
         "quantity": str(row.quantity) if row.quantity is not None else None,
         "references": list(row.references),
+        "raw_reference": row.raw_reference,
+        "is_nc": row.is_nc,
         "remark": row.remark,
         "grade": row.grade,
+        "grade_remark": row.grade_remark,
         "substitute_group_code": row.substitute_group_code,
+        "substitute_strategy": row.substitute_strategy,
         "substitute_priority": row.substitute_priority,
         "substitute_mode": row.substitute_mode,
+        "issue_method": row.issue_method,
+        "mrp": row.mrp,
+        "jump_level": row.jump_level,
+        "extra_fields": {
+            key: value
+            for key, value in row.extra_fields.items()
+            if key != "source_parent_code"
+        },
+        "quality_flags": list(row.quality_flags),
     }
 
 
@@ -60,6 +82,18 @@ def _item_snapshot(item: MaterialItem | None) -> dict[str, object]:
 
 
 def _group_snapshot(group: SubstituteGroup) -> dict[str, object]:
+    strategies = {
+        item.material_code: sorted(
+            {row.substitute_strategy for row in item.source_rows}
+        )
+        for item in group.members
+    }
+    modes = {
+        item.material_code: sorted(
+            {row.substitute_mode for row in item.source_rows}
+        )
+        for item in group.members
+    }
     return {
         "parent_code": group.parent_code,
         "group_code": group.group_code,
@@ -70,6 +104,8 @@ def _group_snapshot(group: SubstituteGroup) -> dict[str, object]:
             item.material_code: item.substitute_priority
             for item in group.members
         },
+        "strategies": strategies,
+        "modes": modes,
         "quantity": str(group.quantity) if group.quantity is not None else None,
         "references": list(group.physical_references),
         "valid": not any(
@@ -81,6 +117,117 @@ def _group_snapshot(group: SubstituteGroup) -> dict[str, object]:
 
 def _variant_signature(item: MaterialItem) -> tuple[tuple[str, ...], ...]:
     return tuple(sorted(variant.signature for variant in item.variants))
+
+
+_ITEM_METADATA_FIELDS = (
+    "name",
+    "value",
+    "model",
+    "description",
+    "unit",
+    "remark",
+    "grade",
+    "grade_remark",
+    "issue_method",
+    "mrp",
+    "jump_level",
+)
+
+
+def _metadata_snapshot(item: MaterialItem) -> dict[str, object]:
+    rows: list[dict[str, object]] = []
+    for row in item.source_rows:
+        snapshot = {
+            field: getattr(row, field)
+            for field in _ITEM_METADATA_FIELDS
+        }
+        snapshot["extra_fields"] = {
+            key: value
+            for key, value in row.extra_fields.items()
+            if key != "source_parent_code"
+        }
+        rows.append(snapshot)
+    rows.sort(
+        key=lambda value: json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            default=str,
+        )
+    )
+    return {"rows": rows}
+
+
+def _changed_metadata_fields(
+    old_snapshot: Mapping[str, object],
+    new_snapshot: Mapping[str, object],
+) -> tuple[str, ...]:
+    old_rows = old_snapshot.get("rows", [])
+    new_rows = new_snapshot.get("rows", [])
+    changed: list[str] = []
+    for field in (*_ITEM_METADATA_FIELDS, "extra_fields"):
+        old_values = sorted(
+            {
+                json.dumps(row.get(field), ensure_ascii=False, sort_keys=True)
+                for row in old_rows
+                if isinstance(row, dict)
+            }
+        )
+        new_values = sorted(
+            {
+                json.dumps(row.get(field), ensure_ascii=False, sort_keys=True)
+                for row in new_rows
+                if isinstance(row, dict)
+            }
+        )
+        if old_values != new_values:
+            changed.append(field)
+    return tuple(changed)
+
+
+def _board_metadata_diff(
+    old_boards: Sequence[BoardBOM],
+    new_boards: Sequence[BoardBOM],
+) -> tuple[Mapping[str, object], ...]:
+    old_by_parent = {board.parent_code: board for board in old_boards}
+    new_by_parent = {board.parent_code: board for board in new_boards}
+    differences: list[Mapping[str, object]] = []
+    for parent_code in sorted(set(old_by_parent) | set(new_by_parent)):
+        old = old_by_parent.get(parent_code)
+        new = new_by_parent.get(parent_code)
+        old_snapshot = {
+            "parent_code": (
+                old.rows[0].extra_fields.get("source_parent_code", old.parent_code)
+                if old and old.rows
+                else old.parent_code if old else ""
+            ),
+            "parent_description": old.parent_description if old else "",
+            "hardware_version": old.hardware_version if old else "",
+        }
+        new_snapshot = {
+            "parent_code": (
+                new.rows[0].extra_fields.get("source_parent_code", new.parent_code)
+                if new and new.rows
+                else new.parent_code if new else ""
+            ),
+            "parent_description": new.parent_description if new else "",
+            "hardware_version": new.hardware_version if new else "",
+        }
+        changed_fields = [
+            field
+            for field in old_snapshot
+            if old_snapshot[field] != new_snapshot[field]
+        ]
+        if changed_fields:
+            differences.append(
+                {
+                    "comparison_parent_code": parent_code,
+                    "old": old_snapshot,
+                    "new": new_snapshot,
+                    "changed_fields": changed_fields,
+                }
+            )
+    return tuple(differences)
 
 
 def _all_items(boards: Sequence[BoardBOM]) -> dict[tuple[str, str], MaterialItem]:
@@ -326,6 +473,28 @@ def _group_events(
                     group_codes=(new.group_code,),
                 )
             )
+        elif (
+            old_main == new_main
+            and old_members == new_members
+            and same_refs
+            and old_priorities == new_priorities
+            and (
+                old_snapshot["strategies"] != new_snapshot["strategies"]
+                or old_snapshot["modes"] != new_snapshot["modes"]
+            )
+        ):
+            events.append(
+                make_change_event(
+                    ChangeKind.SUBSTITUTE_CONFIGURATION_CHANGED,
+                    new.parent_code,
+                    f"替代组 {new.group_code} 的策略或方式变化",
+                    FunctionalImpact.SUPPLY,
+                    old_snapshot=old_snapshot,
+                    new_snapshot=new_snapshot,
+                    references=new.physical_references,
+                    group_codes=(new.group_code,),
+                )
+            )
 
     for old in unmatched_old:
         snapshot = _group_snapshot(old)
@@ -379,18 +548,24 @@ def _replacement_events(
             )
         ].append(str(item["reference"]))
 
+    targets_by_old: dict[tuple[str, str], set[str]] = defaultdict(set)
+    for parent_code, old_code, new_code in migrations:
+        targets_by_old[(parent_code, old_code)].add(new_code)
+
     events: list[BomChangeEvent] = []
     for (parent_code, old_code, new_code), references in migrations.items():
         old_item = old_items.get((parent_code, old_code))
         new_item = new_items.get((parent_code, new_code))
         reference_set = set(references)
         full_old = old_item is not None and reference_set == set(old_item.references)
-        full_new = new_item is not None and reference_set == set(new_item.references)
         old_still_exists = (parent_code, old_code) in new_items
-        new_preexisted = (parent_code, new_code) in old_items
         kind = (
             ChangeKind.REPLACEMENT
-            if full_old and full_new and not old_still_exists and not new_preexisted
+            if (
+                full_old
+                and not old_still_exists
+                and len(targets_by_old[(parent_code, old_code)]) == 1
+            )
             else ChangeKind.REFERENCE_MIGRATED
         )
         title = (
@@ -410,6 +585,65 @@ def _replacement_events(
             )
         )
         handled.update((parent_code, reference) for reference in references)
+    return events, handled
+
+
+def _reference_set_events(
+    placement_diff: Sequence[Mapping[str, object]],
+    old_items: Mapping[tuple[str, str], MaterialItem],
+    new_items: Mapping[tuple[str, str], MaterialItem],
+    handled: set[tuple[str, str]],
+) -> tuple[list[BomChangeEvent], set[tuple[str, str]]]:
+    changes: dict[tuple[str, str], dict[str, list[str]]] = defaultdict(
+        lambda: {"added": [], "removed": []}
+    )
+    for item in placement_diff:
+        parent_code = str(item["parent_code"])
+        reference = str(item["reference"])
+        if (parent_code, reference) in handled:
+            continue
+        status = str(item["status"])
+        if status not in {"added", "removed"}:
+            continue
+        material_code = str(
+            item["new_material_code"] if status == "added" else item["old_material_code"]
+        )
+        changes[(parent_code, material_code)][status].append(reference)
+
+    events: list[BomChangeEvent] = []
+    for (parent_code, material_code), references in changes.items():
+        added = tuple(
+            sorted(references["added"], key=natural_reference_key)
+        )
+        removed = tuple(
+            sorted(references["removed"], key=natural_reference_key)
+        )
+        if not added or not removed:
+            continue
+        events.append(
+            make_change_event(
+                ChangeKind.REFERENCE_SET_CHANGED,
+                parent_code,
+                (
+                    f"{material_code} 位号集合调整："
+                    f"删除 {', '.join(removed)}；新增 {', '.join(added)}"
+                ),
+                FunctionalImpact.PLACEMENT,
+                old_snapshot=_item_snapshot(
+                    old_items.get((parent_code, material_code))
+                ),
+                new_snapshot=_item_snapshot(
+                    new_items.get((parent_code, material_code))
+                ),
+                references=tuple(
+                    sorted((*removed, *added), key=natural_reference_key)
+                ),
+            )
+        )
+        handled.update(
+            (parent_code, reference)
+            for reference in (*removed, *added)
+        )
     return events, handled
 
 
@@ -499,12 +733,24 @@ def _material_and_metadata_events(
             continue
         if old is None or new is None:
             continue
-        if _variant_signature(old) != _variant_signature(new):
+        old_metadata = _metadata_snapshot(old)
+        new_metadata = _metadata_snapshot(new)
+        changed_fields = _changed_metadata_fields(
+            old_metadata,
+            new_metadata,
+        )
+        if (
+            _variant_signature(old) != _variant_signature(new)
+            or changed_fields
+        ):
             item = {
                 "parent_code": key[0],
                 "material_code": key[1],
                 "old_variants": [variant.payload() for variant in old.variants],
                 "new_variants": [variant.payload() for variant in new.variants],
+                "old_metadata": old_metadata,
+                "new_metadata": new_metadata,
+                "changed_fields": list(changed_fields),
             }
             metadata.append(item)
             events.append(
@@ -586,6 +832,12 @@ def compare_board_boms(
         new_items,
         handled,
     )
+    reference_set_events, handled = _reference_set_events(
+        placement_diff,
+        old_items,
+        new_items,
+        handled,
+    )
     placement_events = _remaining_placement_events(
         placement_diff,
         old_items,
@@ -618,6 +870,7 @@ def compare_board_boms(
         *_blocker_events(blockers),
         *group_events,
         *replacement_events,
+        *reference_set_events,
         *placement_events,
         *material_events,
     ]
@@ -663,6 +916,7 @@ def compare_board_boms(
         raw_row_diff=_raw_row_diff(old_boards, new_boards),
         placement_diff=placement_diff,
         substitute_diff=tuple(substitute_diff),
+        board_metadata_diff=_board_metadata_diff(old_boards, new_boards),
         metadata_diff=tuple(metadata_diff),
         blockers=blockers,
         warnings=warnings,

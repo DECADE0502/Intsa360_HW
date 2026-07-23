@@ -17,11 +17,13 @@ OA_CHANGE_TYPES: Mapping[ChangeKind, str] = {
     ChangeKind.ALTERNATIVE_ADDED: "替代(AB共存)",
     ChangeKind.ALTERNATIVE_REMOVED: "替代(AB共存)",
     ChangeKind.SUBSTITUTE_PRIORITY_ONLY: "替代(AB共存)",
+    ChangeKind.SUBSTITUTE_CONFIGURATION_CHANGED: "替代(AB共存)",
     ChangeKind.MAIN_CHANGED_REFS_MIGRATED: "替代(AB共存)",
     ChangeKind.QUANTITY_CHANGED: "数量(位号)修改",
     ChangeKind.REFERENCE_ADDED: "数量(位号)修改",
     ChangeKind.REFERENCE_REMOVED: "数量(位号)修改",
     ChangeKind.REFERENCE_MIGRATED: "更换(A换成B)",
+    ChangeKind.REFERENCE_SET_CHANGED: "数量(位号)修改",
 }
 
 
@@ -62,4 +64,3 @@ def make_change_event(
         oa_change_type=oa_change_type if oa_change_type is not None else OA_CHANGE_TYPES.get(kind, ""),
         source_ids=source_ids,
     )
-
