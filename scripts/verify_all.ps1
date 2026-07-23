@@ -52,13 +52,45 @@ New-Item -ItemType Directory -Force -Path $VerifyTempRoot | Out-Null
 $VerifyTempRoot = (Resolve-Path -LiteralPath $VerifyTempRoot).Path
 $VerifyPytestRoot = Join-Path $VerifyTempRoot "p"
 
+function Invoke-PytestGroup {
+  param(
+    [Parameter(Mandatory=$true)][string]$Name,
+    [Parameter(Mandatory=$true)][System.IO.FileInfo[]]$Files
+  )
+  if ($Files.Count -eq 0) { throw "pytest group is empty: $Name" }
+  $BaseTemp = Join-Path $VerifyPytestRoot $Name
+  Write-Host ("Running pytest group {0} ({1} files)..." -f $Name, $Files.Count) -ForegroundColor Cyan
+  & $Python -m pytest -q --basetemp $BaseTemp @($Files.FullName)
+  if ($LASTEXITCODE -ne 0) { throw "pytest group failed: $Name" }
+}
+
 Push-Location $Root
 try {
   $env:TEMP = $VerifyTempRoot
   $env:TMP = $VerifyTempRoot
 
-  & $Python -m pytest -q --basetemp $VerifyPytestRoot
-  if ($LASTEXITCODE -ne 0) { throw "pytest failed" }
+  $AllTestFiles = @(Get-ChildItem -LiteralPath (Join-Path $Root "tests") -Filter "test_*.py" -File)
+  $BomTestFiles = @($AllTestFiles | Where-Object {
+    $_.BaseName -like "test_bom*" -or
+    $_.BaseName -in @("test_capture_bom_fields", "test_chinese_bom_text")
+  })
+  $PlatformTestFiles = @($AllTestFiles | Where-Object { $_.BaseName -eq "test_platform_api" })
+  $LifecycleTestFiles = @($AllTestFiles | Where-Object {
+    $_.BaseName -match "(lifecycle|update_api|release_|distribution_install|embedded_python|launch_and_package|local_release_pipeline|git_ota_publisher|setup_lifecycle|windows_server_accept|subprocess_encoding|frontend_build)"
+  })
+  $AssignedPaths = @($BomTestFiles + $PlatformTestFiles + $LifecycleTestFiles | ForEach-Object FullName)
+  if (@($AssignedPaths | Sort-Object -Unique).Count -ne $AssignedPaths.Count) {
+    throw "pytest verification groups overlap"
+  }
+  $RemainingTestFiles = @($AllTestFiles | Where-Object { $_.FullName -notin $AssignedPaths })
+  if (($AssignedPaths.Count + $RemainingTestFiles.Count) -ne $AllTestFiles.Count) {
+    throw "pytest verification groups do not cover every test file"
+  }
+
+  Invoke-PytestGroup -Name "bom" -Files $BomTestFiles
+  Invoke-PytestGroup -Name "runtime" -Files $RemainingTestFiles
+  Invoke-PytestGroup -Name "lifecycle" -Files $LifecycleTestFiles
+  Invoke-PytestGroup -Name "platform-api" -Files $PlatformTestFiles
 
   & $Python -m py_compile app\backend\suite_app.py app\backend\update_api.py app\backend\tools\bom_process.py tools\bom\convert_cadence_bom.py
   if ($LASTEXITCODE -ne 0) { throw "py_compile failed" }
