@@ -284,6 +284,10 @@ class AssetsRepository:
                 format_name = "OA"
             else:
                 format_name = "BOM"
+            run_summary = _json_object(row["summary_json"] or "{}")
+            semantic = run_summary.get("semantic")
+            if not isinstance(semantic, dict):
+                semantic = {}
             results.append(
                 {
                     "id": row["id"],
@@ -296,7 +300,8 @@ class AssetsRepository:
                     "source_tool": row["tool_id"] or "",
                     "source_tool_name": row["tool_name"] or "",
                     "time": row["run_created_at"] or row["created_at"],
-                    "summary": _json_object(row["summary_json"] or "{}"),
+                    "summary": run_summary,
+                    "semantic": semantic,
                     "decision_manifest": manifest_by_run.get(str(row["run_id"] or ""), ""),
                 }
             )

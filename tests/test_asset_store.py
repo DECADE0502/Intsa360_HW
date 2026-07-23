@@ -111,6 +111,32 @@ def test_processed_bom_asset_exposes_contract_matched_decision_manifest(tmp_path
     assert reusable[0]["decision_manifest"] == str(manifest)
 
 
+def test_processed_bom_asset_exposes_semantic_board_summary(tmp_path: Path) -> None:
+    root = _runtime(tmp_path)
+    output_dir = root / "data" / "outputs" / "bom"
+    output_dir.mkdir(parents=True)
+    bom = output_dir / "BOARD_A_PLM_BOM.xlsx"
+    bom.write_bytes(b"processed")
+    semantic = {
+        "new_parent_codes": ["BOARD-A"],
+        "new_hardware_versions": ["V10"],
+        "actual_reference_count_new": 800,
+        "substitute_group_count_new": 26,
+        "analysis_fingerprint": "semantic-fingerprint",
+    }
+    history.record(
+        root,
+        "bom_process",
+        "BOM 处理",
+        {},
+        {"status": "ok", "summary": {"semantic": semantic}, "outputs": [str(bom)]},
+    )
+
+    reusable = assets.list_assets(root)["groups"]["processed_bom"]
+
+    assert reusable[0]["semantic"] == semantic
+
+
 def test_legacy_json_history_migration_is_idempotent_and_keeps_subdirectories(tmp_path: Path) -> None:
     root = _runtime(tmp_path)
     first = root / "data" / "outputs" / "alpha" / "BOARD_PLM_BOM.xlsx"

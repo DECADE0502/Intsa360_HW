@@ -225,14 +225,8 @@ def build_board_boms(source: NormalizedSource) -> tuple[BoardBOM, ...]:
                     )
                 )
 
-        source_findings = [
-            finding
-            for finding in source.findings
-            if finding.parent_code == parent_code
-        ]
         all_findings = tuple(
-            source_findings
-            + group_findings
+            group_findings
             + list(placement_findings)
             + material_findings
         )

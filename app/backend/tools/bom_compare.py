@@ -2,6 +2,19 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from app.backend.bom_semantics.contracts import (
+    BOM_COMPARE_SCHEMA_VERSION,
+    BOM_SEMANTIC_MODEL_VERSION,
+    SourceInspection,
+)
+from app.backend.bom_semantics.diff import compare_board_boms
+from app.backend.bom_semantics.models import FindingSeverity, WorkbookProfile
+from app.backend.bom_semantics.normalization import NormalizedSource, normalize_workbook
+from app.backend.bom_semantics.oa_export import build_oa_ecr_export
+from app.backend.bom_semantics.plm_export import export_plm_template
+from app.backend.bom_semantics.report_export import export_compare_report
+from app.backend.bom_semantics.serialization import write_compare_result_json
+from app.backend.bom_semantics.substitutes import build_board_boms
 from app.backend.parsers.refs import natural_key
 from app.backend.tools.bom_rules import evaluate_bom_risks
 from app.backend.tools.common import (
@@ -95,7 +108,7 @@ def _annotate_origin(
             }
         )
     return annotated
-def _run_bom_compare_impl(root: Path, params: dict[str, object]) -> dict[str, object]:
+def _run_legacy_bom_compare_impl(root: Path, params: dict[str, object]) -> dict[str, object]:
     bom1, error = _required_file(params, "bom1", "BOM1 文件")
     if error:
         return _error("bom_compare", error)
@@ -254,8 +267,322 @@ def _run_bom_compare_impl(root: Path, params: dict[str, object]) -> dict[str, ob
         "right": evaluate_bom_risks(rows2),
     }
     return result
+
+
+def _reference_resolutions(
+    params: dict[str, object],
+    source_key: str,
+) -> dict[str, dict[str, object] | str]:
+    raw = params.get("reference_resolutions")
+    if not isinstance(raw, dict):
+        return {}
+    nested = raw.get(source_key)
+    if isinstance(nested, dict):
+        return {
+            str(key): value
+            for key, value in nested.items()
+            if isinstance(value, (dict, str))
+        }
+    return {
+        str(key): value
+        for key, value in raw.items()
+        if isinstance(value, (dict, str))
+    }
+
+
+def _normalized_source(
+    path: Path,
+    params: dict[str, object],
+    source_key: str,
+    *,
+    default_parent_code: str = "",
+) -> NormalizedSource:
+    return normalize_workbook(
+        path,
+        reference_resolutions=_reference_resolutions(params, source_key),
+        default_parent_code=default_parent_code,
+    )
+
+
+def _inspection(source: NormalizedSource) -> SourceInspection:
+    boards = build_board_boms(source)
+    findings = tuple(source.findings) + tuple(
+        finding
+        for board in boards
+        for finding in board.findings
+    )
+    return SourceInspection(
+        envelope=source.envelope,
+        boards=boards,
+        findings=findings,
+        can_compare=not any(
+            finding.severity == FindingSeverity.BLOCKER
+            for finding in findings
+        ),
+    )
+
+
+def _align_single_board_sources(
+    old_path: Path,
+    new_path: Path,
+    params: dict[str, object],
+) -> tuple[NormalizedSource, NormalizedSource]:
+    old = _normalized_source(old_path, params, "bom1")
+    new = _normalized_source(new_path, params, "bom2")
+    old_boards = build_board_boms(old)
+    new_boards = build_board_boms(new)
+    if len(old_boards) != 1 or len(new_boards) != 1:
+        return old, new
+
+    old_capture = old.envelope.profile == WorkbookProfile.CAPTURE_RAW
+    new_capture = new.envelope.profile == WorkbookProfile.CAPTURE_RAW
+    if old_capture and new_capture:
+        parent_code = "__CAPTURE_SINGLE_BOARD__"
+        return (
+            _normalized_source(old_path, params, "bom1", default_parent_code=parent_code),
+            _normalized_source(new_path, params, "bom2", default_parent_code=parent_code),
+        )
+    if old_capture and not new_capture:
+        parent_code = new_boards[0].parent_code
+        return (
+            _normalized_source(old_path, params, "bom1", default_parent_code=parent_code),
+            new,
+        )
+    if new_capture and not old_capture:
+        parent_code = old_boards[0].parent_code
+        return (
+            old,
+            _normalized_source(new_path, params, "bom2", default_parent_code=parent_code),
+        )
+    return old, new
+
+
+def _semantic_compare(
+    old_path: Path,
+    new_path: Path,
+    params: dict[str, object],
+):
+    old_source, new_source = _align_single_board_sources(old_path, new_path, params)
+    old_inspection = _inspection(old_source)
+    new_inspection = _inspection(new_source)
+    result = compare_board_boms(
+        old_inspection.boards,
+        new_inspection.boards,
+        old_source_fingerprint=old_source.envelope.source_fingerprint,
+        new_source_fingerprint=new_source.envelope.source_fingerprint,
+        additional_findings=(*old_source.findings, *new_source.findings),
+    )
+    return old_inspection, new_inspection, result
+
+
+def _semantic_summary(
+    old_inspection: SourceInspection,
+    new_inspection: SourceInspection,
+    result: object,
+) -> dict[str, object]:
+    return {
+        "analysis_fingerprint": result.analysis_fingerprint,
+        "old_parent_codes": [board.parent_code for board in old_inspection.boards],
+        "new_parent_codes": [board.parent_code for board in new_inspection.boards],
+        "old_hardware_versions": [
+            board.hardware_version for board in old_inspection.boards if board.hardware_version
+        ],
+        "new_hardware_versions": [
+            board.hardware_version for board in new_inspection.boards if board.hardware_version
+        ],
+        "actual_reference_count_old": result.summary.actual_reference_count_old,
+        "actual_reference_count_new": result.summary.actual_reference_count_new,
+        "substitute_group_count_old": result.summary.substitute_group_count_old,
+        "substitute_group_count_new": result.summary.substitute_group_count_new,
+        "changed_event_count": result.summary.changed_event_count,
+        "blocker_count": result.summary.blocker_count,
+    }
+
+
+def _run_inspect(params: dict[str, object]) -> dict[str, object]:
+    source_path, error = _required_file(
+        params,
+        "source" if params.get("source") else "bom1",
+        "待体检 BOM 文件",
+    )
+    if error or source_path is None:
+        return _error("bom_compare", error or "缺少待体检 BOM 文件")
+    source = _normalized_source(source_path, params, "source")
+    inspection = _inspection(source)
+    return {
+        "status": "ok",
+        "tool": "bom_compare",
+        "schema_version": BOM_COMPARE_SCHEMA_VERSION,
+        "model_version": BOM_SEMANTIC_MODEL_VERSION,
+        "action": "inspect",
+        "inspection": inspection.payload(),
+        "summary": {
+            "parent_codes": [board.parent_code for board in inspection.boards],
+            "hardware_versions": [
+                board.hardware_version for board in inspection.boards if board.hardware_version
+            ],
+            "actual_reference_count": sum(len(board.placements) for board in inspection.boards),
+            "substitute_group_count": sum(
+                len(board.substitute_groups) for board in inspection.boards
+            ),
+            "blocker_count": sum(
+                1
+                for finding in inspection.findings
+                if finding.severity == FindingSeverity.BLOCKER
+            ),
+        },
+        "outputs": [],
+    }
+
+
+def _run_semantic_compare(
+    root: Path,
+    params: dict[str, object],
+    *,
+    include_legacy: bool,
+) -> dict[str, object]:
+    bom1, error = _required_file(params, "bom1", "旧版 BOM 文件")
+    if error or bom1 is None:
+        return _error("bom_compare", error or "缺少旧版 BOM 文件")
+    bom2, error = _required_file(params, "bom2", "新版 BOM 文件")
+    if error or bom2 is None:
+        return _error("bom_compare", error or "缺少新版 BOM 文件")
+
+    old_inspection, new_inspection, semantic = _semantic_compare(bom1, bom2, params)
+    output_dir = _output_dir(params, root, "bom_compare")
+    timestamp = _timestamp()
+    json_output = write_compare_result_json(
+        semantic,
+        output_dir / f"BOM语义对比_{timestamp}.json",
+    )
+    report_output = export_compare_report(
+        semantic,
+        output_dir / f"BOM四层差异报告_{timestamp}.xlsx",
+    )
+
+    if include_legacy:
+        legacy = _run_legacy_bom_compare_impl(root, params)
+    else:
+        legacy = _result("bom_compare", [], {}, None, None)
+    legacy["schema_version"] = BOM_COMPARE_SCHEMA_VERSION
+    legacy["model_version"] = BOM_SEMANTIC_MODEL_VERSION
+    legacy["action"] = "compare"
+    legacy["semantic"] = semantic.payload()
+    legacy["source_inspections"] = {
+        "old": old_inspection.payload(),
+        "new": new_inspection.payload(),
+    }
+    legacy["can_export"] = semantic.can_export
+    legacy["outputs"] = list(dict.fromkeys([
+        *legacy.get("outputs", []),
+        str(report_output),
+        str(json_output),
+    ]))
+    summary = legacy.setdefault("summary", {})
+    if isinstance(summary, dict):
+        summary["semantic"] = _semantic_summary(
+            old_inspection,
+            new_inspection,
+            semantic,
+        )
+    return legacy
+
+
+def _write_oa_payload(payload: object, path: Path) -> Path:
+    import json
+
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, default=str) + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def _run_export(root: Path, params: dict[str, object]) -> dict[str, object]:
+    bom1, error = _required_file(params, "bom1", "旧版 BOM 文件")
+    if error or bom1 is None:
+        return _error("bom_compare", error or "缺少旧版 BOM 文件")
+    bom2, error = _required_file(params, "bom2", "新版 BOM 文件")
+    if error or bom2 is None:
+        return _error("bom_compare", error or "缺少新版 BOM 文件")
+    old_inspection, new_inspection, semantic = _semantic_compare(bom1, bom2, params)
+    output_dir = _output_dir(params, root, "bom_compare")
+    timestamp = _timestamp()
+    export_format = str(params.get("format") or "report").strip().casefold()
+    outputs: list[Path] = []
+
+    if export_format in {"report", "xlsx"}:
+        outputs.append(
+            export_compare_report(
+                semantic,
+                output_dir / f"BOM四层差异报告_{timestamp}.xlsx",
+            )
+        )
+    elif export_format == "json":
+        outputs.append(
+            write_compare_result_json(
+                semantic,
+                output_dir / f"BOM语义对比_{timestamp}.json",
+            )
+        )
+    elif export_format == "plm":
+        template, template_error = _required_file(params, "template", "PLM 模板")
+        if template_error or template is None:
+            return _error("bom_compare", template_error or "缺少 PLM 模板")
+        side = str(params.get("side") or "new").casefold()
+        boards = old_inspection.boards if side == "old" else new_inspection.boards
+        exported = export_plm_template(
+            boards,
+            template,
+            output_dir / f"BOM_PLM_{side}_{timestamp}.xlsx",
+        )
+        outputs.append(exported.output_path)
+    elif export_format in {"oa", "ecr"}:
+        new_groups = tuple(
+            group
+            for board in new_inspection.boards
+            for group in board.substitute_groups
+        )
+        oa = build_oa_ecr_export(semantic.events, substitute_groups=new_groups)
+        if not oa.can_export:
+            return {
+                "status": "error",
+                "tool": "bom_compare",
+                "error": "OA/ECR 导出存在未解决语义问题。",
+                "issues": [issue.payload() for issue in oa.issues],
+            }
+        outputs.append(
+            _write_oa_payload(
+                oa.payload(),
+                output_dir / f"BOM_OA_ECR_{timestamp}.json",
+            )
+        )
+    else:
+        return _error("bom_compare", f"不支持的导出格式：{export_format}")
+
+    return {
+        "status": "ok",
+        "tool": "bom_compare",
+        "schema_version": BOM_COMPARE_SCHEMA_VERSION,
+        "model_version": BOM_SEMANTIC_MODEL_VERSION,
+        "action": "export",
+        "format": export_format,
+        "outputs": [str(path) for path in outputs],
+        "summary": {
+            "semantic": _semantic_summary(old_inspection, new_inspection, semantic),
+        },
+    }
+
+
 def run_bom_compare(root: Path, params: dict[str, object]) -> dict[str, object]:
     try:
-        return _run_bom_compare_impl(root, params)
+        action = str(params.get("action") or "compare").strip().casefold()
+        if action == "inspect":
+            return _run_inspect(params)
+        if action == "export":
+            return _run_export(root, params)
+        if action != "compare":
+            return _error("bom_compare", f"不支持的操作：{action}")
+        return _run_semantic_compare(root, params, include_legacy=True)
     except USER_INPUT_EXCEPTIONS as exc:
         return _user_error("bom_compare", exc)

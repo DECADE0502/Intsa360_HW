@@ -123,6 +123,7 @@ def normalize_workbook(
     path: Path,
     mapping_overrides: Mapping[str, Mapping[str, int]] | None = None,
     reference_resolutions: Mapping[str, Mapping[str, object] | str] | None = None,
+    default_parent_code: str = "",
 ) -> NormalizedSource:
     envelope = read_workbook_envelope(path, mapping_overrides)
     rows: list[CanonicalRow] = []
@@ -211,7 +212,7 @@ def normalize_workbook(
                 _cell_value(worksheet, merged_lookup, row_number, mapping.get("parent_description"))
             ) or current_parent_description
             if not parent_code and envelope.profile == WorkbookProfile.CAPTURE_RAW:
-                parent_code = Path(envelope.source_path).stem
+                parent_code = default_parent_code or Path(envelope.source_path).stem
                 parent_description = parent_description or parent_code
 
             raw_reference = _text(

@@ -28,11 +28,12 @@ def test_normalization_skips_repeated_headers_and_isolates_parents(tmp_path: Pat
 
 
 def test_numeric_reference_resolution_is_bound_to_source_row(tmp_path: Path) -> None:
-    source = normalize_workbook(_fixtures(tmp_path)["multi_parent"])
+    path = _fixtures(tmp_path)["multi_parent"]
+    source = normalize_workbook(path)
     row = next(row for row in source.rows if row.raw_reference == "72")
 
     resolved = normalize_workbook(
-        _fixtures(tmp_path)["multi_parent"],
+        path,
         reference_resolutions={row.source_id: "empty"},
     )
     resolved_row = next(item for item in resolved.rows if item.material_code == "PCB-B")
@@ -62,3 +63,18 @@ def test_template_instruction_rows_are_reported_without_becoming_materials(tmp_p
     assert len(source.rows) == 2
     skipped = [item for item in source.findings if item.code == "template_instruction_skipped"]
     assert len(skipped) == 1
+
+
+def test_capture_parent_can_be_aligned_for_two_file_comparison(tmp_path: Path) -> None:
+    path = tmp_path / "capture.xlsx"
+    workbook = load_workbook(_fixtures(tmp_path)["ordinary"])
+    worksheet = workbook.active
+    worksheet.delete_rows(1, worksheet.max_row)
+    worksheet.append(["Reference", "Part Number", "Quantity", "Value"])
+    worksheet.append(["R1", "MAT-R", 1, "10K"])
+    workbook.save(path)
+    workbook.close()
+
+    source = normalize_workbook(path, default_parent_code="COMPARE-BOARD")
+
+    assert {row.parent_code for row in source.rows} == {"COMPARE-BOARD"}
