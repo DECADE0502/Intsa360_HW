@@ -1,0 +1,107 @@
+from __future__ import annotations
+
+import runpy
+from pathlib import Path
+
+from openpyxl import load_workbook
+
+from app.backend.bom_semantics.diff import compare_board_boms
+from app.backend.bom_semantics.models import ChangeKind, FunctionalImpact
+from app.backend.bom_semantics.normalization import normalize_workbook
+from app.backend.bom_semantics.substitutes import build_board_boms
+
+
+BUILDER = Path(__file__).resolve().parent / "fixtures" / "bom_semantics" / "build_fixtures.py"
+
+
+def _fixtures(tmp_path: Path) -> dict[str, Path]:
+    return runpy.run_path(str(BUILDER))["build_all"](tmp_path)
+
+
+def _boards(path: Path):
+    return build_board_boms(normalize_workbook(path))
+
+
+def test_three_member_group_does_not_inflate_physical_count(tmp_path: Path) -> None:
+    paths = _fixtures(tmp_path)
+    result = compare_board_boms(_boards(paths["substitutes"]), _boards(paths["substitutes"]))
+
+    assert result.summary.actual_reference_count_old == 4
+    assert result.summary.actual_reference_count_new == 4
+    assert result.events == ()
+    assert result.can_export
+
+
+def test_adding_alternative_is_supply_change_not_placement_change(tmp_path: Path) -> None:
+    paths = _fixtures(tmp_path)
+    new_path = tmp_path / "two_members.xlsx"
+    workbook = load_workbook(paths["substitutes"])
+    worksheet = workbook["BOM导入模版"]
+    worksheet.delete_rows(5)
+    workbook.save(new_path)
+    workbook.close()
+
+    result = compare_board_boms(_boards(new_path), _boards(paths["substitutes"]))
+
+    assert result.summary.actual_reference_count_old == result.summary.actual_reference_count_new == 4
+    assert [event.kind for event in result.events] == [ChangeKind.ALTERNATIVE_ADDED]
+    assert result.events[0].impact == FunctionalImpact.SUPPLY
+
+
+def test_main_priority_swap_is_one_business_event(tmp_path: Path) -> None:
+    paths = _fixtures(tmp_path)
+    swapped = tmp_path / "swapped.xlsx"
+    workbook = load_workbook(paths["substitutes"])
+    worksheet = workbook["BOM导入模版"]
+    main_refs = worksheet["I3"].value
+    worksheet["I3"] = ""
+    worksheet["M3"] = "MAT-B"
+    worksheet["P3"] = 1
+    worksheet["I4"] = main_refs
+    worksheet["M4"] = "MAT-B"
+    worksheet["P4"] = 0
+    worksheet["M5"] = "MAT-B"
+    workbook.save(swapped)
+    workbook.close()
+
+    result = compare_board_boms(_boards(paths["substitutes"]), _boards(swapped))
+    functional = [event for event in result.events if event.impact != FunctionalImpact.METADATA]
+
+    assert len(functional) == 1
+    assert functional[0].kind == ChangeKind.MAIN_CHANGED_REFS_MIGRATED
+    assert len(functional[0].references) == 4
+
+
+def test_description_only_change_stays_in_metadata_layer(tmp_path: Path) -> None:
+    paths = _fixtures(tmp_path)
+    changed = tmp_path / "metadata.xlsx"
+    workbook = load_workbook(paths["ordinary"])
+    worksheet = workbook["BOM导入模版"]
+    worksheet["F3"] = "电阻 10K 更新描述"
+    workbook.save(changed)
+    workbook.close()
+
+    result = compare_board_boms(_boards(paths["ordinary"]), _boards(changed))
+
+    assert result.placement_diff == ()
+    assert len(result.metadata_diff) == 1
+    assert result.events[0].kind == ChangeKind.METADATA_ONLY
+    assert result.events[0].impact == FunctionalImpact.METADATA
+
+
+def test_complete_material_replacement_requires_old_material_to_exit(tmp_path: Path) -> None:
+    paths = _fixtures(tmp_path)
+    changed = tmp_path / "replacement.xlsx"
+    workbook = load_workbook(paths["ordinary"])
+    worksheet = workbook["BOM导入模版"]
+    worksheet["C3"] = "MAT-R-NEW"
+    workbook.save(changed)
+    workbook.close()
+
+    result = compare_board_boms(_boards(paths["ordinary"]), _boards(changed))
+
+    replacement = [event for event in result.events if event.kind == ChangeKind.REPLACEMENT]
+    assert len(replacement) == 1
+    assert replacement[0].oa_change_type == "更换(A换成B)"
+    assert replacement[0].references == ("R1", "R2")
+
