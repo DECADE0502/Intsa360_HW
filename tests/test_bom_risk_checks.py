@@ -10,8 +10,10 @@ from openpyxl import Workbook
 
 from app.backend.tools.analysis_tools import run_bom_risk_check
 from app.backend.tools import bom_process, common
+from app.backend.tools.bom_decisions import load_decision_manifest
 from app.backend.tools.bom_rules import evaluate_bom_risks
 from app.backend.tools.bom_risk import run_generic_bom_import
+from app.backend.tools.bom_semantic_manifest import write_semantic_manifest
 from app.backend.tools.common import _read_bom_rows
 
 
@@ -50,6 +52,66 @@ def _nc_finding(row: dict[str, object]) -> dict[str, str]:
 
 
 class BomRiskCheckTests(unittest.TestCase):
+    def test_semantic_manifest_keeps_alternatives_out_of_installed_positions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bom = root / "processed.xlsx"
+            workbook = Workbook()
+            sheet = workbook.active
+            sheet.append(
+                [
+                    "父项编码",
+                    "子项编码",
+                    "名称",
+                    "型号",
+                    "描述",
+                    "数量",
+                    "位号",
+                    "替代组编码",
+                    "替代优先级",
+                ]
+            )
+            sheet.append(["PCBA-1", "A", "电阻", "10K", "主料", 2, "R1,R2", "A", 0])
+            sheet.append(["PCBA-1", "B", "电阻", "10K", "替代料", 2, "", "A", 1])
+            workbook.save(bom)
+            workbook.close()
+            decisions = root / "decisions.json"
+            _write_decisions(
+                decisions,
+                [
+                    {
+                        "refs": ["R1", "R2"],
+                        "destination": "smt",
+                        "exclusion_kind": "",
+                        "role": "electronic",
+                        "subtype": "",
+                        "decision_fingerprint": "installed",
+                        "material_snapshot": {"part_number": "A"},
+                    }
+                ],
+            )
+            semantic = root / "semantic.json"
+            write_semantic_manifest(
+                semantic,
+                bom,
+                load_decision_manifest(decisions),
+            )
+
+            result = run_bom_risk_check(
+                root,
+                {"bom": str(bom), "semantic_manifest": str(semantic)},
+            )
+
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(result["summary"]["positions"], 2)
+            self.assertEqual(result["risk_report"]["semantic_manifest"], str(semantic))
+            semantic_finding = next(
+                item
+                for item in result["risk_report"]["findings"]
+                if item.get("code") == "semantic_model_validation"
+            )
+            self.assertEqual(semantic_finding["status"], "ok")
+
     def test_nc_in_value_column_is_reported(self) -> None:
         finding = _nc_finding(
             {

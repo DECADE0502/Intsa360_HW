@@ -32,6 +32,7 @@ from app.backend.tools.bom_domain import (
     stable_fingerprint,
 )
 from app.backend.tools.bom_rules import NC_VALUE_RE
+from app.backend.tools.bom_semantic_manifest import write_semantic_manifest
 
 # BOM 处理工具：把 Capture 导出的原始 BOM 处理成可导入的 PLM / OA 成品。
 # - 自动定位表头行（Capture 导出前面常有标题块），表头带不带 {} 花括号都能识别
@@ -1897,7 +1898,15 @@ def process(
     write_decision_manifest(decision_manifest, parsed.source_fingerprint, finalized_decisions)
     from app.backend.tools.bom_decisions import load_decision_manifest
 
-    load_decision_manifest(decision_manifest)
+    validated_decisions = load_decision_manifest(decision_manifest)
+    if not outputs:
+        raise ValueError("BOM 处理未生成 PLM 或 OA 成品，无法建立语义模型。")
+    semantic_manifest = out_dir / f"{base}_BOM语义模型.json"
+    write_semantic_manifest(
+        semantic_manifest,
+        outputs[0],
+        validated_decisions,
+    )
 
     return {
         "outputs": outputs,
@@ -1905,6 +1914,7 @@ def process(
         "non_smt_summary": non_smt_path,
         "decision_report": decision_report,
         "decision_manifest": decision_manifest,
+        "semantic_manifest": semantic_manifest,
         "decision_records": finalized_decisions,
         "records": records,
         "summary": {

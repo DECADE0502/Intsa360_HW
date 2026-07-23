@@ -281,6 +281,7 @@ def _run_bom_process_impl(root: Path, params: dict[str, object]) -> dict[str, ob
         str(result["non_smt_summary"]),
         str(result["decision_report"]),
         str(result["decision_manifest"]),
+        str(result["semantic_manifest"]),
     ]
     preview_rows = [
         [
@@ -310,6 +311,7 @@ def _run_bom_process_impl(root: Path, params: dict[str, object]) -> dict[str, ob
             "placements": list(result.get("decision_records") or []),
         },
         "decision_manifest": str(result["decision_manifest"]),
+        "semantic_manifest": str(result["semantic_manifest"]),
         "nc_summary": str(result["nc_summary"]),
         "non_smt_summary": str(result["non_smt_summary"]),
         "decision_report": str(result["decision_report"]),

@@ -135,6 +135,8 @@ def test_bom_process_confirmation_package_and_history_flow(tmp_path: Path) -> No
         result = completed.json()
         assert result["status"] == "ok"
         assert any(Path(item).name.endswith("_PLM_BOM.xlsx") for item in result["outputs"])
+        assert Path(result["semantic_manifest"]).is_file()
+        assert result["semantic_manifest"] in result["outputs"]
         assert any(Path(item).name.endswith("_NC未贴汇总.xlsx") for item in result["outputs"])
 
         package = client.post(
@@ -147,6 +149,7 @@ def test_bom_process_confirmation_package_and_history_flow(tmp_path: Path) -> No
         with zipfile.ZipFile(io.BytesIO(package.content)) as archive:
             names = archive.namelist()
             assert any(name.endswith("_PLM_BOM.xlsx") for name in names)
+            assert any(name.endswith("_BOM语义模型.json") for name in names)
             assert any(name.endswith("_NC未贴汇总.xlsx") for name in names)
 
         history = client.get("/api/history")
