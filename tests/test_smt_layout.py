@@ -7,6 +7,8 @@ from pathlib import Path
 from openpyxl import Workbook
 
 from app.backend.capabilities import load_capabilities
+from app.backend.tools.bom_decisions import load_decision_manifest
+from app.backend.tools.bom_semantic_manifest import write_semantic_manifest
 from app.backend.tools.smt_layout import run_smt_layout
 
 
@@ -224,6 +226,79 @@ def test_smt_layout_uses_manifest_for_nc_and_ignores_other_non_smt_items(tmp_pat
     assert result["nc_summary"]["candidate_refs"] == []
     assert result["nc_summary"]["non_nc_refs"] == [refs[1]]
     assert result["nc_summary"]["decision_manifest_used"] is True
+
+
+def test_smt_layout_semantic_manifest_disables_missing_ref_guessing(tmp_path: Path) -> None:
+    smt, bom, refs = _inputs(tmp_path, top=4, bottom=0)
+    _write_bom(bom, [refs[0]])
+    decisions = tmp_path / "decisions.json"
+    _write_decisions(
+        decisions,
+        [
+            {
+                "refs": [refs[0]],
+                "destination": "smt",
+                "exclusion_kind": "",
+                "role": "electronic",
+                "subtype": "",
+                "decision_fingerprint": "installed",
+                "material_snapshot": {"part_number": "PN-1"},
+            },
+            {
+                "refs": [refs[1]],
+                "destination": "non_smt",
+                "exclusion_kind": "process_only",
+                "role": "test_point",
+                "subtype": "",
+                "decision_fingerprint": "process",
+                "material_snapshot": {"part_number": "TP-PN"},
+            },
+            {
+                "refs": [refs[2]],
+                "destination": "non_smt",
+                "exclusion_kind": "nc",
+                "role": "electronic",
+                "subtype": "",
+                "decision_fingerprint": "nc",
+                "material_snapshot": {"part_number": "PN-NC"},
+            },
+        ],
+    )
+    semantic = tmp_path / "semantic.json"
+    write_semantic_manifest(
+        semantic,
+        bom,
+        load_decision_manifest(decisions),
+    )
+    netlist = tmp_path / "netlist"
+    netlist.mkdir()
+    (netlist / "pstxnet.dat").write_text(
+        f"NET N1 {' '.join(f'{ref}.1' for ref in refs)}\n",
+        encoding="utf-8",
+    )
+    (netlist / "pstxprt.dat").write_text(
+        "".join(f"{ref} 'R0402'\n" for ref in refs),
+        encoding="utf-8",
+    )
+
+    result = run_smt_layout(
+        tmp_path,
+        {
+            "smt_folder": str(smt),
+            "processed_bom": str(bom),
+            "semantic_manifest": str(semantic),
+            "netlist_folder": str(netlist),
+        },
+    )
+
+    status_by_ref = {item["ref"]: item["status"] for item in result["components"]}
+    assert status_by_ref[refs[0]] == "installed"
+    assert status_by_ref[refs[1]] == "non_smt"
+    assert status_by_ref[refs[2]] == "nc"
+    assert status_by_ref[refs[3]] == "unverified"
+    assert result["nc_summary"]["inference_mode"] == "semantic_manifest"
+    assert result["nc_summary"]["semantic_manifest_used"] is True
+    assert result["nc_summary"]["candidate_refs"] == []
 
 
 def test_smt_layout_registered_in_capabilities() -> None:

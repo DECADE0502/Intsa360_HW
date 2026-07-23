@@ -58,7 +58,7 @@ describe("SMT layout pane skeleton", () => {
     expect(screen.getByRole("button", { name: "选择 PLM/OA BOM" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "选择网表目录" })).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "SMT 资料文件夹" })).not.toBeInTheDocument();
-    expect(container.querySelectorAll('input[type="file"]')).toHaveLength(4);
+    expect(container.querySelectorAll('input[type="file"]')).toHaveLength(5);
   });
 
   it("uploads selected sources and runs with server-side paths", async () => {
@@ -115,7 +115,7 @@ describe("SMT layout pane skeleton", () => {
 
     await user.upload(inputs[0], [new File(["VERSION=2.0\nUUNITS=MM\n"], "XY.txt"), new File(["dxf"], "outline.dxf")]);
     await user.upload(inputs[1], new File(["bom"], "PLM.xlsx"));
-    await user.upload(inputs[3], [new File(["net"], "pstxnet.dat"), new File(["parts"], "pstxprt.dat")]);
+    await user.upload(inputs[4], [new File(["net"], "pstxnet.dat"), new File(["parts"], "pstxprt.dat")]);
     await user.click(screen.getByRole("button", { name: "开始分析" }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/tools/smt_layout/run", expect.anything()));

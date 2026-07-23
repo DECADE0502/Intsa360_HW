@@ -167,6 +167,7 @@ export function SmtPackageCheckPane({ tool }: { tool: ToolInfo }) {
     "smt_package_check",
     {
       historyBom: "",
+      historySemanticManifest: "",
       result: null as any,
       filter: "focus",
       query: "",
@@ -176,7 +177,11 @@ export function SmtPackageCheckPane({ tool }: { tool: ToolInfo }) {
   );
   const [netlistFiles, setNetlistFiles] = useState<File[]>([]);
   const [bomFile, setBomFile] = useState<File | undefined>();
+  const [semanticFile, setSemanticFile] = useState<File | undefined>();
   const [historyBom, setHistoryBom] = useState<string>(() => String(workspace.historyBom || ""));
+  const [historySemanticManifest, setHistorySemanticManifest] = useState<string>(
+    () => String(workspace.historySemanticManifest || ""),
+  );
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<any>(workspace.result || null);
   const [filter, setFilter] = useState(String(workspace.filter || "focus"));
@@ -184,8 +189,15 @@ export function SmtPackageCheckPane({ tool }: { tool: ToolInfo }) {
   const [selectedKey, setSelectedKey] = useState(String(workspace.selectedKey || ""));
 
   useEffect(() => {
-    setWorkspace({ historyBom, result, filter, query, selectedKey });
-  }, [historyBom, result, filter, query, selectedKey]);
+    setWorkspace({
+      historyBom,
+      historySemanticManifest,
+      result,
+      filter,
+      query,
+      selectedKey,
+    });
+  }, [historyBom, historySemanticManifest, result, filter, query, selectedKey]);
 
   const review = result?.smt_package_review;
   const items: SmtReviewItem[] = review?.items || [];
@@ -232,13 +244,17 @@ export function SmtPackageCheckPane({ tool }: { tool: ToolInfo }) {
     }
     setRunning(true);
     try {
-      const [netlistUpload, bomUpload] = await Promise.all([
+      const [netlistUpload, bomUpload, semanticUpload] = await Promise.all([
         uploadFiles(netlistFiles),
         historyBom || !bomFile ? Promise.resolve(null) : uploadFiles([bomFile]),
+        historySemanticManifest || !semanticFile ? Promise.resolve(null) : uploadFiles([semanticFile]),
       ]);
       const next = await runTool("smt_package_check", {
         netlist: netlistUpload.files.map((file) => file.path),
         bom: historyBom || bomUpload?.files[0]?.path,
+        ...((historySemanticManifest || semanticUpload?.files[0]?.path) ? {
+          semantic_manifest: historySemanticManifest || semanticUpload?.files[0]?.path || "",
+        } : {}),
       });
       setResult(next);
       setFilter("focus");
@@ -273,8 +289,42 @@ export function SmtPackageCheckPane({ tool }: { tool: ToolInfo }) {
         <Card className="smt-upload-card" size="small">
           <Typography.Text className="smt-upload-title">已处理 PLM/OA 成品 BOM</Typography.Text>
           <Space direction="vertical" style={{ width: "100%" }}>
-            <HistoryBomPicker value={historyBom} onChange={setHistoryBom} />
-            <BomUploadSlot file={bomFile} onFile={setBomFile} />
+            <HistoryBomPicker
+              value={historyBom}
+              onChange={(path, asset) => {
+                setHistoryBom(path);
+                setHistorySemanticManifest(asset?.semantic_manifest || "");
+                if (path) {
+                  setBomFile(undefined);
+                  setSemanticFile(undefined);
+                }
+              }}
+            />
+            <BomUploadSlot
+              file={bomFile}
+              onFile={(file) => {
+                setBomFile(file);
+                if (file) {
+                  setHistoryBom("");
+                  setHistorySemanticManifest("");
+                }
+              }}
+            />
+            <Upload
+              accept=".json"
+              maxCount={1}
+              fileList={semanticFile ? [{ uid: "semantic", name: semanticFile.name, status: "done" as const }] : []}
+              beforeUpload={(file) => {
+                setSemanticFile(file);
+                return false;
+              }}
+              onRemove={() => {
+                setSemanticFile(undefined);
+                return true;
+              }}
+            >
+              <Button icon={<FileOutlined />}>选择 BOM 语义清单（推荐）</Button>
+            </Upload>
           </Space>
         </Card>
         <Card size="small" className="smt-run-card">
@@ -286,7 +336,9 @@ export function SmtPackageCheckPane({ tool }: { tool: ToolInfo }) {
               onClick={() => {
                 setNetlistFiles([]);
                 setBomFile(undefined);
+                setSemanticFile(undefined);
                 setHistoryBom("");
+                setHistorySemanticManifest("");
                 setResult(null);
                 resetWorkspace();
               }}
@@ -422,6 +474,13 @@ export function SmtPackageCheckPane({ tool }: { tool: ToolInfo }) {
                 ),
               },
               { key: "table", label: "完整表格", children: <SimpleTable table={result.table} /> },
+              ...(result.alternative_compatibility?.items?.length
+                ? [{
+                    key: "alternatives",
+                    label: `替代料兼容性 (${result.alternative_compatibility.items.length})`,
+                    children: <SimpleTable table={result.alternative_compatibility} />,
+                  }]
+                : []),
             ]}
           />
         </>

@@ -111,6 +111,55 @@ def test_processed_bom_asset_exposes_contract_matched_decision_manifest(tmp_path
     assert reusable[0]["decision_manifest"] == str(manifest)
 
 
+def test_processed_bom_asset_exposes_semantic_manifest_separately(tmp_path: Path) -> None:
+    root = _runtime(tmp_path)
+    output_dir = root / "data" / "outputs" / "bom"
+    output_dir.mkdir(parents=True)
+    bom = output_dir / "BOARD_A_PLM_BOM.xlsx"
+    decisions = output_dir / "decisions.json"
+    semantic = output_dir / "semantic.json"
+    bom.write_bytes(b"processed")
+    decisions.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "rule_version": "2.0.0",
+                "source_fingerprint": "source",
+                "placements": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    semantic.write_text(
+        json.dumps(
+            {
+                "manifest_kind": "bom_process_semantic_manifest",
+                "schema_version": 2,
+                "model_version": "1.0.0",
+                "rule_version": "2.0.0",
+                "boards": [],
+                "placements": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    history.record(
+        root,
+        "bom_process",
+        "BOM 澶勭悊",
+        {},
+        {
+            "status": "ok",
+            "outputs": [str(bom), str(decisions), str(semantic)],
+        },
+    )
+
+    reusable = assets.list_assets(root)["groups"]["processed_bom"]
+
+    assert reusable[0]["decision_manifest"] == str(decisions)
+    assert reusable[0]["semantic_manifest"] == str(semantic)
+
+
 def test_processed_bom_asset_exposes_semantic_board_summary(tmp_path: Path) -> None:
     root = _runtime(tmp_path)
     output_dir = root / "data" / "outputs" / "bom"

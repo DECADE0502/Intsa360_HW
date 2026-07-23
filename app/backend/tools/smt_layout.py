@@ -9,6 +9,10 @@ from app.backend.parsers.cadence_pst import parse_net_file, parse_part_file
 from app.backend.parsers.refs import natural_key
 from app.backend.parsers.xy import parse_xy_file
 from app.backend.tools.bom_decisions import DecisionManifest, load_decision_manifest
+from app.backend.tools.bom_semantic_manifest import (
+    SemanticBomManifest,
+    load_semantic_manifest,
+)
 from app.backend.tools.common import (
     USER_INPUT_EXCEPTIONS,
     _output_dir,
@@ -46,6 +50,7 @@ class NcEvidence:
     non_nc_refs: set[str]
     inference_mode: str
     decision_manifest_used: bool
+    semantic_manifest_used: bool
 
 
 def _infer_nc_evidence(
@@ -56,9 +61,22 @@ def _infer_nc_evidence(
     explicit_nc_refs: set[str],
     explicit_non_nc_refs: set[str],
     decision_manifest_used: bool,
+    semantic_manifest_used: bool = False,
 ) -> NcEvidence:
     missing_from_bom = xy_refs - bom_refs
     conflicts = explicit_nc_refs & bom_refs
+    if semantic_manifest_used:
+        confirmed = missing_from_bom & explicit_nc_refs
+        return NcEvidence(
+            confirmed_refs=confirmed,
+            candidate_refs=set(),
+            unverified_refs=missing_from_bom - explicit_nc_refs - explicit_non_nc_refs,
+            conflict_refs=conflicts,
+            non_nc_refs=missing_from_bom & explicit_non_nc_refs,
+            inference_mode="semantic_manifest",
+            decision_manifest_used=decision_manifest_used,
+            semantic_manifest_used=True,
+        )
     if netlist_refs is None:
         confirmed = missing_from_bom & explicit_nc_refs
         return NcEvidence(
@@ -69,6 +87,7 @@ def _infer_nc_evidence(
             non_nc_refs=missing_from_bom & explicit_non_nc_refs,
             inference_mode="without_netlist",
             decision_manifest_used=decision_manifest_used,
+            semantic_manifest_used=False,
         )
 
     confirmed = missing_from_bom & (netlist_refs | explicit_nc_refs)
@@ -80,6 +99,7 @@ def _infer_nc_evidence(
         non_nc_refs=missing_from_bom & explicit_non_nc_refs,
         inference_mode="with_netlist",
         decision_manifest_used=decision_manifest_used,
+        semantic_manifest_used=False,
     )
 
 
@@ -93,7 +113,22 @@ def _find_xy_file(folder: Path) -> Path:
 def _bom_by_ref(
     processed_bom: Path,
     manifest: DecisionManifest | None,
+    semantic_manifest: SemanticBomManifest | None = None,
 ) -> tuple[dict[str, dict[str, object]], dict[str, dict[str, object]], dict[str, dict[str, object]]]:
+    if semantic_manifest is not None:
+        installed = semantic_manifest.installed_by_ref()
+        non_smt = semantic_manifest.non_smt_by_ref()
+        explicit_nc = {
+            ref: row
+            for ref, row in non_smt.items()
+            if str(row.get("exclusion_kind") or "") == "nc"
+        }
+        explicit_non_nc = {
+            ref: row
+            for ref, row in non_smt.items()
+            if str(row.get("exclusion_kind") or "") != "nc"
+        }
+        return installed, explicit_nc, explicit_non_nc
     rows = _read_bom_rows(processed_bom)
     by_ref = {
         str(ref).upper(): row
@@ -391,6 +426,14 @@ def _run_smt_layout_impl(root: Path, params: dict[str, object]) -> dict[str, obj
     assert smt_folder is not None and processed_bom is not None
 
     decision_manifest: DecisionManifest | None = None
+    semantic_manifest: SemanticBomManifest | None = None
+    if str(params.get("semantic_manifest") or "").strip():
+        semantic_path, error = _required_file(params, "semantic_manifest", "BOM 语义清单")
+        if error:
+            raise ValueError(error)
+        assert semantic_path is not None
+        semantic_manifest = load_semantic_manifest(semantic_path)
+        semantic_manifest.verify_processed_bom(processed_bom)
     if str(params.get("decision_manifest") or "").strip():
         manifest_path, error = _required_file(params, "decision_manifest", "BOM 决策清单")
         if error:
@@ -413,7 +456,11 @@ def _run_smt_layout_impl(root: Path, params: dict[str, object]) -> dict[str, obj
         outline_bbox_mm=outline_bbox,
         outline_dxf_layer=str(params.get("outline_dxf_layer") or "").strip() or None,
     )
-    bom_by_ref, explicit_nc_by_ref, explicit_non_nc_by_ref = _bom_by_ref(processed_bom, decision_manifest)
+    bom_by_ref, explicit_nc_by_ref, explicit_non_nc_by_ref = _bom_by_ref(
+        processed_bom,
+        decision_manifest,
+        semantic_manifest,
+    )
     netlist_parts: dict[str, str] | None = None
     if netlist_folder is not None:
         parse_net_file(netlist_folder)
@@ -426,7 +473,8 @@ def _run_smt_layout_impl(root: Path, params: dict[str, object]) -> dict[str, obj
         netlist_refs=set(netlist_parts) if netlist_parts is not None else None,
         explicit_nc_refs=set(explicit_nc_by_ref),
         explicit_non_nc_refs=set(explicit_non_nc_by_ref),
-        decision_manifest_used=decision_manifest is not None,
+        decision_manifest_used=decision_manifest is not None or semantic_manifest is not None,
+        semantic_manifest_used=semantic_manifest is not None,
     )
     components = [
         _component_payload(
@@ -468,6 +516,7 @@ def _run_smt_layout_impl(root: Path, params: dict[str, object]) -> dict[str, obj
             "non_nc_refs": sorted(evidence.non_nc_refs, key=natural_key),
             "inference_mode": evidence.inference_mode,
             "decision_manifest_used": evidence.decision_manifest_used,
+            "semantic_manifest_used": evidence.semantic_manifest_used,
             "explicit_summary_used": False,
         },
         "sanity": sanity,

@@ -25,6 +25,7 @@ import styles from "./SmtLayoutPane.module.css";
 type SmtLayoutWorkspace = {
   historyBom: string;
   historyDecisionManifest: string;
+  historySemanticManifest: string;
   result: SmtLayoutResponse | null;
   activeTab: string;
 };
@@ -97,19 +98,25 @@ function DirectorySource({ kind, title, buttonLabel, files, onFiles }: Directory
 function BomSource({
   file,
   decisionFile,
+  semanticFile,
   historyBom,
   historyDecisionManifest,
+  historySemanticManifest,
   onFile,
   onDecisionFile,
+  onSemanticFile,
   onHistoryBom,
 }: {
   file?: File;
   decisionFile?: File;
+  semanticFile?: File;
   historyBom: string;
   historyDecisionManifest: string;
+  historySemanticManifest: string;
   onFile: (file?: File) => void;
   onDecisionFile: (file?: File) => void;
-  onHistoryBom: (path: string, decisionManifest?: string) => void;
+  onSemanticFile: (file?: File) => void;
+  onHistoryBom: (path: string, decisionManifest?: string, semanticManifest?: string) => void;
 }) {
   return (
     <Card size="small" className="smt-layout-source-card">
@@ -118,10 +125,15 @@ function BomSource({
         <HistoryBomPicker
           value={historyBom}
           onChange={(path, asset) => {
-            onHistoryBom(path, asset?.decision_manifest || "");
+            onHistoryBom(
+              path,
+              asset?.decision_manifest || "",
+              asset?.semantic_manifest || "",
+            );
             if (path) {
               onFile(undefined);
               onDecisionFile(undefined);
+              onSemanticFile(undefined);
             }
           }}
         />
@@ -132,7 +144,8 @@ function BomSource({
           beforeUpload={(next) => {
             onFile(next);
             onDecisionFile(undefined);
-            onHistoryBom("", "");
+            onSemanticFile(undefined);
+            onHistoryBom("", "", "");
             return false;
           }}
           onRemove={() => {
@@ -157,9 +170,30 @@ function BomSource({
         >
           <Button aria-label="选择 BOM 决策清单" icon={<FileTextOutlined />}>选择决策清单（推荐）</Button>
         </Upload>
+        <Upload
+          accept=".json"
+          maxCount={1}
+          fileList={semanticFile ? [{ uid: "semantic", name: semanticFile.name, status: "done" as const }] : []}
+          beforeUpload={(next) => {
+            onSemanticFile(next);
+            return false;
+          }}
+          onRemove={() => {
+            onSemanticFile(undefined);
+            return true;
+          }}
+        >
+          <Button aria-label="选择 BOM 语义清单" icon={<FileTextOutlined />}>
+            选择语义清单（推荐）
+          </Button>
+        </Upload>
         {historyBom ? (
-          <Typography.Text type={historyDecisionManifest ? "success" : "secondary"}>
-            {historyDecisionManifest ? "已自动关联同次处理的决策清单" : "该历史记录没有 v2 决策清单，将按位号差集推导候选 NC"}
+          <Typography.Text type={historySemanticManifest || historyDecisionManifest ? "success" : "secondary"}>
+            {historySemanticManifest
+              ? "已自动关联同次处理的 BOM 语义清单"
+              : historyDecisionManifest
+                ? "已自动关联同次处理的决策清单"
+                : "该历史记录没有语义清单，将使用兼容推理模式"}
           </Typography.Text>
         ) : null}
       </Space>
@@ -645,6 +679,7 @@ export function SmtLayoutPane() {
     {
       historyBom: "",
       historyDecisionManifest: "",
+      historySemanticManifest: "",
       result: null,
       activeTab: "nc",
     },
@@ -653,9 +688,11 @@ export function SmtLayoutPane() {
   const [smtFiles, setSmtFiles] = useState<File[]>([]);
   const [bomFile, setBomFile] = useState<File | undefined>();
   const [decisionFile, setDecisionFile] = useState<File | undefined>();
+  const [semanticFile, setSemanticFile] = useState<File | undefined>();
   const [netlistFiles, setNetlistFiles] = useState<File[]>([]);
   const [historyBom, setHistoryBom] = useState(workspace.historyBom || "");
   const [historyDecisionManifest, setHistoryDecisionManifest] = useState(workspace.historyDecisionManifest || "");
+  const [historySemanticManifest, setHistorySemanticManifest] = useState(workspace.historySemanticManifest || "");
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
   const [selectedRef, setSelectedRef] = useState("");
@@ -664,8 +701,13 @@ export function SmtLayoutPane() {
   );
 
   useEffect(() => {
-    setWorkspace((current) => ({ ...current, historyBom, historyDecisionManifest }));
-  }, [historyBom, historyDecisionManifest, setWorkspace]);
+    setWorkspace((current) => ({
+      ...current,
+      historyBom,
+      historyDecisionManifest,
+      historySemanticManifest,
+    }));
+  }, [historyBom, historyDecisionManifest, historySemanticManifest, setWorkspace]);
 
   useEffect(() => {
     if (!sanityAvailable && workspace.activeTab === "sanity") {
@@ -693,10 +735,11 @@ export function SmtLayoutPane() {
     setRunning(true);
     setError("");
     try {
-      const [smtUpload, bomUpload, decisionUpload, netlistUpload] = await Promise.all([
+      const [smtUpload, bomUpload, decisionUpload, semanticUpload, netlistUpload] = await Promise.all([
         uploadFiles(smtFiles),
         historyBom || !bomFile ? Promise.resolve(null) : uploadFiles([bomFile]),
         historyDecisionManifest || !decisionFile ? Promise.resolve(null) : uploadFiles([decisionFile]),
+        historySemanticManifest || !semanticFile ? Promise.resolve(null) : uploadFiles([semanticFile]),
         netlistFiles.length ? uploadFiles(netlistFiles) : Promise.resolve(null),
       ]);
       const result = await runSmtLayout({
@@ -704,6 +747,9 @@ export function SmtLayoutPane() {
         processed_bom: historyBom || bomUpload?.files[0]?.path || "",
         ...((historyDecisionManifest || decisionUpload?.files[0]?.path) ? {
           decision_manifest: historyDecisionManifest || decisionUpload?.files[0]?.path || "",
+        } : {}),
+        ...((historySemanticManifest || semanticUpload?.files[0]?.path) ? {
+          semantic_manifest: historySemanticManifest || semanticUpload?.files[0]?.path || "",
         } : {}),
         ...(netlistUpload ? { netlist_folder: netlistUpload.folder } : {}),
       });
@@ -721,9 +767,11 @@ export function SmtLayoutPane() {
     setSmtFiles([]);
     setBomFile(undefined);
     setDecisionFile(undefined);
+    setSemanticFile(undefined);
     setNetlistFiles([]);
     setHistoryBom("");
     setHistoryDecisionManifest("");
+    setHistorySemanticManifest("");
     resetWorkspace();
   }
 
@@ -781,13 +829,17 @@ export function SmtLayoutPane() {
         <BomSource
           file={bomFile}
           decisionFile={decisionFile}
+          semanticFile={semanticFile}
           historyBom={historyBom}
           historyDecisionManifest={historyDecisionManifest}
+          historySemanticManifest={historySemanticManifest}
           onFile={setBomFile}
           onDecisionFile={setDecisionFile}
-          onHistoryBom={(path, decisionManifest) => {
+          onSemanticFile={setSemanticFile}
+          onHistoryBom={(path, decisionManifest, semanticManifest) => {
             setHistoryBom(path);
             setHistoryDecisionManifest(decisionManifest || "");
+            setHistorySemanticManifest(semanticManifest || "");
           }}
         />
         <DirectorySource

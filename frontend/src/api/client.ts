@@ -232,6 +232,7 @@ export type AssetItem = {
   time?: string;
   summary?: Record<string, unknown> | unknown;
   decision_manifest?: string;
+  semantic_manifest?: string;
 };
 
 export type AssetsPayload = {
@@ -420,6 +421,7 @@ export type SmtLayoutParams = {
   smt_folder: string;
   processed_bom: string;
   decision_manifest?: string;
+  semantic_manifest?: string;
   netlist_folder?: string;
   outline_bbox_mm?: [number, number, number, number];
   outline_dxf_layer?: string;
@@ -433,8 +435,9 @@ export type SmtNcSummary = {
   unverified_refs: string[];
   conflict_refs: string[];
   non_nc_refs: string[];
-  inference_mode: "with_netlist" | "without_netlist";
+  inference_mode: "with_netlist" | "without_netlist" | "semantic_manifest";
   decision_manifest_used: boolean;
+  semantic_manifest_used?: boolean;
   explicit_summary_used: boolean;
 };
 

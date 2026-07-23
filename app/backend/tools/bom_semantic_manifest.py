@@ -12,6 +12,7 @@ from app.backend.bom_semantics.contracts import (
 from app.backend.bom_semantics.models import BoardBOM
 from app.backend.bom_semantics.normalization import normalize_workbook
 from app.backend.bom_semantics.substitutes import build_board_boms
+from app.backend.bom_semantics.workbook_reader import source_fingerprint
 from app.backend.tools.bom_decisions import DecisionManifest
 
 
@@ -96,6 +97,11 @@ class SemanticBomManifest:
     findings: tuple[dict[str, object], ...]
     summary: dict[str, object]
     source_file: str = ""
+
+    def verify_processed_bom(self, path: Path) -> None:
+        actual = source_fingerprint(Path(path))
+        if actual != self.processed_source_fingerprint:
+            raise ValueError("所选成品 BOM 与 BOM 语义清单不是同一次处理产物。")
 
     def installed_by_ref(self) -> dict[str, dict[str, object]]:
         item_lookup: dict[tuple[str, str], dict[str, object]] = {}

@@ -35,9 +35,24 @@ def _is_bom_decision_manifest(path: Path) -> bool:
         return False
     return (
         isinstance(payload, dict)
+        and not payload.get("manifest_kind")
         and payload.get("schema_version") == 2
         and isinstance(payload.get("placements"), list)
         and bool(str(payload.get("rule_version") or "").strip())
+    )
+
+
+def _is_bom_semantic_manifest(path: Path) -> bool:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return False
+    return (
+        isinstance(payload, dict)
+        and payload.get("manifest_kind") == "bom_process_semantic_manifest"
+        and payload.get("schema_version") == 2
+        and isinstance(payload.get("boards"), list)
+        and isinstance(payload.get("placements"), list)
     )
 
 
@@ -251,14 +266,19 @@ class AssetsRepository:
             ).fetchall()
 
         manifest_by_run: dict[str, str] = {}
+        semantic_manifest_by_run: dict[str, str] = {}
         for candidate in candidate_manifests:
             run_id = str(candidate["run_id"] or "")
-            if not run_id or run_id in manifest_by_run:
+            if not run_id:
                 continue
             relative = str(candidate["relative_path"] or "")
             path = self.resolve(relative)
-            if path is not None and path.is_file() and _is_bom_decision_manifest(path):
+            if path is None or not path.is_file():
+                continue
+            if run_id not in manifest_by_run and _is_bom_decision_manifest(path):
                 manifest_by_run[run_id] = str(self.display_data_dir / relative)
+            if run_id not in semantic_manifest_by_run and _is_bom_semantic_manifest(path):
+                semantic_manifest_by_run[run_id] = str(self.display_data_dir / relative)
 
         results: list[dict[str, object]] = []
         seen: set[str] = set()
@@ -303,6 +323,7 @@ class AssetsRepository:
                     "summary": run_summary,
                     "semantic": semantic,
                     "decision_manifest": manifest_by_run.get(str(row["run_id"] or ""), ""),
+                    "semantic_manifest": semantic_manifest_by_run.get(str(row["run_id"] or ""), ""),
                 }
             )
         return results

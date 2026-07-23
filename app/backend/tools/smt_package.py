@@ -4,6 +4,10 @@ import re
 from pathlib import Path
 
 from app.backend.parsers.refs import natural_key
+from app.backend.tools.bom_semantic_manifest import (
+    SemanticBomManifest,
+    load_semantic_manifest,
+)
 from app.backend.tools.common import (
     USER_INPUT_EXCEPTIONS,
     _error,
@@ -153,8 +157,24 @@ def _is_non_smt_netlist_part(ref: object, package: object) -> bool:
     return any(token in pkg for token in ["SHORT", "TP_", "MARK", "FID", "HOLE", "SCREW", "MTG", "MOUNT"])
 
 
-def _build_smt_package_review(parts: dict[str, str], bom_rows: list[dict[str, object]]) -> dict[str, object]:
-    by_ref = {ref: row for row in bom_rows for ref in row["refs"]}
+def _build_smt_package_review(
+    parts: dict[str, str],
+    bom_rows: list[dict[str, object]],
+    *,
+    non_smt_by_ref: dict[str, dict[str, object]] | None = None,
+    semantic_authoritative: bool = False,
+) -> dict[str, object]:
+    by_ref = {
+        str(ref).strip().upper(): row
+        for row in bom_rows
+        for ref in row["refs"]
+        if str(ref).strip()
+    }
+    explicit_non_smt = {
+        str(ref).strip().upper(): row
+        for ref, row in (non_smt_by_ref or {}).items()
+        if str(ref).strip()
+    }
     items: list[dict[str, object]] = []
     status_counts = {
         "passed": 0,
@@ -171,7 +191,20 @@ def _build_smt_package_review(parts: dict[str, str], bom_rows: list[dict[str, ob
     for ref, package in sorted(parts.items(), key=lambda item: natural_key(item[0])):
         bom_row = by_ref.get(ref)
         if not bom_row:
-            if _is_nc_package(package):
+            explicit = explicit_non_smt.get(str(ref).strip().upper())
+            if explicit is not None and str(explicit.get("exclusion_kind") or "") == "nc":
+                status = "NC 鏈创璺宠繃"
+                note = "BOM 语义清单已明确该位号为 NC。"
+                item = _smt_item(ref, status, package, explicit, note, "low")
+            elif explicit is not None:
+                status = "非贴片对象跳过"
+                note = "BOM 语义清单已明确该位号属于非贴片项。"
+                item = _smt_item(ref, status, package, explicit, note, "low")
+            elif semantic_authoritative:
+                status = "BOM 缺位号"
+                note = "语义清单中既没有实际贴装记录，也没有明确排除决策，不能按位号或封装猜测为 NC。"
+                item = _smt_item(ref, status, package, None, note, "high")
+            elif _is_nc_package(package):
                 status = "NC 未贴跳过"
                 note = "网表中为 NC/未贴器件，最终 PCBA BOM 不包含该位号属于正常情况。"
                 item = _smt_item(ref, status, package, None, note, "low")
@@ -281,6 +314,119 @@ def _build_smt_package_review(parts: dict[str, str], bom_rows: list[dict[str, ob
             "NC 未贴跳过": "网表中标为 NC/未贴且最终 PCBA BOM 不包含时，不作为缺失异常处理。",
             "非贴片对象跳过": "测试点、短接、安装孔或工艺对象不进入最终贴片 BOM 时，不作为缺失异常处理。",
         },
+        "semantic_manifest_used": semantic_authoritative,
+    }
+
+
+def _item_package_text(item: dict[str, object]) -> str:
+    values: list[str] = []
+    for raw_variant in item.get("variants") or []:
+        if not isinstance(raw_variant, dict):
+            continue
+        values.extend(
+            str(raw_variant.get(field) or "").strip()
+            for field in (
+                "pcb_footprint",
+                "pcb_package",
+                "model",
+                "description",
+                "name",
+            )
+            if str(raw_variant.get(field) or "").strip()
+        )
+    return " ".join(dict.fromkeys(values))
+
+
+def _build_alternative_compatibility(
+    parts: dict[str, str],
+    manifest: SemanticBomManifest,
+) -> dict[str, object]:
+    items: list[dict[str, object]] = []
+    for group in manifest.substitute_groups():
+        main = group.get("main_item")
+        if not isinstance(main, dict):
+            continue
+        refs = [
+            str(ref).strip().upper()
+            for ref in group.get("physical_references") or []
+            if str(ref).strip()
+        ]
+        net_packages = sorted(
+            {
+                str(parts.get(ref) or "").strip()
+                for ref in refs
+                if str(parts.get(ref) or "").strip()
+            },
+            key=natural_key,
+        )
+        for raw_alternative in group.get("alternative_items") or []:
+            if not isinstance(raw_alternative, dict):
+                continue
+            alternative = dict(raw_alternative)
+            alternative_text = _item_package_text(alternative)
+            checks = [
+                _package_matches(net_package, alternative_text)
+                for net_package in net_packages
+            ]
+            compatible = bool(checks) and all(result for result, _ in checks)
+            if not net_packages:
+                status = "无法核对"
+                note = "主料实际位号在网表中没有封装记录。"
+            elif not alternative_text:
+                status = "需要确认"
+                note = "替代料缺少可比较的封装、型号或描述。"
+            elif compatible:
+                status = "兼容"
+                note = "；".join(dict.fromkeys(detail for _, detail in checks))
+            else:
+                status = "需要确认"
+                note = "；".join(
+                    dict.fromkeys(detail for result, detail in checks if not result)
+                )
+            items.append(
+                {
+                    "group_code": str(group.get("group_code") or ""),
+                    "main_material_code": str(main.get("material_code") or ""),
+                    "alternative_material_code": str(alternative.get("material_code") or ""),
+                    "references": refs,
+                    "net_packages": net_packages,
+                    "alternative_package": alternative_text,
+                    "status": status,
+                    "note": note,
+                }
+            )
+    headers = [
+        "替代组编码",
+        "主料编码",
+        "替代料编码",
+        "主料实际位号",
+        "网表封装",
+        "替代料封装/型号",
+        "结论",
+        "说明",
+    ]
+    rows = [
+        [
+            item["group_code"],
+            item["main_material_code"],
+            item["alternative_material_code"],
+            ",".join(item["references"]),
+            " / ".join(item["net_packages"]),
+            item["alternative_package"],
+            item["status"],
+            item["note"],
+        ]
+        for item in items
+    ]
+    return {
+        "headers": headers,
+        "rows": rows,
+        "items": items,
+        "summary": {
+            "total": len(items),
+            "compatible": sum(item["status"] == "兼容" for item in items),
+            "manual": sum(item["status"] != "兼容" for item in items),
+        },
     }
 def _run_smt_package_check_impl(root: Path, params: dict[str, object]) -> dict[str, object]:
     netlist, error = _required_folder(params, "netlist", "网表文件夹")
@@ -290,19 +436,61 @@ def _run_smt_package_check_impl(root: Path, params: dict[str, object]) -> dict[s
     if error:
         return _error("smt_package_check", error)
     parts = _parse_part_file(netlist)
-    bom_rows = _read_bom_rows(bom)
-    review = _build_smt_package_review(parts, bom_rows)
+    semantic_manifest: SemanticBomManifest | None = None
+    if str(params.get("semantic_manifest") or "").strip():
+        semantic_path, semantic_error = _required_file(
+            params,
+            "semantic_manifest",
+            "BOM 语义清单",
+        )
+        if semantic_error:
+            return _error("smt_package_check", semantic_error)
+        assert semantic_path is not None
+        semantic_manifest = load_semantic_manifest(semantic_path)
+        semantic_manifest.verify_processed_bom(bom)
+
+    if semantic_manifest is None:
+        bom_rows = _read_bom_rows(bom)
+        non_smt_by_ref: dict[str, dict[str, object]] = {}
+    else:
+        bom_rows = list(semantic_manifest.installed_by_ref().values())
+        non_smt_by_ref = semantic_manifest.non_smt_by_ref()
+    review = _build_smt_package_review(
+        parts,
+        bom_rows,
+        non_smt_by_ref=non_smt_by_ref,
+        semantic_authoritative=semantic_manifest is not None,
+    )
     rows = review["table_rows"]
     headers = ["位号", "网表封装", "BOM封装/型号", "描述", "名称", "状态", "说明"]
     output = _output_dir(params, root, "smt") / f"贴片封装检查结果_{_timestamp()}.xlsx"
     _write_table(output, "封装检查", headers, rows)
+    outputs = [output]
+    alternative_compatibility: dict[str, object] | None = None
+    if semantic_manifest is not None:
+        alternative_compatibility = _build_alternative_compatibility(
+            parts,
+            semantic_manifest,
+        )
+        if alternative_compatibility["items"]:
+            alternative_output = (
+                _output_dir(params, root, "smt")
+                / f"替代料封装兼容性_{_timestamp()}.xlsx"
+            )
+            _write_table(
+                alternative_output,
+                "替代料封装兼容性",
+                alternative_compatibility["headers"],
+                alternative_compatibility["rows"],
+            )
+            outputs.append(alternative_output)
     counts = review["status_counts"]
     manual_count = counts["manual"] + counts["missing_bom"] + counts["extra_bom"] + counts["multi_package"]
     passed_count = counts["passed"] + counts["near"]
     table = _table(headers, rows, status_col=5)
     result = _result(
         "smt_package_check",
-        [output],
+        outputs,
         {
             "total": len(parts),
             "passed_count": passed_count,
@@ -316,6 +504,7 @@ def _run_smt_package_check_impl(root: Path, params: dict[str, object]) -> dict[s
         table,
     )
     result["smt_package_review"] = {key: value for key, value in review.items() if key != "table_rows"}
+    result["alternative_compatibility"] = alternative_compatibility
     return result
 def run_smt_package_check(root: Path, params: dict[str, object]) -> dict[str, object]:
     try:
