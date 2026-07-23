@@ -154,7 +154,7 @@ describe("useToolWorkspace v2", () => {
       "SingleNetworkCheckPane.tsx",
     ]) {
       const source = readFileSync(resolve(process.cwd(), "src", "tools", pane), "utf-8");
-      expect(source).toContain('{ heavyKeys: ["result"] }');
+      expect(source).toContain('heavyKeys: ["result"]');
     }
   });
 

@@ -191,13 +191,23 @@ def build_board_boms(source: NormalizedSource) -> tuple[BoardBOM, ...]:
             for group in groups
             for item in group.members
         }
+        valid_group_keys = {
+            (group.parent_code, group.group_code)
+            for group in groups
+            if not group.validation_findings
+        }
         for item in items:
             is_group_member = (
                 item.material_code,
                 item.substitute_group_code,
                 item.substitute_priority,
             ) in group_item_keys
-            if is_group_member and item.substitute_priority != 0:
+            is_valid_alternative = (
+                is_group_member
+                and (item.parent_code, item.substitute_group_code) in valid_group_keys
+                and item.substitute_priority != 0
+            )
+            if is_valid_alternative:
                 continue
             installed_rows = [row for row in item.source_rows if row.references and not row.is_nc]
             for row in installed_rows:

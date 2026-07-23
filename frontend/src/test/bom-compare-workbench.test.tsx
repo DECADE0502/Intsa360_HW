@@ -167,5 +167,39 @@ describe("BOM semantic compare workbench", () => {
     expect(screen.getByText("MAT-A / MAT-B")).toBeInTheDocument();
     expect(screen.getByText("MAT-B / MAT-A")).toBeInTheDocument();
   });
-});
 
+  it("paginates large blocker lists instead of mounting every finding", async () => {
+    const blockers = Array.from({ length: 10 }, (_, index) => ({
+      code: `material_variant_conflict_${index + 1}`,
+      severity: "blocker",
+      message: `物料冲突 ${index + 1}`,
+      parent_code: "BOARD-A",
+      details: { material_code: `MAT-${index + 1}` },
+    }));
+    server.use(
+      http.post("/api/tools/bom_compare/run", () =>
+        HttpResponse.json({
+          ...response,
+          semantic: {
+            ...response.semantic,
+            summary: { ...response.semantic.summary, blocker_count: blockers.length },
+            blockers,
+            can_export: false,
+          },
+        }),
+      ),
+    );
+    const user = userEvent.setup();
+    const { container } = renderWithProviders(<BomComparePane tool={tool} />);
+    const inputs = Array.from(container.querySelectorAll<HTMLInputElement>('input[type="file"]'));
+
+    await user.upload(inputs[0], new File(["old"], "old.xlsx"));
+    await user.upload(inputs[1], new File(["new"], "new.xlsx"));
+    await user.click(screen.getByRole("button", { name: "开始语义对比" }));
+
+    expect(await screen.findByRole("tab", { name: "风险与交付 10" })).toBeInTheDocument();
+    expect(container.querySelectorAll(".bom-finding-page article")).toHaveLength(8);
+    expect(screen.getByText("共 10 项")).toBeInTheDocument();
+    expect(screen.queryByText("物料冲突 9")).not.toBeInTheDocument();
+  });
+});

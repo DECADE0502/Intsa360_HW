@@ -66,6 +66,33 @@ def test_blank_material_codes_do_not_collapse_unrelated_source_rows(tmp_path: Pa
     assert {item.references for item in blank_items} == {("H1",), ("H2",)}
 
 
+def test_invalid_substitute_group_preserves_its_real_references(tmp_path: Path) -> None:
+    path = tmp_path / "invalid-substitute-group.xlsx"
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.append(
+        ["父项编码", "子项编码", "数量", "位号", "替代组编码", "替代优先级"]
+    )
+    worksheet.append(["BOARD", "MAT-A", 2, "R1,R2", "ALT-1", 2])
+    workbook.save(path)
+    workbook.close()
+
+    board = build_board_boms(normalize_workbook(path))[0]
+
+    assert {placement.reference for placement in board.placements} == {"R1", "R2"}
+    assert {placement.material_code for placement in board.placements} == {"MAT-A"}
+    assert {
+        finding.code
+        for finding in board.findings
+    }.issuperset(
+        {
+            "substitute_main_count_invalid",
+            "substitute_priority_not_continuous",
+            "substitute_alternative_has_references",
+        }
+    )
+
+
 def test_source_level_findings_are_not_duplicated_into_each_board(tmp_path: Path) -> None:
     source = normalize_workbook(_fixtures(tmp_path)["multi_parent"])
     boards = build_board_boms(source)

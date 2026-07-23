@@ -1129,10 +1129,16 @@ html, body, #root { margin: 0; height: 100%; }
 .bom-finding-list {
   display: flex;
   flex-direction: column;
+  gap: 12px;
+}
+
+.bom-finding-page {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
 }
 
-.bom-finding-list article {
+.bom-finding-page article {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 9px;
@@ -1141,8 +1147,8 @@ html, body, #root { margin: 0; height: 100%; }
   padding: 10px;
 }
 
-.bom-finding-list article.is-blocker { border-left: 3px solid #d44848; }
-.bom-finding-list article.is-warning { border-left: 3px solid #d69b2d; }
+.bom-finding-page article.is-blocker { border-left: 3px solid #d44848; }
+.bom-finding-page article.is-warning { border-left: 3px solid #d69b2d; }
 
 .bom-finding-list strong,
 .bom-finding-list span {
@@ -1155,6 +1161,10 @@ html, body, #root { margin: 0; height: 100%; }
   margin: 4px 0 0;
   color: #6d7984;
   font-size: 12px;
+}
+
+.bom-finding-pagination {
+  align-self: flex-end;
 }
 
 .bom-export-list {

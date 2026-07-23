@@ -4,7 +4,7 @@ import {
   Button,
   Empty,
   Input,
-  Space,
+  Pagination,
   Table,
   Tabs,
   Tag,
@@ -222,21 +222,57 @@ function EventTable({ events }: { events: ChangeEvent[] }) {
 }
 
 function FindingList({ rows }: { rows: ValidationFinding[] }) {
+  const pageSize = 8;
+  const [page, setPage] = useState(1);
+  const findingSignature = rows
+    .map((finding) => `${finding.code}:${finding.parent_code || ""}:${finding.references?.join(",") || ""}`)
+    .join("|");
+  useEffect(() => setPage(1), [findingSignature]);
+
   if (!rows.length) return <Empty description="没有阻断或警告" />;
+  const visibleRows = rows.slice((page - 1) * pageSize, page * pageSize);
   return (
     <div className="bom-finding-list">
-      {rows.map((finding, index) => (
-        <article key={`${finding.code}:${finding.parent_code}:${index}`} className={`is-${finding.severity}`}>
-          <Tag color={finding.severity === "blocker" ? "red" : finding.severity === "warning" ? "orange" : "blue"}>
-            {finding.severity === "blocker" ? "阻断" : finding.severity === "warning" ? "警告" : "提示"}
-          </Tag>
-          <div>
-            <strong>{finding.message}</strong>
-            <span>{finding.parent_code || "全局"} · {finding.code}</span>
-            {finding.references?.length ? <p>位号：{finding.references.join(", ")}</p> : null}
-          </div>
-        </article>
-      ))}
+      <div className="bom-finding-page">
+        {visibleRows.map((finding, index) => {
+          const target = [
+            finding.details?.material_code,
+            finding.details?.group_code,
+            finding.details?.main_code,
+          ]
+            .filter((value) => typeof value === "string" && value)
+            .join(" / ");
+          return (
+            <article
+              key={`${finding.code}:${finding.parent_code}:${(page - 1) * pageSize + index}`}
+              className={`is-${finding.severity}`}
+            >
+              <Tag color={finding.severity === "blocker" ? "red" : finding.severity === "warning" ? "orange" : "blue"}>
+                {finding.severity === "blocker" ? "阻断" : finding.severity === "warning" ? "警告" : "提示"}
+              </Tag>
+              <div>
+                <strong>{finding.message}</strong>
+                <span>
+                  {finding.parent_code || "全局"} · {finding.code}
+                  {target ? ` · ${target}` : ""}
+                </span>
+                {finding.references?.length ? <p>位号：{finding.references.join(", ")}</p> : null}
+              </div>
+            </article>
+          );
+        })}
+      </div>
+      {rows.length > pageSize ? (
+        <Pagination
+          className="bom-finding-pagination"
+          current={page}
+          pageSize={pageSize}
+          total={rows.length}
+          showSizeChanger={false}
+          showTotal={(total) => `共 ${total} 项`}
+          onChange={setPage}
+        />
+      ) : null}
     </div>
   );
 }

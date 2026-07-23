@@ -136,11 +136,13 @@ class FrontendBuildTests(unittest.TestCase):
         wizard = (ROOT / "frontend" / "src" / "tools" / "BomProcessWizard.tsx").read_text(encoding="utf-8")
         netlist = (ROOT / "frontend" / "src" / "tools" / "NetlistComparePane.tsx").read_text(encoding="utf-8")
         panes = [
-            ROOT / "frontend" / "src" / "tools" / "BomComparePane.tsx",
             ROOT / "frontend" / "src" / "tools" / "NetlistComparePane.tsx",
             ROOT / "frontend" / "src" / "tools" / "SmtPackageCheckPane.tsx",
             ROOT / "frontend" / "src" / "tools" / "SingleNetworkCheckPane.tsx",
         ]
+        bom_compare = (ROOT / "frontend" / "src" / "tools" / "BomComparePane.tsx").read_text(
+            encoding="utf-8"
+        )
 
         self.assertNotIn('textOf(data?.["位号"]) || textOf(data?.["位号"])', netlist)
         self.assertIn('textOf(data?.["位号"]) || textOf(data?.["Pin"])', netlist)
@@ -155,6 +157,11 @@ class FrontendBuildTests(unittest.TestCase):
             text = pane.read_text(encoding="utf-8")
             self.assertIn("setSelectedKey((prev)", text, pane.name)
             self.assertIn("prev &&", text, pane.name)
+        self.assertIn(
+            'setSelectedReference(next.semantic?.placement_diff?.[0]?.reference || "")',
+            bom_compare,
+        )
+        self.assertIn('setSelectedReference("")', bom_compare)
 
     def test_update_controls_split_check_and_run_actions(self) -> None:
         text = (ROOT / "frontend" / "src" / "components" / "UpdateStatus.tsx").read_text(encoding="utf-8")
@@ -291,7 +298,7 @@ class FrontendBuildTests(unittest.TestCase):
         for relative_path in [
             "frontend/src/components/ResultPanel.tsx",
             "frontend/src/platform/HistoryView.tsx",
-            "frontend/src/tools/BomComparePane.tsx",
+            "frontend/src/tools/bomCompare/ExportPanel.tsx",
             "frontend/src/tools/BomProcessWizard.tsx",
             "frontend/src/tools/NetlistComparePane.tsx",
             "frontend/src/tools/SingleNetworkCheckPane.tsx",
@@ -624,19 +631,20 @@ class FrontendBuildTests(unittest.TestCase):
 
         self.assertIn('tool.id === "bom_compare"', legacy)
         self.assertIn("<BomComparePane", legacy)
-        self.assertIn("compare-workbench", pane)
-        self.assertIn("compare-shell", pane)
-        self.assertIn("compare-rail", pane)
-        self.assertIn("compare-detail", pane)
-        self.assertIn("compare-inspector", pane)
-        self.assertIn("part_summary", pane)
-        self.assertIn("origin", pane)
-        self.assertIn("risks", pane)
-        self.assertIn("review_guide", pane)
-        self.assertIn("focus_items", pane)
-        self.assertIn(".compare-shell", css)
-        self.assertIn("grid-template-columns: minmax(320px, 380px) minmax(560px, 1fr) minmax(420px, 520px)", css)
-        self.assertIn(".compare-inspector", css)
+        self.assertIn("bom-compare-workbench", pane)
+        self.assertIn("bom-source-band", pane)
+        self.assertIn("bom-summary-strip", pane)
+        self.assertIn("bom-semantic-tabs", pane)
+        self.assertIn("<PlacementDiff", pane)
+        self.assertIn("<SubstituteDiff", pane)
+        self.assertIn("<MetadataDiff", pane)
+        self.assertIn("<ExportPanel", pane)
+        self.assertIn(".bom-source-band", css)
+        self.assertIn(
+            "grid-template-columns: minmax(300px, 1fr) 38px minmax(300px, 1fr) minmax(190px, 230px)",
+            css,
+        )
+        self.assertIn(".bom-source-inspection-grid", css)
 
     def test_bom_compare_can_use_wide_desktop_space(self) -> None:
         css = (ROOT / "frontend" / "src" / "styles.css").read_text(encoding="utf-8")
@@ -646,14 +654,21 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertNotIn("max-width: 1280px", app_content.group("body"))
         self.assertIn("width: 100%", app_content.group("body"))
 
-        workbench = re.search(r"\.compare-workbench\s*\{(?P<body>[^}]+)\}", css)
+        workbench = re.search(r"\.bom-compare-workbench\s*\{(?P<body>[^}]+)\}", css)
         self.assertIsNotNone(workbench)
         self.assertIn("width: 100%", workbench.group("body"))
         self.assertNotIn("1480px", workbench.group("body"))
 
-        shell = re.search(r"\.compare-shell\s*\{(?P<body>[^}]+)\}", css)
-        self.assertIsNotNone(shell)
-        self.assertIn("minmax(320px, 380px) minmax(560px, 1fr) minmax(420px, 520px)", shell.group("body"))
+        source_band = re.search(r"\.bom-source-band\s*\{(?P<body>[^}]+)\}", css)
+        self.assertIsNotNone(source_band)
+        self.assertIn(
+            "minmax(300px, 1fr) 38px minmax(300px, 1fr) minmax(190px, 230px)",
+            source_band.group("body"),
+        )
+
+        inspection = re.search(r"\.bom-source-inspection-grid\s*\{(?P<body>[^}]+)\}", css)
+        self.assertIsNotNone(inspection)
+        self.assertIn("repeat(2, minmax(0, 1fr))", inspection.group("body"))
 
     def test_netlist_compare_uses_dedicated_review_workbench(self) -> None:
         legacy = (ROOT / "frontend" / "src" / "tools" / "LegacyToolPane.tsx").read_text(encoding="utf-8")
