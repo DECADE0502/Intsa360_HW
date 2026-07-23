@@ -31,6 +31,7 @@ def _variant(row: CanonicalRow) -> MaterialVariant:
     return MaterialVariant(
         material_code=row.material_code,
         name=row.name,
+        value=row.value,
         model=row.model,
         description=row.description,
         unit=row.unit,
@@ -77,18 +78,20 @@ def _merge_quantity(rows: list[CanonicalRow]) -> Decimal | None:
 
 
 def _build_items(rows: Iterable[CanonicalRow]) -> tuple[MaterialItem, ...]:
-    grouped: dict[tuple[str, str, str, int | None], list[CanonicalRow]] = defaultdict(list)
+    grouped: dict[tuple[str, str, str, int | None, str], list[CanonicalRow]] = defaultdict(list)
     for row in rows:
+        identity_key = row.material_code or f"source:{row.source_id}"
         grouped[
             (
                 row.parent_code,
                 row.material_code,
                 row.substitute_group_code,
                 row.substitute_priority,
+                identity_key,
             )
         ].append(row)
     items: list[MaterialItem] = []
-    for (parent_code, material_code, group_code, priority), source_rows in grouped.items():
+    for (parent_code, material_code, group_code, priority, _), source_rows in grouped.items():
         references = sorted(
             {reference for row in source_rows for reference in row.references},
             key=natural_reference_key,
@@ -113,6 +116,7 @@ def _build_items(rows: Iterable[CanonicalRow]) -> tuple[MaterialItem, ...]:
                 item.substitute_group_code,
                 item.substitute_priority if item.substitute_priority is not None else -1,
                 item.material_code,
+                tuple(row.source_id for row in item.source_rows),
             ),
         )
     )
@@ -142,7 +146,21 @@ def _build_groups(items: Iterable[MaterialItem]) -> tuple[SubstituteGroup, ...]:
                 group_code=group_code,
                 main_item=main,
                 alternative_items=alternatives,
-                physical_references=main.references if main else (),
+                physical_references=(
+                    tuple(
+                        sorted(
+                            {
+                                reference
+                                for row in main.source_rows
+                                if not row.is_nc
+                                for reference in row.references
+                            },
+                            key=natural_reference_key,
+                        )
+                    )
+                    if main
+                    else ()
+                ),
                 quantity=main.quantity if main else None,
                 validation_findings=findings,
                 group_fingerprint=build_group_fingerprint(parent_code, group_code, members),
@@ -181,28 +199,53 @@ def build_board_boms(source: NormalizedSource) -> tuple[BoardBOM, ...]:
             ) in group_item_keys
             if is_group_member and item.substitute_priority != 0:
                 continue
-            if item.references and not any(row.is_nc for row in item.source_rows):
-                for reference in item.references:
+            installed_rows = [row for row in item.source_rows if row.references and not row.is_nc]
+            for row in installed_rows:
+                for reference in row.references:
                     placement_candidates.append(
                         (
                             parent_code,
                             reference,
                             item.material_code,
-                            tuple(row.source_id for row in item.source_rows),
+                            (row.source_id,),
                             item.substitute_group_code,
                             False,
                         )
                     )
-            else:
+            excluded_rows = [row for row in item.source_rows if row.references and row.is_nc]
+            for row in excluded_rows:
+                non_placement.append(
+                    NonPlacementItem(
+                        parent_code=parent_code,
+                        material_code=item.material_code,
+                        quantity=row.quantity,
+                        source_ids=(row.source_id,),
+                        references=row.references,
+                        reason="nc",
+                    )
+                )
+            if not item.references:
                 non_placement.append(
                     NonPlacementItem(
                         parent_code=parent_code,
                         material_code=item.material_code,
                         quantity=item.quantity,
                         source_ids=tuple(row.source_id for row in item.source_rows),
-                        reason="nc" if any(row.is_nc for row in item.source_rows) else "no_reference",
+                        references=(),
+                        reason="no_reference",
                     )
                 )
+
+        merged_candidates: dict[
+            tuple[str, str, str, str, bool],
+            set[str],
+        ] = defaultdict(set)
+        for parent, reference, code, source_ids, group_code, is_nc in placement_candidates:
+            merged_candidates[(parent, reference, code, group_code, is_nc)].update(source_ids)
+        placement_candidates = [
+            (parent, reference, code, tuple(sorted(source_ids)), group_code, is_nc)
+            for (parent, reference, code, group_code, is_nc), source_ids in merged_candidates.items()
+        ]
 
         placement_findings = validate_unique_placements(
             (parent, reference, code, source_ids)

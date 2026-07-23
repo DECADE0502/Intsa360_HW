@@ -58,7 +58,18 @@ def _data_end_row(
 ) -> int:
     columns = {
         mapping[field]
-        for field in ("material_code", "parent_code", "level", "change_status")
+        for field in (
+            "material_code",
+            "parent_code",
+            "level",
+            "change_status",
+            "reference",
+            "value",
+            "model",
+            "description",
+            "name",
+            "quantity",
+        )
         if field in mapping
     }
     last = header_row

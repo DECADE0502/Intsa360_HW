@@ -21,6 +21,7 @@ from app.backend.parsers._workbook import build_merged_cell_lookup, open_bom_wor
 
 
 NC_RE = re.compile(r"^(?:NC|DNP|DNI|N/?A|未贴|不贴)$", re.IGNORECASE)
+NC_PREFIX_RE = re.compile(r"^(?:NC|DNP|DNI)(?:[/_\-\s]|$)", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -103,6 +104,21 @@ def _looks_like_template_instruction(raw_fields: Mapping[str, object]) -> bool:
     material_text = _text(raw_fields.get("material_code"))
     if not material_text:
         return False
+    instruction_text = " ".join(
+        _text(raw_fields.get(field))
+        for field in (
+            "material_code",
+            "parent_code",
+            "description",
+            "remark",
+            "quantity",
+        )
+    )
+    if (
+        _decimal(raw_fields.get("quantity")) is None
+        and re.search(r"(?:INSTRUCTION|GUIDE|填写说明|填表说明|示例行|模板说明)", instruction_text, re.IGNORECASE)
+    ):
+        return True
     repeated_fields = (
         "parent_code",
         "material_code",
@@ -180,6 +196,7 @@ def normalize_workbook(
                 field: _cell_value(worksheet, merged_lookup, row_number, column)
                 for field, column in mapping.items()
             }
+            raw_reference = _text(raw_fields.get("reference"))
             if _looks_like_template_instruction(raw_fields):
                 findings.append(
                     ValidationFinding(
@@ -199,7 +216,23 @@ def normalize_workbook(
                     _cell_value(worksheet, merged_lookup, row_number, mapping.get("description"))
                 )
                 continue
-            if not material_code or normalize_header(material_code) == normalize_header("子项编码"):
+            if normalize_header(material_code) == normalize_header("子项编码"):
+                continue
+            has_material_evidence = bool(
+                raw_reference
+                or any(
+                    _text(raw_fields.get(field))
+                    for field in (
+                        "value",
+                        "model",
+                        "description",
+                        "name",
+                        "pcb_footprint",
+                        "pcb_package",
+                    )
+                )
+            )
+            if not material_code and not has_material_evidence:
                 continue
 
             parent_value = _cell_value(worksheet, merged_lookup, row_number, mapping.get("parent_code"))
@@ -215,9 +248,6 @@ def normalize_workbook(
                 parent_code = default_parent_code or Path(envelope.source_path).stem
                 parent_description = parent_description or parent_code
 
-            raw_reference = _text(
-                _cell_value(worksheet, merged_lookup, row_number, mapping.get("reference"))
-            )
             resolution = (reference_resolutions or {}).get(source_id)
             parsed_references = parse_references(raw_reference, resolution)
             row_flags = set(code_flags) | set(parent_flags) | set(parsed_references.flags)
@@ -288,6 +318,8 @@ def normalize_workbook(
             is_nc = bool(
                 NC_RE.fullmatch(raw_reference)
                 or NC_RE.fullmatch(_text(raw_fields.get("remark")))
+                or NC_RE.fullmatch(_text(raw_fields.get("value")))
+                or NC_PREFIX_RE.match(_text(raw_fields.get("value")))
             )
             rows.append(
                 CanonicalRow(
@@ -300,6 +332,7 @@ def normalize_workbook(
                     hardware_version=_text(raw_fields.get("hardware_version")),
                     material_code=material_code,
                     name=_text(raw_fields.get("name")),
+                    value=_text(raw_fields.get("value")),
                     model=_text(raw_fields.get("model")),
                     description=_text(raw_fields.get("description")),
                     unit=_text(raw_fields.get("unit")),

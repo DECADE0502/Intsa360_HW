@@ -3,6 +3,8 @@ from __future__ import annotations
 import runpy
 from pathlib import Path
 
+from openpyxl import Workbook
+
 from app.backend.bom_semantics.normalization import normalize_workbook
 from app.backend.bom_semantics.substitutes import build_board_boms
 
@@ -29,10 +31,11 @@ def test_three_member_group_counts_only_main_references(tmp_path: Path) -> None:
 
 
 def test_same_reference_on_different_parents_is_not_a_conflict(tmp_path: Path) -> None:
-    source = normalize_workbook(_fixtures(tmp_path)["multi_parent"])
+    path = _fixtures(tmp_path)["multi_parent"]
+    source = normalize_workbook(path)
     numeric_row = next(row for row in source.rows if row.raw_reference == "72")
     resolved = normalize_workbook(
-        _fixtures(tmp_path)["multi_parent"],
+        path,
         reference_resolutions={numeric_row.source_id: "empty"},
     )
     boards = build_board_boms(resolved)
@@ -44,6 +47,23 @@ def test_same_reference_on_different_parents_is_not_a_conflict(tmp_path: Path) -
         for board in boards
         for finding in board.findings
     )
+
+
+def test_blank_material_codes_do_not_collapse_unrelated_source_rows(tmp_path: Path) -> None:
+    path = tmp_path / "blank-code.xlsx"
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.append(["Reference", "Part Number", "Quantity", "Value"])
+    worksheet.append(["H1", "", 1, "SC.DAX0501"])
+    worksheet.append(["H2", "", 1, "SC.DAX0501"])
+    workbook.save(path)
+    workbook.close()
+
+    board = build_board_boms(normalize_workbook(path))[0]
+
+    blank_items = [item for item in board.items if not item.material_code]
+    assert len(blank_items) == 2
+    assert {item.references for item in blank_items} == {("H1",), ("H2",)}
 
 
 def test_source_level_findings_are_not_duplicated_into_each_board(tmp_path: Path) -> None:

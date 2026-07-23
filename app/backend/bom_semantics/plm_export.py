@@ -533,6 +533,16 @@ def export_plm_template(
 
     rows = _sorted_rows(resolved)
     _validate_template_coverage(rows, source_sheet.field_columns)
+    normalized_template = normalize_workbook(template)
+    semantic_data_end = max(
+        (
+            row.row_number
+            for row in normalized_template.rows
+            if row.sheet_name == source_sheet.name
+            and (row.quantity is not None or bool(row.references))
+        ),
+        default=source_sheet.data_start_row - 1,
+    )
     output.parent.mkdir(parents=True, exist_ok=True)
     workbook = load_workbook(template)
     try:
@@ -540,7 +550,7 @@ def export_plm_template(
         _prepare_data_area(
             worksheet,
             data_start_row=source_sheet.data_start_row,
-            data_end_row=source_sheet.data_end_row,
+            data_end_row=semantic_data_end,
             row_count=len(rows),
         )
         _write_rows(

@@ -156,6 +156,7 @@ class CanonicalRow:
     hardware_version: str = ""
     material_code: str = ""
     name: str = ""
+    value: str = ""
     model: str = ""
     description: str = ""
     unit: str = ""
@@ -200,6 +201,7 @@ class CanonicalRow:
             "hardware_version": self.hardware_version,
             "material_code": self.material_code,
             "name": self.name,
+            "value": self.value,
             "model": self.model,
             "description": self.description,
             "unit": self.unit,
@@ -226,6 +228,7 @@ class CanonicalRow:
 class MaterialVariant:
     material_code: str
     name: str = ""
+    value: str = ""
     model: str = ""
     description: str = ""
     unit: str = ""
@@ -239,6 +242,7 @@ class MaterialVariant:
     def signature(self) -> tuple[str, ...]:
         return (
             self.name,
+            self.value,
             self.model,
             self.description,
             self.unit,
@@ -252,6 +256,7 @@ class MaterialVariant:
         return {
             "material_code": self.material_code,
             "name": self.name,
+            "value": self.value,
             "model": self.model,
             "description": self.description,
             "unit": self.unit,
@@ -317,6 +322,7 @@ class NonPlacementItem:
     material_code: str
     quantity: Decimal | None
     source_ids: tuple[str, ...]
+    references: tuple[str, ...] = ()
     reason: str = "no_reference"
 
     def payload(self) -> dict[str, object]:
@@ -325,6 +331,7 @@ class NonPlacementItem:
             "material_code": self.material_code,
             "quantity": str(self.quantity) if self.quantity is not None else None,
             "source_ids": list(self.source_ids),
+            "references": list(self.references),
             "reason": self.reason,
         }
 

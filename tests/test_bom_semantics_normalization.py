@@ -3,7 +3,7 @@ from __future__ import annotations
 import runpy
 from pathlib import Path
 
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 
 from app.backend.bom_semantics.models import FindingSeverity
 from app.backend.bom_semantics.normalization import normalize_workbook
@@ -78,3 +78,24 @@ def test_capture_parent_can_be_aligned_for_two_file_comparison(tmp_path: Path) -
     source = normalize_workbook(path, default_parent_code="COMPARE-BOARD")
 
     assert {row.parent_code for row in source.rows} == {"COMPARE-BOARD"}
+
+
+def test_capture_rows_with_blank_part_number_keep_value_evidence(tmp_path: Path) -> None:
+    path = tmp_path / "blank-code.xlsx"
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.append(["Reference", "Part Number", "Quantity", "Value"])
+    worksheet.append(["H1", "", 1, "SC.DAX0501"])
+    worksheet.append(["D8", "", 1, "NC/TE_2306654-3"])
+    workbook.save(path)
+    workbook.close()
+
+    source = normalize_workbook(path)
+
+    assert len(source.rows) == 2
+    assert source.rows[0].material_code == ""
+    assert source.rows[0].value == "SC.DAX0501"
+    assert source.rows[0].references == ("H1",)
+    assert source.rows[0].is_nc is False
+    assert source.rows[1].value == "NC/TE_2306654-3"
+    assert source.rows[1].is_nc is True

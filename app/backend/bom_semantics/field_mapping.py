@@ -24,6 +24,7 @@ FIELD_ALIASES: dict[str, tuple[str, ...]] = {
         "编码",
     ),
     "name": ("名称", "物料名称", "part type"),
+    "value": ("值", "value"),
     "model": ("型号", "规格型号", "规格", "model", "mpn"),
     "description": (
         "物料描述",
