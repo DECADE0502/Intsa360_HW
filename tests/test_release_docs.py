@@ -96,13 +96,16 @@ class ReleaseDocsTests(unittest.TestCase):
         self.assertIn("Python with pytest not found", text)
         self.assertIn("py_compile", text)
         self.assertIn('Test-Path -LiteralPath "node_modules"', text)
-        self.assertIn("npm ci --prefer-offline --no-audit --no-fund", text)
-        self.assertLess(
-            text.index("npm ci --prefer-offline --no-audit --no-fund"),
-            text.index("npm run test:unit"),
+        install_call = (
+            'Invoke-NpmCommand -Arguments @("ci", "--prefer-offline", '
+            '"--no-audit", "--no-fund")'
         )
-        self.assertIn("npm run test:unit", text)
-        self.assertIn("npm run build", text)
+        test_call = 'Invoke-NpmCommand -Arguments @("run", "test:unit")'
+        build_call = 'Invoke-NpmCommand -Arguments @("run", "build")'
+        self.assertIn(install_call, text)
+        self.assertLess(text.index(install_call), text.index(test_call))
+        self.assertIn(test_call, text)
+        self.assertIn(build_call, text)
         self.assertIn("English UI text found", text)
 
     def test_pre_release_tests_are_anchored_to_the_repository_root(self) -> None:
@@ -123,12 +126,21 @@ class ReleaseDocsTests(unittest.TestCase):
         self.assertNotIn("Insta360_HW_Verify", text)
         self.assertNotIn("verify-temp", text)
         self.assertIn('$VerifyPytestRoot = Join-Path $VerifyTempRoot "p"', text)
+        self.assertIn(
+            "New-Item -ItemType Directory -Force -Path $VerifyPytestRoot",
+            text,
+        )
         self.assertIn('$BaseTemp = Join-Path $VerifyPytestRoot $Name', text)
         self.assertIn("-m pytest -q --basetemp $BaseTemp", text)
         self.assertIn("$env:TEMP = $VerifyTempRoot", text)
         self.assertIn("$env:TMP = $VerifyTempRoot", text)
         self.assertIn("$env:TEMP = $OriginalTemp", text)
         self.assertIn("$env:TMP = $OriginalTmp", text)
+        self.assertIn("function Invoke-NpmCommand", text)
+        self.assertIn("-RedirectStandardOutput $stdoutPath", text)
+        self.assertIn("-RedirectStandardError $stderrPath", text)
+        self.assertIn('$npmExit = Invoke-NpmCommand -Arguments @("run", "test:unit")', text)
+        self.assertIn('$npmExit = Invoke-NpmCommand -Arguments @("run", "build")', text)
 
     @unittest.skipUnless(sys.platform == "win32", "Windows PowerShell only")
     def test_verify_all_probe_skips_incapable_python_and_selects_fallback(self) -> None:

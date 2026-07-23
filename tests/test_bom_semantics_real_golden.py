@@ -23,6 +23,8 @@ SAMPLE_EXPECTATIONS = {
 
 
 def _root() -> Path:
+    if not GOLDEN_ROOT:
+        pytest.skip("real BOM golden directory is not configured")
     root = Path(GOLDEN_ROOT)
     if not root.is_dir():
         pytest.skip("real BOM golden directory is not configured")

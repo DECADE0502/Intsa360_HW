@@ -51,6 +51,7 @@ $VerifyTempRoot = Join-Path $LocalAppData ("Temp\ihv\" + [Guid]::NewGuid().ToStr
 New-Item -ItemType Directory -Force -Path $VerifyTempRoot | Out-Null
 $VerifyTempRoot = (Resolve-Path -LiteralPath $VerifyTempRoot).Path
 $VerifyPytestRoot = Join-Path $VerifyTempRoot "p"
+New-Item -ItemType Directory -Force -Path $VerifyPytestRoot | Out-Null
 
 function Invoke-PytestGroup {
   param(
@@ -62,6 +63,35 @@ function Invoke-PytestGroup {
   Write-Host ("Running pytest group {0} ({1} files)..." -f $Name, $Files.Count) -ForegroundColor Cyan
   & $Python -m pytest -q --basetemp $BaseTemp @($Files.FullName)
   if ($LASTEXITCODE -ne 0) { throw "pytest group failed: $Name" }
+}
+
+function Invoke-NpmCommand {
+  param([Parameter(Mandatory=$true)][string[]]$Arguments)
+
+  $npm = Get-Command npm.cmd -ErrorAction Stop
+  $token = [Guid]::NewGuid().ToString("N").Substring(0, 8)
+  $stdoutPath = Join-Path $VerifyTempRoot ("npm-" + $token + ".stdout.log")
+  $stderrPath = Join-Path $VerifyTempRoot ("npm-" + $token + ".stderr.log")
+  $process = Start-Process `
+    -FilePath $npm.Source `
+    -ArgumentList $Arguments `
+    -WorkingDirectory (Get-Location).Path `
+    -RedirectStandardOutput $stdoutPath `
+    -RedirectStandardError $stderrPath `
+    -WindowStyle Hidden `
+    -Wait `
+    -PassThru
+  try {
+    if (Test-Path -LiteralPath $stdoutPath) {
+      Get-Content -LiteralPath $stdoutPath | Write-Host
+    }
+    if (Test-Path -LiteralPath $stderrPath) {
+      Get-Content -LiteralPath $stderrPath | Write-Host
+    }
+    return $process.ExitCode
+  } finally {
+    $process.Dispose()
+  }
 }
 
 Push-Location $Root
@@ -100,13 +130,13 @@ try {
     try {
       if (-not (Test-Path -LiteralPath "node_modules" -PathType Container)) {
         Write-Host "Restoring locked frontend dependencies..." -ForegroundColor Cyan
-        npm ci --prefer-offline --no-audit --no-fund
-        if ($LASTEXITCODE -ne 0) { throw "frontend dependency restore failed" }
+        $npmExit = Invoke-NpmCommand -Arguments @("ci", "--prefer-offline", "--no-audit", "--no-fund")
+        if ($npmExit -ne 0) { throw "frontend dependency restore failed" }
       }
-      npm run test:unit
-      if ($LASTEXITCODE -ne 0) { throw "frontend unit tests failed" }
-      npm run build
-      if ($LASTEXITCODE -ne 0) { throw "frontend build failed" }
+      $npmExit = Invoke-NpmCommand -Arguments @("run", "test:unit")
+      if ($npmExit -ne 0) { throw "frontend unit tests failed" }
+      $npmExit = Invoke-NpmCommand -Arguments @("run", "build")
+      if ($npmExit -ne 0) { throw "frontend build failed" }
     } finally {
       Pop-Location
     }
