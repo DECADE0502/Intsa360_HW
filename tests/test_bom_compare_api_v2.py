@@ -67,6 +67,8 @@ def test_legacy_two_file_request_keeps_workbench_and_adds_semantic_layers(tmp_pa
     assert result["compare"]["key_label"] == "位号"
     assert result["semantic"]["summary"]["actual_reference_count_new"] == 4
     assert len(result["semantic"]["placement_diff"]) > 0
+    assert result["source_inspections"]["new"]["boards"][0]["placement_count"] == 4
+    assert "rows" not in result["source_inspections"]["new"]["boards"][0]
     assert len(result["outputs"]) == 3
     assert all(Path(path).is_file() for path in result["outputs"])
 
@@ -94,4 +96,3 @@ def test_api_compare_records_semantic_summary_without_refresh(tmp_path: Path) ->
     assert history[0]["tool"] == "bom_compare"
     assert history[0]["summary"]["semantic"]["analysis_fingerprint"]
     assert history[0]["summary"]["semantic"]["substitute_group_count_new"] == 1
-

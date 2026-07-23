@@ -399,6 +399,30 @@ def _semantic_summary(
     }
 
 
+def _compact_inspection_payload(inspection: SourceInspection) -> dict[str, object]:
+    return {
+        "envelope": {
+            "profile": inspection.envelope.profile.value,
+            "source_path": inspection.envelope.source_path,
+            "source_fingerprint": inspection.envelope.source_fingerprint,
+            "data_sheet": inspection.envelope.data_sheet,
+        },
+        "boards": [
+            {
+                "parent_code": board.parent_code,
+                "parent_description": board.parent_description,
+                "hardware_version": board.hardware_version,
+                "placement_count": len(board.placements),
+                "substitute_group_count": len(board.substitute_groups),
+                "material_count": len(board.items),
+            }
+            for board in inspection.boards
+        ],
+        "findings": [finding.payload() for finding in inspection.findings],
+        "can_compare": inspection.can_compare,
+    }
+
+
 def _run_inspect(params: dict[str, object]) -> dict[str, object]:
     source_path, error = _required_file(
         params,
@@ -469,8 +493,8 @@ def _run_semantic_compare(
     legacy["action"] = "compare"
     legacy["semantic"] = semantic.payload()
     legacy["source_inspections"] = {
-        "old": old_inspection.payload(),
-        "new": new_inspection.payload(),
+        "old": _compact_inspection_payload(old_inspection),
+        "new": _compact_inspection_payload(new_inspection),
     }
     legacy["can_export"] = semantic.can_export
     legacy["outputs"] = list(dict.fromkeys([

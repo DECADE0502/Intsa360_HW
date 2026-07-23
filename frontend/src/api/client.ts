@@ -475,6 +475,13 @@ export async function runTool(tool: string, params: Record<string, unknown>, opt
   return result;
 }
 
+export async function runBomCompare(
+  params: import("../tools/bomCompare/types").BomCompareParams,
+  opts?: ApiOpts,
+): Promise<import("../tools/bomCompare/types").BomCompareResponse> {
+  return (await runTool("bom_compare", params, opts)) as import("../tools/bomCompare/types").BomCompareResponse;
+}
+
 export async function runSmtLayout(params: SmtLayoutParams, opts?: ApiOpts): Promise<SmtLayoutResponse> {
   return (await runTool("smt_layout", { ...params }, opts)) as SmtLayoutResponse;
 }

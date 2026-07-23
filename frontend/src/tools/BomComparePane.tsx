@@ -2,91 +2,81 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Button,
-  Card,
   Empty,
   Input,
-  Segmented,
   Space,
   Table,
   Tabs,
   Tag,
+  Tooltip,
   Typography,
   Upload,
 } from "antd";
 import {
-  DeleteOutlined,
-  DownloadOutlined,
-  FileExcelOutlined,
-  PlayCircleOutlined,
-  SearchOutlined,
-} from "@ant-design/icons";
-import { runTool, uploadFiles, type ToolInfo } from "../api/client";
+  ArrowLeftRight,
+  FileSpreadsheet,
+  GitCompareArrows,
+  Play,
+  RotateCcw,
+  Search,
+  ShieldAlert,
+} from "lucide-react";
+import {
+  runBomCompare,
+  uploadFiles,
+  type ToolInfo,
+} from "../api/client";
 import { toUserMessage } from "../api/errors";
 import { HistoryBomPicker } from "../components/HistoryBomPicker";
 import { useToolWorkspace } from "../state/toolWorkspace";
-import { outputHref } from "../utils/outputHref";
-import { riskStatusText } from "../utils/statusText";
+import { ExportPanel } from "./bomCompare/ExportPanel";
+import { MetadataDiff } from "./bomCompare/MetadataDiff";
+import { PlacementDiff } from "./bomCompare/PlacementDiff";
+import { SourceInspection } from "./bomCompare/SourceInspection";
+import { SubstituteDiff } from "./bomCompare/SubstituteDiff";
+import {
+  changeKindLabels,
+  type BomCompareResponse,
+  type ChangeEvent,
+  type RawRowDiff,
+  type ValidationFinding,
+} from "./bomCompare/types";
 
-type CompareItem = {
-  key: string;
-  status: string;
-  kind: string;
-  badge?: string;
-  left?: Record<string, unknown> | null;
-  right?: Record<string, unknown> | null;
-  diff?: string[];
-};
-
-type TablePayload = { headers?: string[]; rows?: unknown[][]; total_rows?: number };
-
-const statusMeta: Record<string, { label: string; color: string; tone: string; filter: string }> = {
-  same: { label: "一致", color: "green", tone: "ok", filter: "same" },
-  swap: { label: "换料", color: "red", tone: "high", filter: "swap" },
-  added: { label: "新增", color: "blue", tone: "medium", filter: "added" },
-  removed: { label: "删除", color: "orange", tone: "medium", filter: "removed" },
-  param: { label: "参数", color: "purple", tone: "low", filter: "param" },
-};
-
-function itemGroup(item: CompareItem) {
-  if (item.status === "换料") return "swap";
-  if (item.status === "新增贴装") return "added";
-  if (item.status === "删除/未贴") return "removed";
-  if (item.status === "参数差异") return "param";
-  return "same";
-}
-
-function countByGroup(items: CompareItem[]) {
-  return items.reduce(
-    (acc, item) => {
-      acc[itemGroup(item)] += 1;
-      return acc;
-    },
-    { same: 0, swap: 0, added: 0, removed: 0, param: 0 },
-  );
-}
-
-function textOf(value: unknown) {
-  return String(value ?? "");
-}
-
-function UploadSlot({
-  title,
+function SourceSelector({
+  label,
+  hint,
   file,
+  historyPath,
   onFile,
+  onHistoryPath,
 }: {
-  title: string;
+  label: string;
+  hint: string;
   file?: File;
+  historyPath: string;
   onFile: (file?: File) => void;
+  onHistoryPath: (path: string) => void;
 }) {
   return (
-    <Card className="compare-upload-card" size="small">
-      <Typography.Text className="compare-upload-title">{title}</Typography.Text>
+    <section className="bom-source-selector">
+      <div className="bom-source-label">
+        <span>{label}</span>
+        <small>{hint}</small>
+      </div>
+      <HistoryBomPicker
+        value={historyPath}
+        onChange={(path) => {
+          onHistoryPath(path);
+          if (path) onFile(undefined);
+        }}
+      />
       <Upload
         accept=".xlsx,.xls"
         maxCount={1}
-        fileList={file ? [{ uid: "0", name: file.name, status: "done" as const }] : []}
+        fileList={file ? [{ uid: label, name: file.name, status: "done" as const }] : []}
         beforeUpload={(next) => {
           onFile(next);
+          onHistoryPath("");
           return false;
         }}
         onRemove={() => {
@@ -94,94 +84,161 @@ function UploadSlot({
           return true;
         }}
       >
-        <Button icon={<FileExcelOutlined />}>选择 Excel</Button>
+        <Button icon={<FileSpreadsheet size={16} />}>选择本地 BOM</Button>
       </Upload>
-    </Card>
+    </section>
   );
 }
 
-function Metric({ label, value, tone }: { label: string; value: number; tone?: string }) {
+function Metric({
+  label,
+  value,
+  tone = "plain",
+  note,
+}: {
+  label: string;
+  value: number;
+  tone?: "plain" | "info" | "warn" | "danger";
+  note?: string;
+}) {
   return (
-    <div className={`compare-metric compare-metric-${tone || "plain"}`}>
-      <div className="compare-metric-value">{value}</div>
-      <div className="compare-metric-label">{label}</div>
+    <div className={`bom-semantic-metric is-${tone}`}>
+      <strong>{value}</strong>
+      <span>{label}</span>
+      {note ? <small>{note}</small> : null}
     </div>
   );
 }
 
-function MiniTable({ table, maxRows = 8 }: { table?: TablePayload; maxRows?: number }) {
-  const columns =
-    table?.headers?.map((header, index) => ({
-      title: header,
-      dataIndex: String(index),
-      key: String(index),
-      ellipsis: true,
-      width: index === 2 ? 180 : undefined,
-    })) || [];
-  const data =
-    table?.rows?.slice(0, maxRows).map((row, index) => ({
-      key: index,
-      ...Object.fromEntries(row.map((value, i) => [String(i), value])),
-    })) || [];
-  if (!table?.rows?.length) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无变化" />;
-  return <Table size="small" columns={columns} dataSource={data} pagination={false} scroll={{ x: true }} />;
+function JsonPreview({ value }: { value: unknown }) {
+  return <pre className="bom-json-preview">{JSON.stringify(value, null, 2)}</pre>;
 }
 
-function RiskList({ findings }: { findings?: Array<{ name: string; status: string; message: string }> }) {
-  if (!findings?.length) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无风险数据" />;
+function RawRows({ rows }: { rows: RawRowDiff[] }) {
+  if (!rows.length) return <Empty description="原始行没有变化" />;
   return (
-    <div className="compare-risk-list">
-      {findings.map((item) => (
-        <div className="compare-risk-item" key={item.name}>
-          <Tag color={item.status === "warn" ? "orange" : item.status === "ok" ? "green" : "blue"}>
-            {riskStatusText(item.status)}
+    <Table
+      className="bom-layer-table"
+      size="small"
+      rowKey={(row) => `${row.parent_code}:${row.material_code}:${row.status}`}
+      dataSource={rows}
+      pagination={{ pageSize: 12, showSizeChanger: true }}
+      scroll={{ x: 1260 }}
+      expandable={{
+        expandedRowRender: (row) => (
+          <div className="bom-raw-row-detail">
+            <div><span>旧版行</span><JsonPreview value={row.old_rows} /></div>
+            <div><span>新版行</span><JsonPreview value={row.new_rows} /></div>
+          </div>
+        ),
+      }}
+      columns={[
+        {
+          title: "状态",
+          dataIndex: "status",
+          width: 100,
+          fixed: "left",
+          render: (value) => (
+            <Tag color={value === "added" ? "blue" : value === "removed" ? "orange" : "gold"}>
+              {value === "added" ? "新增" : value === "removed" ? "删除" : "变更"}
+            </Tag>
+          ),
+        },
+        { title: "父项编码", dataIndex: "parent_code", width: 190 },
+        { title: "子项编码", dataIndex: "material_code", width: 210 },
+        {
+          title: "旧版来源",
+          dataIndex: "old_source_ids",
+          width: 320,
+          render: (value: string[]) => value.join(", ") || "-",
+        },
+        {
+          title: "新版来源",
+          dataIndex: "new_source_ids",
+          width: 320,
+          render: (value: string[]) => value.join(", ") || "-",
+        },
+      ]}
+    />
+  );
+}
+
+function EventTable({ events }: { events: ChangeEvent[] }) {
+  const [query, setQuery] = useState("");
+  const rows = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    return events.filter((event) => {
+      const haystack = `${event.parent_code} ${event.title} ${event.kind} ${(event.references || []).join(" ")} ${(event.group_codes || []).join(" ")}`.toLowerCase();
+      return !normalized || haystack.includes(normalized);
+    });
+  }, [events, query]);
+  if (!events.length) return <Empty description="没有业务变化" />;
+  return (
+    <div className="bom-event-table">
+      <Input
+        allowClear
+        prefix={<Search size={15} />}
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder="搜索父项、事件、位号或替代组"
+      />
+      <Table
+        size="small"
+        rowKey="event_id"
+        dataSource={rows}
+        pagination={{ pageSize: 12 }}
+        scroll={{ x: 1150 }}
+        columns={[
+          {
+            title: "分类",
+            dataIndex: "kind",
+            width: 190,
+            render: (value, row) => (
+              <Tag color={row.impact === "blocker" ? "red" : row.impact === "placement" ? "orange" : row.impact === "supply" ? "blue" : "default"}>
+                {changeKindLabels[value] || value}
+              </Tag>
+            ),
+          },
+          { title: "父项", dataIndex: "parent_code", width: 180 },
+          { title: "变化说明", dataIndex: "title", width: 340 },
+          {
+            title: "位号",
+            dataIndex: "references",
+            width: 250,
+            ellipsis: true,
+            render: (value: string[]) => value?.join(", ") || "-",
+          },
+          {
+            title: "替代组",
+            dataIndex: "group_codes",
+            width: 220,
+            render: (value: string[]) => value?.join(" / ") || "-",
+          },
+          { title: "OA 语义", dataIndex: "oa_change_type", width: 180, render: (value) => value || "-" },
+        ]}
+      />
+    </div>
+  );
+}
+
+function FindingList({ rows }: { rows: ValidationFinding[] }) {
+  if (!rows.length) return <Empty description="没有阻断或警告" />;
+  return (
+    <div className="bom-finding-list">
+      {rows.map((finding, index) => (
+        <article key={`${finding.code}:${finding.parent_code}:${index}`} className={`is-${finding.severity}`}>
+          <Tag color={finding.severity === "blocker" ? "red" : finding.severity === "warning" ? "orange" : "blue"}>
+            {finding.severity === "blocker" ? "阻断" : finding.severity === "warning" ? "警告" : "提示"}
           </Tag>
           <div>
-            <Typography.Text strong>{item.name}</Typography.Text>
-            <Typography.Paragraph type="secondary">{item.message}</Typography.Paragraph>
+            <strong>{finding.message}</strong>
+            <span>{finding.parent_code || "全局"} · {finding.code}</span>
+            {finding.references?.length ? <p>位号：{finding.references.join(", ")}</p> : null}
           </div>
-        </div>
+        </article>
       ))}
     </div>
   );
-}
-
-function FieldPair({ name, selected }: { name: string; selected?: CompareItem }) {
-  const changed = selected?.diff?.includes(name);
-  return (
-    <div className={`compare-field-pair ${changed ? "is-changed" : ""}`}>
-      <div className="compare-field-label">{name}</div>
-      <div className="compare-field-values">
-        <div>
-          <span>BOM1</span>
-          <p>{textOf(selected?.left?.[name]) || "-"}</p>
-        </div>
-        <div>
-          <span>BOM2</span>
-          <p>{textOf(selected?.right?.[name]) || "-"}</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function OriginRows({ origin, side }: { origin: any; side: "left" | "right" }) {
-  const rows = side === "left" ? origin?.left_rows : origin?.right_rows;
-  const columns =
-    origin?.columns?.map((header: string, index: number) => ({
-      title: header,
-      dataIndex: String(index),
-      key: String(index),
-      ellipsis: true,
-      width: index === 2 ? 220 : undefined,
-    })) || [];
-  const data =
-    rows?.slice(0, 200).map((row: any, index: number) => ({
-      key: index,
-      status: row.status,
-      ...Object.fromEntries((row.cells || []).map((value: unknown, i: number) => [String(i), value])),
-    })) || [];
-  return <Table size="small" columns={columns} dataSource={data} pagination={{ pageSize: 12 }} scroll={{ x: true }} />;
 }
 
 export function BomComparePane({ tool }: { tool: ToolInfo }) {
@@ -190,312 +247,228 @@ export function BomComparePane({ tool }: { tool: ToolInfo }) {
     {
       historyBom1: "",
       historyBom2: "",
-      result: null as any,
-      filter: "diff",
-      query: "",
-      selectedKey: "",
+      result: null as BomCompareResponse | null,
+      activeTab: "placement",
+      selectedReference: "",
     },
-    { heavyKeys: ["result"] },
+    { heavyKeys: ["result"], maxBytes: 3 * 1024 * 1024 },
   );
-  const [bom1, setBom1] = useState<File | undefined>();
-  const [bom2, setBom2] = useState<File | undefined>();
-  const [historyBom1, setHistoryBom1] = useState<string>(() => String(workspace.historyBom1 || ""));
-  const [historyBom2, setHistoryBom2] = useState<string>(() => String(workspace.historyBom2 || ""));
+  const [bom1, setBom1] = useState<File>();
+  const [bom2, setBom2] = useState<File>();
+  const [historyBom1, setHistoryBom1] = useState(String(workspace.historyBom1 || ""));
+  const [historyBom2, setHistoryBom2] = useState(String(workspace.historyBom2 || ""));
+  const [result, setResult] = useState<BomCompareResponse | null>(workspace.result || null);
+  const [activeTab, setActiveTab] = useState(String(workspace.activeTab || "placement"));
+  const [selectedReference, setSelectedReference] = useState(String(workspace.selectedReference || ""));
   const [running, setRunning] = useState(false);
-  const [result, setResult] = useState<any>(workspace.result || null);
-  const [filter, setFilter] = useState<string>(String(workspace.filter || "diff"));
-  const [query, setQuery] = useState(String(workspace.query || ""));
-  const [selectedKey, setSelectedKey] = useState(String(workspace.selectedKey || ""));
 
   useEffect(() => {
-    setWorkspace({ historyBom1, historyBom2, result, filter, query, selectedKey });
-  }, [historyBom1, historyBom2, result, filter, query, selectedKey]);
+    setWorkspace({ historyBom1, historyBom2, result, activeTab, selectedReference });
+  }, [historyBom1, historyBom2, result, activeTab, selectedReference]);
 
-  const items: CompareItem[] = result?.compare?.items || [];
-  const counts = result?.summary?.status_counts || countByGroup(items);
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return items.filter((item) => {
-      const group = itemGroup(item);
-      const byFilter = filter === "all" || (filter === "diff" ? group !== "same" : group === filter);
-      const hay = `${item.key} ${item.status} ${textOf(item.left?.["编号"])} ${textOf(item.right?.["编号"])} ${textOf(item.left?.["描述"])} ${textOf(item.right?.["描述"])}`.toLowerCase();
-      return byFilter && (!q || hay.includes(q));
-    });
-  }, [items, filter, query]);
-  const selected = items.find((item) => item.key === selectedKey) || filtered[0] || items[0];
+  const semantic = result?.semantic;
+  const summary = semantic?.summary;
 
-  useEffect(() => {
-    if (result?.status === "ok") {
-      setSelectedKey((prev) => {
-        if (prev && filtered.some((item) => item.key === prev)) return prev;
-        const focus = result.focus_items?.[0]?.key;
-        return focus || filtered[0]?.key || items[0]?.key || "";
-      });
-    }
-  }, [result]);
+  async function sourcePaths() {
+    const [leftUpload, rightUpload] = await Promise.all([
+      historyBom1 || !bom1 ? Promise.resolve(null) : uploadFiles([bom1]),
+      historyBom2 || !bom2 ? Promise.resolve(null) : uploadFiles([bom2]),
+    ]);
+    return {
+      bom1: historyBom1 || leftUpload?.files[0]?.path || "",
+      bom2: historyBom2 || rightUpload?.files[0]?.path || "",
+    };
+  }
 
   async function handleRun() {
     if ((!historyBom1 && !bom1) || (!historyBom2 && !bom2)) {
-      setResult({ status: "error", error: "请先选择两份 BOM 文件" });
+      setResult({ status: "error", tool: "bom_compare", error: "请先选择旧版和新版两份 BOM。" });
       return;
     }
     setRunning(true);
     try {
-      const [leftUpload, rightUpload] = await Promise.all([
-        historyBom1 || !bom1 ? Promise.resolve(null) : uploadFiles([bom1]),
-        historyBom2 || !bom2 ? Promise.resolve(null) : uploadFiles([bom2]),
-      ]);
-      const next = await runTool("bom_compare", {
-        bom1: historyBom1 || leftUpload?.files[0]?.path,
-        bom2: historyBom2 || rightUpload?.files[0]?.path,
-      });
+      const paths = await sourcePaths();
+      const next = await runBomCompare({ action: "compare", ...paths });
       setResult(next);
-      setFilter("diff");
-      setQuery("");
-    } catch (err: any) {
-      setResult({ status: "error", error: toUserMessage(err) });
+      setActiveTab(next.semantic?.blockers?.length ? "delivery" : "placement");
+      setSelectedReference(next.semantic?.placement_diff?.[0]?.reference || "");
+    } catch (error) {
+      setResult({ status: "error", tool: "bom_compare", error: toUserMessage(error) });
     } finally {
       setRunning(false);
     }
   }
 
-  const listColumns = [
-    { title: "位号", dataIndex: "key", key: "key", width: 100 },
-    {
-      title: "状态",
-      dataIndex: "status",
-      key: "status",
-      width: 110,
-      render: (value: string) => {
-        const meta = statusMeta[itemGroup({ status: value } as CompareItem)];
-        return <Tag color={meta.color}>{value}</Tag>;
-      },
-    },
-    { title: "BOM1编号", dataIndex: ["left", "编号"], key: "leftCode", ellipsis: true },
-    { title: "BOM2编号", dataIndex: ["right", "编号"], key: "rightCode", ellipsis: true },
-  ];
+  function clearAll() {
+    setBom1(undefined);
+    setBom2(undefined);
+    setHistoryBom1("");
+    setHistoryBom2("");
+    setResult(null);
+    setActiveTab("placement");
+    setSelectedReference("");
+    resetWorkspace();
+  }
 
-  const tableData = filtered.map((item) => ({ ...item, key: item.key }));
+  function swapSources() {
+    setBom1(bom2);
+    setBom2(bom1);
+    setHistoryBom1(historyBom2);
+    setHistoryBom2(historyBom1);
+    setResult(null);
+  }
 
   return (
-    <div className="compare-workbench">
-      <div className="compare-head">
+    <div className="bom-compare-workbench">
+      <header className="bom-compare-header">
         <div>
+          <span className="bom-kicker">四层语义对比</span>
           <Typography.Title level={4}>{tool.name}</Typography.Title>
-          <Typography.Paragraph type="secondary">{tool.description}</Typography.Paragraph>
+          <Typography.Paragraph type="secondary">
+            分开核对实际贴装、替代关系、原始行和非功能字段，替代料不重复计入整板数量。
+          </Typography.Paragraph>
         </div>
-        {result?.outputs?.length ? (
-          <Space wrap>
-            {result.outputs.map((path: string) => (
-              <Button key={path} href={outputHref(path)} icon={<DownloadOutlined />}>
-                下载差异报告
-              </Button>
-            ))}
-          </Space>
+        {semantic ? (
+          <div className="bom-analysis-id">
+            <span>分析指纹</span>
+            <code>{semantic.analysis_fingerprint}</code>
+          </div>
         ) : null}
-      </div>
+      </header>
 
-      <div className="compare-upload-grid">
-        <Card className="compare-upload-card" size="small">
-          <Typography.Text className="compare-upload-title">旧版 / 基准 BOM</Typography.Text>
-          <Space direction="vertical" style={{ width: "100%" }}>
-            <HistoryBomPicker value={historyBom1} onChange={setHistoryBom1} />
-            <UploadSlot title="上传本地文件" file={bom1} onFile={setBom1} />
-          </Space>
-        </Card>
-        <Card className="compare-upload-card" size="small">
-          <Typography.Text className="compare-upload-title">新版 / 待确认 BOM</Typography.Text>
-          <Space direction="vertical" style={{ width: "100%" }}>
-            <HistoryBomPicker value={historyBom2} onChange={setHistoryBom2} />
-            <UploadSlot title="上传本地文件" file={bom2} onFile={setBom2} />
-          </Space>
-        </Card>
-        <Card size="small" className="compare-run-card">
-          <Space wrap>
-            <Button type="primary" loading={running} onClick={handleRun} icon={<PlayCircleOutlined />}>
-              开始对比
-            </Button>
-            <Button
-              onClick={() => {
-                setBom1(undefined);
-                setBom2(undefined);
-                setHistoryBom1("");
-                setHistoryBom2("");
-                setResult(null);
-                resetWorkspace();
-              }}
-              icon={<DeleteOutlined />}
-            >
-              清空
-            </Button>
-          </Space>
-        </Card>
-      </div>
-
-      {!result ? (
-        <Alert
-          type="info"
-          showIcon
-          message="选择两份 BOM 后开始对比"
-          description="工作台会按位号、料号用量、原表标注和风险检查四个视角拆解差异。"
+      <section className="bom-source-band">
+        <SourceSelector
+          label="旧版 / 基准"
+          hint="变更前或已确认版本"
+          file={bom1}
+          historyPath={historyBom1}
+          onFile={setBom1}
+          onHistoryPath={setHistoryBom1}
         />
-      ) : null}
-      {result?.status && result.status !== "ok" ? <Alert type="error" showIcon message={result.error || result.message || "运行失败"} /> : null}
+        <Tooltip title="交换新旧版本">
+          <Button
+            className="bom-swap-button"
+            aria-label="交换新旧版本"
+            icon={<ArrowLeftRight size={17} />}
+            onClick={swapSources}
+          />
+        </Tooltip>
+        <SourceSelector
+          label="新版 / 待确认"
+          hint="变更后或准备交付版本"
+          file={bom2}
+          historyPath={historyBom2}
+          onFile={setBom2}
+          onHistoryPath={setHistoryBom2}
+        />
+        <div className="bom-source-actions">
+          <Button
+            type="primary"
+            size="large"
+            loading={running}
+            icon={<Play size={17} fill="currentColor" />}
+            onClick={handleRun}
+          >
+            开始语义对比
+          </Button>
+          <Button icon={<RotateCcw size={16} />} onClick={clearAll}>清空并重来</Button>
+        </div>
+      </section>
 
-      {result?.status === "ok" ? (
+      {result?.status === "error" ? (
+        <Alert type="error" showIcon message="对比失败" description={result.error || result.message} />
+      ) : null}
+      {!result ? (
+        <div className="bom-compare-empty">
+          <GitCompareArrows size={30} />
+          <strong>选择两份 BOM 开始审查</strong>
+          <span>支持 Capture、PLM 单板、多 PCBA 汇总和 OA BOM；纯数字位号会要求确认。</span>
+        </div>
+      ) : null}
+
+      {result?.status === "ok" && semantic && summary ? (
         <>
-          <div className="compare-summary-grid">
-            <Metric label="总位号" value={result.summary?.total_positions || 0} />
-            <Metric label="差异位号" value={result.summary?.changed_positions || 0} tone="diff" />
-            <Metric label="换料" value={counts.swap || 0} tone="high" />
-            <Metric label="新增" value={counts.added || 0} tone="medium" />
-            <Metric label="删除" value={counts.removed || 0} tone="medium" />
-            <Metric label="参数差异" value={counts.param || 0} tone="low" />
-            <Metric label="料号变化" value={result.summary?.part_changes || 0} tone="part" />
+          <div className="bom-source-inspection-grid">
+            <SourceInspection label="旧版来源" inspection={result.source_inspections?.old} />
+            <SourceInspection label="新版来源" inspection={result.source_inspections?.new} />
           </div>
 
+          <section className="bom-summary-strip" aria-label="对比摘要">
+            <Metric label="旧版实际位号" value={summary.actual_reference_count_old} />
+            <Metric label="新版实际位号" value={summary.actual_reference_count_new} />
+            <Metric label="业务变化" value={summary.changed_event_count} tone="info" />
+            <Metric label="贴装位号差异" value={semantic.placement_diff.length} tone="warn" />
+            <Metric label="替代关系差异" value={semantic.substitute_diff.length} tone="info" />
+            <Metric label="阻断项" value={summary.blocker_count} tone={summary.blocker_count ? "danger" : "plain"} />
+          </section>
+
+          {semantic.blockers.length ? (
+            <Alert
+              type="error"
+              showIcon
+              icon={<ShieldAlert size={18} />}
+              message={`发现 ${semantic.blockers.length} 个阻断项`}
+              description="报告可以下载用于定位，但正式 PLM / OA 输出必须先解决阻断项。"
+            />
+          ) : null}
+
           <Tabs
-            className="compare-tabs"
+            className="bom-semantic-tabs"
+            activeKey={activeTab}
+            onChange={setActiveTab}
             items={[
               {
-                key: "position",
-                label: "位号审查",
+                key: "placement",
+                label: `实际贴装 ${semantic.placement_diff.length}`,
                 children: (
-                  <div className="compare-shell">
-                    <aside className="compare-rail">
-                      <Segmented
-                        block
-                        value={filter}
-                        onChange={(value) => setFilter(String(value))}
-                        options={[
-                          { label: "差异", value: "diff" },
-                          { label: "换料", value: "swap" },
-                          { label: "新增", value: "added" },
-                          { label: "删除", value: "removed" },
-                          { label: "参数", value: "param" },
-                          { label: "全部", value: "all" },
-                        ]}
-                      />
-                      <Input
-                        allowClear
-                        prefix={<SearchOutlined />}
-                        placeholder="搜索位号 / 编码 / 描述"
-                        value={query}
-                        onChange={(event) => setQuery(event.target.value)}
-                      />
-                      <div className="compare-focus-list">
-                        {filtered.map((item) => {
-                          const meta = statusMeta[itemGroup(item)];
-                          return (
-                            <button
-                              type="button"
-                              className={`compare-focus-item ${selected?.key === item.key ? "is-active" : ""}`}
-                              key={item.key}
-                              onClick={() => setSelectedKey(item.key)}
-                            >
-                              <span className="compare-focus-ref">{item.key}</span>
-                              <Tag color={meta.color}>{item.status}</Tag>
-                              <span className="compare-focus-code">
-                                {textOf(item.left?.["编号"]) || "-"} → {textOf(item.right?.["编号"]) || "-"}
-                              </span>
-                            </button>
-                          );
-                        })}
+                  <PlacementDiff
+                    rows={semantic.placement_diff}
+                    events={semantic.events}
+                    selectedReference={selectedReference}
+                    onSelectedReference={setSelectedReference}
+                  />
+                ),
+              },
+              {
+                key: "substitute",
+                label: `替代关系 ${semantic.substitute_diff.length}`,
+                children: <SubstituteDiff rows={semantic.substitute_diff} />,
+              },
+              {
+                key: "events",
+                label: `业务事件 ${semantic.events.length}`,
+                children: <EventTable events={semantic.events} />,
+              },
+              {
+                key: "raw",
+                label: `原始行 ${semantic.raw_row_diff.length}`,
+                children: <RawRows rows={semantic.raw_row_diff} />,
+              },
+              {
+                key: "metadata",
+                label: `元数据 ${semantic.metadata_diff.length}`,
+                children: <MetadataDiff rows={semantic.metadata_diff} />,
+              },
+              {
+                key: "delivery",
+                label: `风险与交付 ${semantic.blockers.length + semantic.warnings.length}`,
+                children: (
+                  <div className="bom-delivery-grid">
+                    <section>
+                      <div className="bom-section-heading">
+                        <span className="bom-kicker">质量门禁</span>
+                        <h3>风险与阻断项</h3>
                       </div>
-                    </aside>
-
-                    <main className="compare-detail">
-                      {selected ? (
-                        <>
-                          <div className="compare-detail-head">
-                            <div>
-                              <Typography.Title level={5}>位号 {selected.key}</Typography.Title>
-                              <Typography.Text type="secondary">
-                                {result.review_guide?.[selected.status] || result.review_guide?.[selected.badge || ""] || "核对两份 BOM 在该位号上的差异。"}
-                              </Typography.Text>
-                            </div>
-                            <Tag color={statusMeta[itemGroup(selected)].color}>{selected.status}</Tag>
-                          </div>
-                          {["编号", "型号", "描述"].map((field) => (
-                            <FieldPair key={field} name={field} selected={selected} />
-                          ))}
-                          <Typography.Title level={5} className="compare-section-title">
-                            筛选结果
-                          </Typography.Title>
-                          <Table
-                            size="small"
-                            columns={listColumns}
-                            dataSource={tableData}
-                            pagination={{ pageSize: 10 }}
-                            scroll={{ x: true }}
-                            onRow={(record) => ({ onClick: () => setSelectedKey(record.key) })}
-                          />
-                        </>
-                      ) : (
-                        <Empty description="暂无可审查位号" />
-                      )}
-                    </main>
-
-                    <aside className="compare-inspector">
-                      <Tabs
-                        size="small"
-                        items={[
-                          {
-                            key: "parts",
-                            label: "料号用量",
-                            children: (
-                              <div>
-                                <Typography.Paragraph type="secondary">{result.review_guide?.["料号用量"]}</Typography.Paragraph>
-                                <MiniTable table={result.part_summary} maxRows={10} />
-                              </div>
-                            ),
-                          },
-                          {
-                            key: "risk",
-                            label: "风险提示",
-                            children: (
-                              <Tabs
-                                size="small"
-                                items={[
-                                  { key: "left", label: result.risks?.left_label || "BOM1", children: <RiskList findings={result.risks?.left} /> },
-                                  { key: "right", label: result.risks?.right_label || "BOM2", children: <RiskList findings={result.risks?.right} /> },
-                                ]}
-                              />
-                            ),
-                          },
-                        ]}
-                      />
-                    </aside>
+                      <FindingList rows={[...semantic.blockers, ...semantic.warnings]} />
+                    </section>
+                    <section>
+                      <div className="bom-section-heading">
+                        <span className="bom-kicker">交付文件</span>
+                        <h3>报告与机器数据</h3>
+                      </div>
+                      <ExportPanel outputs={result.outputs || []} canExport={semantic.can_export} />
+                    </section>
                   </div>
-                ),
-              },
-              {
-                key: "parts",
-                label: "料号用量",
-                children: <MiniTable table={result.part_summary} maxRows={1000} />,
-              },
-              {
-                key: "origin",
-                label: "原表标注",
-                children: (
-                  <Tabs
-                    items={[
-                      { key: "left", label: result.origin?.left_label || "BOM1", children: <OriginRows origin={result.origin} side="left" /> },
-                      { key: "right", label: result.origin?.right_label || "BOM2", children: <OriginRows origin={result.origin} side="right" /> },
-                    ]}
-                  />
-                ),
-              },
-              {
-                key: "risk",
-                label: "风险检查",
-                children: (
-                  <Tabs
-                    items={[
-                      { key: "left", label: result.risks?.left_label || "BOM1", children: <RiskList findings={result.risks?.left} /> },
-                      { key: "right", label: result.risks?.right_label || "BOM2", children: <RiskList findings={result.risks?.right} /> },
-                    ]}
-                  />
                 ),
               },
             ]}
