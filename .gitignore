@@ -37,3 +37,8 @@ _disabled_custom_scripts_*/
 _disabled_hwagent_loader_*/
 _hwagent_disabled_autoload_backups/
 {{*}}/
+
+# Private BOM semantic golden data and generated comparison artifacts
+/tests/private/
+/tests/fixtures/bom_semantics/generated/
+/.tmp/bom_semantics/
