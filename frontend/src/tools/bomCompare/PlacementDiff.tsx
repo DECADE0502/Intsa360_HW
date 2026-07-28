@@ -1,8 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { Empty, Input, Segmented, Tag } from "antd";
 import { ArrowRight, Search } from "lucide-react";
-import type { ChangeEvent, PlacementDiff as PlacementDiffType } from "./types";
+import { referenceSummary } from "../../utils/businessResultGroups";
+import type {
+  ChangeEvent,
+  PlacementDiff as PlacementDiffType,
+  PlacementGroup,
+} from "./types";
 import { changeKindLabels } from "./types";
+import { placementGroupsFor } from "./summary";
 
 const statusLabels = {
   migrated: { label: "主料变化", color: "red" },
@@ -29,29 +35,38 @@ function materialDescription(
 
 export function PlacementDiff({
   rows,
+  groups,
   events,
   selectedReference,
   onSelectedReference,
 }: {
   rows: PlacementDiffType[];
+  groups?: PlacementGroup[];
   events: ChangeEvent[];
   selectedReference: string;
   onSelectedReference: (reference: string) => void;
 }) {
   const [filter, setFilter] = useState("all");
   const [query, setQuery] = useState("");
+  const groupedRows = useMemo(
+    () => placementGroupsFor(rows, groups),
+    [groups, rows],
+  );
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    return rows.filter((row) => {
+    return groupedRows.filter((row) => {
       const matchesFilter = filter === "all" || row.status === filter;
-      const haystack = `${row.parent_code} ${row.reference} ${row.old_material_code} ${row.new_material_code}`.toLowerCase();
+      const haystack = `${row.parent_code} ${row.references.join(" ")} ${row.old_material_code} ${row.new_material_code}`.toLowerCase();
       return matchesFilter && (!normalized || haystack.includes(normalized));
     });
-  }, [filter, query, rows]);
-  const selected = rows.find((row) => row.reference === selectedReference) || filtered[0];
+  }, [filter, groupedRows, query]);
+  const selected = groupedRows.find((row) => row.references.includes(selectedReference)) || filtered[0];
   const related = selected
     ? events.filter(
-      (event) => event.impact !== "metadata" && event.references?.includes(selected.reference),
+      (event) => (
+        event.impact !== "metadata"
+        && event.references?.some((reference) => selected.references.includes(reference))
+      ),
     )
     : [];
   const oldDescription = selected
@@ -62,10 +77,11 @@ export function PlacementDiff({
     : "";
 
   useEffect(() => {
-    if (selected && selected.reference !== selectedReference) {
-      onSelectedReference(selected.reference);
+    const firstReference = selected?.references[0] || "";
+    if (firstReference && !selected?.references.includes(selectedReference)) {
+      onSelectedReference(firstReference);
     }
-  }, [selected?.reference, selectedReference]);
+  }, [selected?.group_id, selectedReference]);
 
   if (!rows.length) {
     return <Empty description="实际贴装位号没有变化" />;
@@ -79,10 +95,10 @@ export function PlacementDiff({
           value={filter}
           onChange={(value) => setFilter(String(value))}
           options={[
-            { label: `全部 ${rows.length}`, value: "all" },
-            { label: "主料变化", value: "migrated" },
-            { label: "新增", value: "added" },
-            { label: "移除", value: "removed" },
+            { label: `全部 ${groupedRows.length}`, value: "all" },
+            { label: `主料 ${groupedRows.filter((row) => row.status === "migrated").length}`, value: "migrated" },
+            { label: `新增 ${groupedRows.filter((row) => row.status === "added").length}`, value: "added" },
+            { label: `移除 ${groupedRows.filter((row) => row.status === "removed").length}`, value: "removed" },
           ]}
         />
         <Input
@@ -96,25 +112,25 @@ export function PlacementDiff({
           {filtered.map((row) => (
             <button
               type="button"
-              key={`${row.parent_code}:${row.reference}`}
-              className={`bom-diff-list-item ${selected?.reference === row.reference ? "is-active" : ""}`}
-              onClick={() => onSelectedReference(row.reference)}
+              key={row.group_id}
+              className={`bom-diff-list-item ${selected?.group_id === row.group_id ? "is-active" : ""}`}
+              onClick={() => onSelectedReference(row.references[0] || "")}
             >
-              <span className="bom-reference">{row.reference}</span>
+              <span className="bom-reference">{referenceSummary(row.references)}</span>
               <Tag color={statusLabels[row.status].color}>{statusLabels[row.status].label}</Tag>
-              <small>{row.parent_code}</small>
+              <small>{row.reference_count} 个位号 · {row.parent_code}</small>
             </button>
           ))}
         </div>
       </aside>
 
-      <section className="bom-placement-detail" key={selected?.reference}>
+      <section className="bom-placement-detail" key={selected?.group_id}>
         {selected ? (
           <>
             <div className="bom-detail-title">
               <div>
-                <span className="bom-kicker">实际贴装位号</span>
-                <h3>{selected.reference}</h3>
+                <span className="bom-kicker">同一业务变化组</span>
+                <h3>{selected.reference_count} 个位号统一变化</h3>
               </div>
               <Tag color={statusLabels[selected.status].color}>{statusLabels[selected.status].label}</Tag>
             </div>
@@ -133,6 +149,10 @@ export function PlacementDiff({
             </div>
             <dl className="bom-evidence-list">
               <div><dt>父项</dt><dd>{selected.parent_code}</dd></div>
+              <div className="bom-evidence-list-wide">
+                <dt>组内位号</dt>
+                <dd className="bom-reference-set">{selected.references.join(", ")}</dd>
+              </div>
               <div><dt>判定层</dt><dd>主料实际位号</dd></div>
               <div><dt>统计口径</dt><dd>只按主料实际位号计数，替代料不重复累加</dd></div>
             </dl>

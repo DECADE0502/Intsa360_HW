@@ -18,6 +18,9 @@ from app.backend.bom_semantics.models import (
 )
 from app.backend.bom_semantics.normalization import NormalizedSource
 from app.backend.bom_semantics.references import natural_reference_key
+from app.backend.bom_semantics.substitute_equivalence import (
+    SUBSTITUTE_CONFIGURATION_FINDING_CODES,
+)
 from app.backend.bom_semantics.validation import (
     build_group_fingerprint,
     stable_semantic_fingerprint,
@@ -197,6 +200,7 @@ def build_board_boms(source: NormalizedSource) -> tuple[BoardBOM, ...]:
             if not any(
                 finding.severity == FindingSeverity.BLOCKER
                 for finding in group.validation_findings
+                if finding.code not in SUBSTITUTE_CONFIGURATION_FINDING_CODES
             )
         }
         for item in items:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Iterable, Mapping, Sequence
 
 from app.backend.bom_semantics.change_events import make_change_event
@@ -19,6 +19,11 @@ from app.backend.bom_semantics.models import (
     ValidationFinding,
 )
 from app.backend.bom_semantics.references import natural_reference_key
+from app.backend.bom_semantics.substitute_equivalence import (
+    SUBSTITUTE_CONFIGURATION_FINDING_CODES,
+    compare_substitute_groups,
+    structurally_changed_group_keys,
+)
 from app.backend.bom_semantics.validation import stable_semantic_fingerprint
 
 
@@ -110,6 +115,11 @@ def _group_snapshot(group: SubstituteGroup) -> dict[str, object]:
         "references": list(group.physical_references),
         "valid": not any(
             finding.severity == FindingSeverity.BLOCKER
+            for finding in group.validation_findings
+            if finding.code not in SUBSTITUTE_CONFIGURATION_FINDING_CODES
+        ),
+        "configuration_complete": not any(
+            finding.code in SUBSTITUTE_CONFIGURATION_FINDING_CODES
             for finding in group.validation_findings
         ),
     }
@@ -369,6 +379,54 @@ def _placement_diff(
     return tuple(differences)
 
 
+def group_placement_differences(
+    differences: Sequence[Mapping[str, object]],
+) -> tuple[Mapping[str, object], ...]:
+    """Group identical business changes while preserving every physical reference."""
+    grouped: dict[tuple[str, str, str, str], list[str]] = defaultdict(list)
+    for item in differences:
+        key = (
+            str(item.get("parent_code") or ""),
+            str(item.get("status") or ""),
+            str(item.get("old_material_code") or ""),
+            str(item.get("new_material_code") or ""),
+        )
+        reference = str(item.get("reference") or "").strip()
+        if reference:
+            grouped[key].append(reference)
+
+    result: list[Mapping[str, object]] = []
+    for (parent_code, status, old_code, new_code), references in grouped.items():
+        ordered = tuple(sorted(set(references), key=natural_reference_key))
+        identity = {
+            "parent_code": parent_code,
+            "status": status,
+            "old_material_code": old_code,
+            "new_material_code": new_code,
+        }
+        result.append(
+            {
+                "group_id": stable_semantic_fingerprint(
+                    "placement-change-group",
+                    identity,
+                ),
+                **identity,
+                "references": list(ordered),
+                "reference_count": len(ordered),
+            }
+        )
+    return tuple(
+        sorted(
+            result,
+            key=lambda item: (
+                str(item["parent_code"]),
+                str(item["status"]),
+                natural_reference_key(str(item["references"][0])),
+            ),
+        )
+    )
+
+
 def _group_events(
     matches: Sequence[GroupMatch],
     unmatched_old: Sequence[SubstituteGroup],
@@ -379,15 +437,24 @@ def _group_events(
     handled_placements: set[tuple[str, str]] = set()
     for match in matches:
         old, new = match.old, match.new
+        delta = compare_substitute_groups(old, new)
+        if not delta.changed:
+            continue
         old_snapshot = _group_snapshot(old)
         new_snapshot = _group_snapshot(new)
-        if old_snapshot == new_snapshot:
-            continue
-        differences.append({"status": "changed", "old": old_snapshot, "new": new_snapshot})
+        differences.append(
+            {
+                "status": "changed",
+                "change_dimensions": list(delta.changed_dimensions),
+                "old": old_snapshot,
+                "new": new_snapshot,
+            }
+        )
         blockers = tuple(
             finding.code
             for finding in (*old.validation_findings, *new.validation_findings)
             if finding.severity == FindingSeverity.BLOCKER
+            and finding.code not in SUBSTITUTE_CONFIGURATION_FINDING_CODES
         )
         if blockers:
             events.append(
@@ -453,13 +520,11 @@ def _group_events(
                 )
             )
 
-        old_priorities = {item.material_code: item.substitute_priority for item in old.members}
-        new_priorities = {item.material_code: item.substitute_priority for item in new.members}
         if (
             old_main == new_main
             and old_members == new_members
             and same_refs
-            and old_priorities != new_priorities
+            and "priorities" in delta.changed_dimensions
         ):
             events.append(
                 make_change_event(
@@ -473,15 +538,11 @@ def _group_events(
                     group_codes=(new.group_code,),
                 )
             )
-        elif (
+        if (
             old_main == new_main
             and old_members == new_members
             and same_refs
-            and old_priorities == new_priorities
-            and (
-                old_snapshot["strategies"] != new_snapshot["strategies"]
-                or old_snapshot["modes"] != new_snapshot["modes"]
-            )
+            and delta.configuration_changed
         ):
             events.append(
                 make_change_event(
@@ -493,6 +554,28 @@ def _group_events(
                     new_snapshot=new_snapshot,
                     references=new.physical_references,
                     group_codes=(new.group_code,),
+                )
+            )
+        if (
+            old_main == new_main
+            and old_members == new_members
+            and "quantities" in delta.changed_dimensions
+        ):
+            events.append(
+                make_change_event(
+                    ChangeKind.QUANTITY_CHANGED,
+                    new.parent_code,
+                    f"替代组 {new.group_code} 的组内数量变化",
+                    FunctionalImpact.SUPPLY,
+                    old_snapshot=old_snapshot,
+                    new_snapshot=new_snapshot,
+                    references=tuple(
+                        sorted(
+                            set(old.physical_references) | set(new.physical_references),
+                            key=natural_reference_key,
+                        )
+                    ),
+                    group_codes=tuple(dict.fromkeys((old.group_code, new.group_code))),
                 )
             )
 
@@ -527,6 +610,27 @@ def _group_events(
                 )
             )
     return events, differences, handled_placements
+
+
+def _comparison_findings(
+    findings: Iterable[ValidationFinding],
+    changed_group_keys: set[tuple[str, str]],
+) -> tuple[ValidationFinding, ...]:
+    """Treat missing optional source evidence as unknown for unchanged groups."""
+    contextualized: list[ValidationFinding] = []
+    for finding in findings:
+        group_code = str(finding.details.get("group_code") or "")
+        group_key = finding.parent_code, group_code
+        if (
+            finding.code in SUBSTITUTE_CONFIGURATION_FINDING_CODES
+            and group_code
+            and group_key not in changed_group_keys
+            and finding.severity == FindingSeverity.BLOCKER
+        ):
+            contextualized.append(replace(finding, severity=FindingSeverity.WARNING))
+        else:
+            contextualized.append(finding)
+    return tuple(contextualized)
 
 
 def _replacement_events(
@@ -854,9 +958,15 @@ def compare_board_boms(
     old_placements = _placements(old_boards)
     new_placements = _placements(new_boards)
     placement_diff = _placement_diff(old_placements, new_placements)
+    placement_groups = group_placement_differences(placement_diff)
     matches, unmatched_old, unmatched_new = match_substitute_groups(
         _groups(old_boards),
         _groups(new_boards),
+    )
+    changed_group_keys = structurally_changed_group_keys(
+        matches,
+        unmatched_old,
+        unmatched_new,
     )
     group_events, substitute_diff, handled = _group_events(
         matches,
@@ -892,10 +1002,13 @@ def compare_board_boms(
         substitute_member_keys,
     )
 
-    findings = tuple(
-        finding
-        for board in (*old_boards, *new_boards)
-        for finding in board.findings
+    findings = _comparison_findings(
+        (
+            finding
+            for board in (*old_boards, *new_boards)
+            for finding in board.findings
+        ),
+        changed_group_keys,
     ) + tuple(additional_findings)
     blockers = tuple(
         finding for finding in findings if finding.severity == FindingSeverity.BLOCKER
@@ -944,6 +1057,8 @@ def compare_board_boms(
         material_count_new=len(new_items),
         actual_reference_count_old=len(old_placements),
         actual_reference_count_new=len(new_placements),
+        placement_change_group_count=len(placement_groups),
+        placement_changed_reference_count=len(placement_diff),
         substitute_group_count_old=len(_groups(old_boards)),
         substitute_group_count_new=len(_groups(new_boards)),
         changed_event_count=len(unique_events),
@@ -963,6 +1078,7 @@ def compare_board_boms(
         events=unique_events,
         raw_row_diff=_raw_row_diff(old_boards, new_boards),
         placement_diff=placement_diff,
+        placement_groups=placement_groups,
         substitute_diff=tuple(substitute_diff),
         board_metadata_diff=board_metadata_diff,
         metadata_diff=tuple(metadata_diff),

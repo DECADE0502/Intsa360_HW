@@ -26,7 +26,9 @@ def test_layered_report_round_trip_matches_compare_counts(tmp_path: Path) -> Non
     try:
         assert tuple(workbook.sheetnames) == REPORT_SHEETS
         assert workbook["业务事件"].max_row - 1 == len(result.events)
-        assert workbook["实际贴装差异"].max_row - 1 == len(result.placement_diff)
+        assert workbook["实际贴装差异"].max_row - 1 == len(result.placement_groups)
+        assert workbook["实际贴装差异"]["C2"].value
+        assert workbook["实际贴装差异"]["D2"].value >= 1
         assert workbook["业务事件"]["B2"].number_format == "@"
         summary = {
             row[0].value: row[1].value

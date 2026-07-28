@@ -69,7 +69,7 @@ const response = {
         parent_code: "BOARD-A",
         title: "替代组主料由 MAT-A 调整为 MAT-B",
         impact: "supply",
-        references: ["C1"],
+        references: ["C1", "C2", "C3"],
         group_codes: ["MAT-A", "MAT-B"],
         oa_change_type: "替代(AB共存)",
       },
@@ -78,6 +78,20 @@ const response = {
       {
         parent_code: "BOARD-A",
         reference: "C1",
+        status: "migrated",
+        old_material_code: "MAT-A",
+        new_material_code: "MAT-B",
+      },
+      {
+        parent_code: "BOARD-A",
+        reference: "C2",
+        status: "migrated",
+        old_material_code: "MAT-A",
+        new_material_code: "MAT-B",
+      },
+      {
+        parent_code: "BOARD-A",
+        reference: "C3",
         status: "migrated",
         old_material_code: "MAT-A",
         new_material_code: "MAT-B",
@@ -158,9 +172,11 @@ describe("BOM semantic compare workbench", () => {
     await user.click(screen.getByRole("button", { name: "开始语义对比" }));
 
     expect(await screen.findByRole("tab", { name: "结果总览" })).toBeInTheDocument();
-    expect(screen.getByText("1 个位号发生变化")).toBeInTheDocument();
+    expect(screen.getByText("1 组相同变化，涉及 3 个位号")).toBeInTheDocument();
     expect(screen.getByText("语义对比完成，可以继续交付检查")).toBeInTheDocument();
-    await user.click(screen.getByRole("tab", { name: "贴装变化 1" }));
+    await user.click(screen.getByRole("tab", { name: "贴装变化 1 组" }));
+    expect(screen.getByText("3 个位号统一变化")).toBeInTheDocument();
+    expect(screen.getAllByText("C1, C2, C3")).toHaveLength(2);
     expect(screen.getByText("MAT-A")).toBeInTheDocument();
     expect(screen.getByText("MAT-B")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "替代关系 1" })).toBeInTheDocument();
@@ -278,7 +294,7 @@ describe("BOM semantic compare workbench", () => {
     expect(await screen.findByText("这是同一块板的不同版本吗？")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "确认按同一板卡不同版本对比" }));
 
-    expect(await screen.findByRole("tab", { name: "贴装变化 1" })).toBeInTheDocument();
+    expect(await screen.findByRole("tab", { name: "贴装变化 1 组" })).toBeInTheDocument();
     expect(requestBodies).toHaveLength(2);
     expect(requestBodies[0].scope_confirmation).toBeUndefined();
     expect(requestBodies[1].scope_confirmation).toBe(true);

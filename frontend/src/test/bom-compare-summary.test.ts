@@ -69,4 +69,31 @@ describe("BOM compare presentation summary", () => {
     expect(summary.metadataFieldCount).toBe(2);
     expect(summary.referenceDelta).toBe(1);
   });
+
+  it("groups references only when their complete placement outcome matches", () => {
+    const semantic = {
+      summary: {
+        actual_reference_count_old: 4,
+        actual_reference_count_new: 4,
+      },
+      placement_diff: [
+        { parent_code: "BOARD-A", reference: "C1", status: "migrated", old_material_code: "OLD", new_material_code: "NEW" },
+        { parent_code: "BOARD-A", reference: "C2", status: "migrated", old_material_code: "OLD", new_material_code: "NEW" },
+        { parent_code: "BOARD-A", reference: "C3", status: "migrated", old_material_code: "OLD", new_material_code: "OTHER" },
+      ],
+      substitute_diff: [],
+      metadata_diff: [],
+      board_metadata_diff: [],
+      events: [],
+      blockers: [],
+      warnings: [],
+    } as unknown as SemanticCompare;
+
+    const summary = summarizeCompare(semantic);
+
+    expect(summary.placementGroupCount).toBe(2);
+    expect(summary.placementReferenceCount).toBe(3);
+    expect(summary.placementGroups[0].references).toEqual(["C1", "C2"]);
+    expect(summary.placementGroups[1].references).toEqual(["C3"]);
+  });
 });

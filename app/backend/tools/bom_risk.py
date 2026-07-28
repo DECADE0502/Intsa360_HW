@@ -4,7 +4,11 @@ from pathlib import Path
 
 from app.backend.tools import bom_process
 from app.backend.tools.bom_decisions import load_decision_manifest
-from app.backend.tools.bom_rules import evaluate_bom_risks, find_type_mismatches
+from app.backend.tools.bom_risk_model import build_risk_model
+from app.backend.tools.bom_rules import (
+    evaluate_bom_risk_report,
+    load_risk_rule_config,
+)
 from app.backend.tools.bom_semantic_manifest import load_semantic_manifest
 from app.backend.tools.common import (
     USER_INPUT_EXCEPTIONS,
@@ -16,14 +20,27 @@ from app.backend.tools.common import (
     _result,
     _timestamp,
     _user_error,
+    _write_sheets,
     _write_table,
 )
+
+
+def _sheet_rows(
+    items: list[dict[str, object]],
+    fields: list[tuple[str, str]],
+) -> tuple[list[str], list[list[object]]]:
+    return (
+        [label for _, label in fields],
+        [[_jsonable(item.get(key)) for key, _ in fields] for item in items],
+    )
+
+
 def _run_bom_risk_check_impl(root: Path, params: dict[str, object]) -> dict[str, object]:
     bom, error = _required_file(params, "bom", "BOM 文件")
     if error:
         return _error("bom_risk_check", error)
 
-    rows = _read_bom_rows(bom, require_refs=False)
+    model = build_risk_model(bom)
     manifest_path: Path | None = None
     semantic_manifest_path: Path | None = None
     semantic_findings: list[dict[str, object]] = []
@@ -58,77 +75,124 @@ def _run_bom_risk_check_impl(root: Path, params: dict[str, object]) -> dict[str,
         else:
             placement_decisions = [dict(item) for item in decision_manifest.placements]
     review_summary = params.get("review_summary")
-    findings = evaluate_bom_risks(
-        rows,
+    report = evaluate_bom_risk_report(
+        model,
         review_summary if isinstance(review_summary, dict) else None,
         placement_decisions,
+        load_risk_rule_config(root),
     )
     semantic_issues = [
-        finding
-        for finding in semantic_findings
-        if str(finding.get("severity") or "") in {"warning", "blocker"}
+        item for item in semantic_findings
+        if str(item.get("severity") or "") in {"warning", "blocker"}
     ]
-    findings.append(
-        {
-            "name": "BOM 语义模型校验",
-            "status": "warn" if semantic_issues else "ok",
-            "message": (
-                f"发现 {len(semantic_issues)} 项语义问题："
-                + "；".join(
-                    str(item.get("message") or item.get("code") or "")
-                    for item in semantic_issues[:5]
-                )
-                if semantic_issues
-                else (
-                    "已按实际贴装位号、替代组和处理决策完成校验。"
-                    if semantic_manifest_path
-                    else "未提供语义清单，已执行兼容检查。"
-                )
-            ),
-            "code": "semantic_model_validation",
-        }
-    )
-    positions = sum(len(row.get("refs") or []) for row in rows)
-    parts = len({row["part_number"] for row in rows if row.get("part_number")})
-
-    level_cn = {"ok": "通过", "warn": "警告", "info": "提示"}
-    headers = ["检查项", "结果", "说明"]
-    report_rows = [[f["name"], level_cn.get(f["status"], f["status"]), f["message"]] for f in findings]
+    if semantic_manifest_path:
+        semantic_level = "warn" if semantic_issues else "ok"
+        report["findings"].append(
+            {
+                "code": "semantic_model_validation",
+                "name": "BOM 语义模型校验",
+                "level": semantic_level,
+                "status": semantic_level,
+                "message": (
+                    f"语义清单发现 {len(semantic_issues)} 项问题。"
+                    if semantic_issues
+                    else "语义清单与当前 BOM 已完成一致性校验。"
+                ),
+                "details": semantic_issues,
+                "detail_count": len(semantic_issues),
+                "applicable": True,
+            }
+        )
+        counts = dict(report["counts_by_level"])
+        counts[semantic_level] = int(counts.get(semantic_level, 0)) + 1
+        report["counts_by_level"] = counts
+    findings = list(report["findings"])
+    level_cn = {"blocker": "阻断", "warn": "警告", "info": "提示", "ok": "通过"}
+    overview_rows = [
+        [
+            item.get("name", ""),
+            level_cn.get(str(item.get("level") or ""), item.get("level", "")),
+            item.get("message", ""),
+            item.get("detail_count", 0),
+        ]
+        for item in findings
+    ]
     output = _output_dir(params, root, "risk") / f"BOM风险检查_{_timestamp()}.xlsx"
-    _write_table(output, "风险检查", headers, report_rows)
-
-    def _grade(row: dict[str, object]) -> str:
-        return str(row.get("grade") or "").strip()
-
-    grade_flags = [
-        {"code": r.get("part_number", ""), "desc": r.get("description", ""),
-         "refs": r.get("reference", ""), "grade": _grade(r)}
-        for r in rows
-        if _grade(r) and _grade(r) not in ("优选", "正常")
+    common_fields = [
+        ("source_row", "源行"),
+        ("code", "子项编码"),
+        ("name", "名称"),
+        ("model", "型号"),
+        ("desc", "描述"),
+        ("quantity", "数量"),
+        ("refs", "位号"),
     ]
-    review_headers = ["编号", "型号", "描述", "数量", "位号", "等级"]
-    review_rows = [
-        [r.get("part_number", ""), r.get("model", ""), r.get("description", ""),
-         _jsonable(r.get("quantity")), r.get("reference", ""), _grade(r)]
-        for r in rows
+    grade_headers, grade_rows = _sheet_rows(
+        list(report["grade_flags"]),
+        [*common_fields, ("grade", "等级")],
+    )
+    type_headers, type_rows = _sheet_rows(
+        list(report["type_flags"]),
+        [("ref", "位号"), ("code", "子项编码"), ("expected", "位号期望"), ("actual", "识别类型"), ("note", "说明")],
+    )
+    group_headers, group_rows = _sheet_rows(
+        list(report["substitute_groups"]),
+        [
+            ("parent_code", "父项编码"), ("group_code", "替代组编码"),
+            ("main_code", "主料"), ("alternative_codes", "替代料"),
+            ("priorities", "优先级"), ("quantity", "数量"), ("refs", "实际位号"),
+            ("strategy", "替代策略"), ("mode", "替代方式"), ("issues", "问题"),
+        ],
+    )
+    category_items = [
+        *({**item, "category": "屏蔽类"} for item in report["shield_items"]),
+        *({**item, "category": "机构件"} for item in report["mechanical_items"]),
+        *({**item, "category": "工艺项"} for item in report["process_items"]),
     ]
+    category_headers, category_rows = _sheet_rows(
+        category_items,
+        [("category", "类别"), *common_fields, ("subtype", "子类型")],
+    )
+    version_headers, version_rows = _sheet_rows(
+        list(report["version_sensitive"]),
+        common_fields,
+    )
+    nc_headers, nc_rows = _sheet_rows(list(report["nc_items"]), common_fields)
+    _write_sheets(
+        output,
+        [
+            ("风险概览", ["检查项", "级别", "结论", "明细数"], overview_rows),
+            ("等级明细", grade_headers, grade_rows),
+            ("位号类型冲突", type_headers, type_rows),
+            ("替代组", group_headers, group_rows),
+            ("屏蔽机构工艺项", category_headers, category_rows),
+            ("版本敏感料", version_headers, version_rows),
+            ("NC明细", nc_headers, nc_rows),
+        ],
+    )
 
-    warnings = sum(1 for f in findings if f["status"] == "warn")
+    counts = dict(report["counts_by_level"])
+    stats = dict(report["stats"])
+    warnings = int(counts.get("blocker", 0)) + int(counts.get("warn", 0))
     result = _result(
         "bom_risk_check",
         [output],
-        {"rows": len(rows), "positions": positions, "parts": parts, "warnings": warnings, "grade_flags": len(grade_flags)},
+        {
+            "rows": stats.get("数据行", 0),
+            "positions": stats.get("位号数", 0),
+            "parts": stats.get("料号数", 0),
+            "warnings": warnings,
+            "grade_flags": len(report["grade_flags"]),
+            "blockers": counts.get("blocker", 0),
+            "profile": report["profile"],
+        },
     )
     result["risk_report"] = {
+        **report,
         "label": bom.name,
         "source_file": str(bom),
         "decision_manifest": str(manifest_path) if manifest_path else "",
         "semantic_manifest": str(semantic_manifest_path) if semantic_manifest_path else "",
-        "findings": findings,
-        "stats": {"数据行": len(rows), "位号数": positions, "料号数": parts},
-        "grade_flags": grade_flags,
-        "type_flags": find_type_mismatches(rows),
-        "review": {"headers": review_headers, "rows": review_rows, "grade_col": 5},
     }
     result["source_file"] = str(bom)
     return result

@@ -291,7 +291,8 @@ function ResultVerdict({
       </div>
       <div className="bom-result-verdict-facts">
         <button type="button" onClick={() => onNavigate("placement")}>
-          <strong>{semantic.placement_diff.length}</strong><span>贴装位号变化</span>
+          <strong>{view.placementGroupCount}</strong>
+          <span>贴装变化组 · {view.placementReferenceCount} 位号</span>
         </button>
         <button type="button" onClick={() => onNavigate("substitute")}>
           <strong>{semantic.substitute_diff.length}</strong><span>替代组变化</span>
@@ -623,10 +624,11 @@ export function BomComparePane({ tool }: { tool: ToolInfo }) {
               },
               {
                 key: "placement",
-                label: `贴装变化 ${semantic.placement_diff.length}`,
+                label: `贴装变化 ${presentation?.placementGroupCount || 0} 组`,
                 children: (
                   <PlacementDiff
                     rows={semantic.placement_diff}
+                    groups={semantic.placement_groups}
                     events={semantic.events}
                     selectedReference={selectedReference}
                     onSelectedReference={setSelectedReference}

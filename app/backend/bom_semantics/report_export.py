@@ -67,6 +67,8 @@ def _summary_rows(result: CompareResult) -> list[Mapping[str, object]]:
         "material_count_new": "新版物料种类数",
         "actual_reference_count_old": "旧版实际位号数",
         "actual_reference_count_new": "新版实际位号数",
+        "placement_change_group_count": "贴装变化组数",
+        "placement_changed_reference_count": "贴装变化位号数",
         "substitute_group_count_old": "旧版替代组数",
         "substitute_group_count_new": "新版替代组数",
         "changed_event_count": "全部事件数",
@@ -137,8 +139,16 @@ def export_compare_report(result: CompareResult, path: Path) -> Path:
     placements = workbook.create_sheet(REPORT_SHEETS[2])
     _write_table(
         placements,
-        ("parent_code", "reference", "status", "old_material_code", "new_material_code"),
-        result.placement_diff,
+        (
+            "group_id",
+            "parent_code",
+            "references",
+            "reference_count",
+            "status",
+            "old_material_code",
+            "new_material_code",
+        ),
+        result.placement_groups,
     )
 
     substitutes = workbook.create_sheet(REPORT_SHEETS[3])
@@ -194,7 +204,7 @@ def verify_compare_report(path: Path, result: CompareResult) -> None:
         if event_rows != len(result.events):
             raise ValueError("BOM 对比报告事件数量与结果不一致。")
         placement_rows = max(workbook["实际贴装差异"].max_row - 1, 0)
-        if placement_rows != len(result.placement_diff):
+        if placement_rows != len(result.placement_groups):
             raise ValueError("BOM 对比报告实际贴装差异数量不一致。")
         summary_values = {
             str(row[0].value): row[1].value

@@ -14,7 +14,6 @@ import {
   Space,
   Steps,
   Table,
-  Tabs,
   Tag,
   Typography,
   Upload,
@@ -35,7 +34,7 @@ import { ApiError, toUserMessage } from "../api/errors";
 import { useToolWorkspace } from "../state/toolWorkspace";
 import { packageDownloadName } from "../utils/downloadName";
 import { outputHref } from "../utils/outputHref";
-import { riskStatusText } from "../utils/statusText";
+import { RiskFindings } from "./bomRisk/RiskFindings";
 import {
   buildRecommendedConflictChoices,
   conflictChoiceComplete,
@@ -716,103 +715,26 @@ function ProcessView({
 }
 
 function RiskView({ rrun, rres, pres, onNext, onBack }: any) {
-  if (rrun) return <Result icon={<SafetyCertificateOutlined spin />} title="正在风险审查…" subTitle="检查 PCB、屏蔽支架、NC、等级、位号类型、硬件版本敏感物料" />;
+  if (rrun) return <Result icon={<SafetyCertificateOutlined spin />} title="正在风险审查…" subTitle="检查字段质量、替代组、贴装范围、物料等级、位号类型和版本敏感物料" />;
   if (!rres) return null;
-  if (rres.status === "error") return <Result status="warning" title="检查未完成" subTitle={rres.error} extra={<Button type="primary" onClick={onNext}>跳过，直接导出</Button>} />;
-
-  const rep = rres.risk_report || {};
-  const findings = rep.findings || [];
-  const warns = findings.filter((f: any) => f.status === "warn");
-  const grades = rep.grade_flags || [];
-  const types = rep.type_flags || [];
-  const outputs = rres.outputs || [];
-  const findingColumns = [
-    { title: "检查项", dataIndex: "name", ellipsis: true },
-    { title: "状态", dataIndex: "status", width: 90, render: (v: string) => <Tag color={v === "warn" ? "orange" : v === "ok" ? "green" : "blue"}>{riskStatusText(v)}</Tag> },
-    { title: "说明", dataIndex: "message", ellipsis: true },
-  ];
-  const gradeColumns = [
-    { title: "编号", dataIndex: "code", ellipsis: true },
-    { title: "描述", dataIndex: "desc", ellipsis: true },
-    { title: "位号", dataIndex: "refs", ellipsis: true },
-    { title: "等级", dataIndex: "grade", width: 120, render: (v: string) => <Tag color="orange">{v}</Tag> },
-  ];
-  const typeColumns = [
-    { title: "位号", dataIndex: "ref", width: 120, render: (v: string) => <Typography.Text code>{v}</Typography.Text> },
-    { title: "编号", dataIndex: "code", ellipsis: true },
-    { title: "提示", dataIndex: "note", ellipsis: true, render: (v: string) => <Tag color="orange">{v}</Tag> },
-  ];
-  const riskTabs = [
-    {
-      key: "risk-overview",
-      label: "审查概览",
-      children: (
-        <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-          <Descriptions size="small" column={4}>
-            <Descriptions.Item label="检查项">{findings.length}</Descriptions.Item>
-            <Descriptions.Item label="通过">{findings.filter((f: any) => f.status === "ok").length}</Descriptions.Item>
-            <Descriptions.Item label="警告">{warns.length}</Descriptions.Item>
-            <Descriptions.Item label="提示">{findings.filter((f: any) => f.status === "info").length}</Descriptions.Item>
-          </Descriptions>
-          {warns.length ? (
-            <Alert type="warning" showIcon message={`发现 ${warns.length} 个风险项`} description="请按页签逐项核对，确认后再进入导出交付。" />
-          ) : (
-            <Alert type="success" showIcon message="审查通过，无警告项" />
-          )}
-        </Space>
-      ),
-    },
-    {
-      key: "risk-basic",
-      label: `基础检查 ${warns.length ? `(${warns.length})` : ""}`,
-      children: <Table size="small" rowKey={(row: any, index) => `${row.name}-${index}`} dataSource={findings} columns={findingColumns} pagination={{ pageSize: 8 }} />,
-    },
-    {
-      key: "risk-final-preview",
-      label: "最终 BOM 预览",
-      children: <BomPreviewTable preview={pres?.preview} />,
-    },
-    {
-      key: "risk-grade",
-      label: `优选等级 ${grades.length ? `(${grades.length})` : ""}`,
-      children: grades.length ? (
-        <Table size="small" rowKey={(row: any, index) => `${row.code}-${index}`} dataSource={grades} columns={gradeColumns} pagination={{ pageSize: 8 }} />
-      ) : (
-        <Alert type="success" showIcon message="未发现非优选等级风险" />
-      ),
-    },
-    {
-      key: "risk-type",
-      label: `位号类型 ${types.length ? `(${types.length})` : ""}`,
-      children: types.length ? (
-        <Table size="small" rowKey={(row: any, index) => `${row.ref}-${index}`} dataSource={types} columns={typeColumns} pagination={{ pageSize: 8 }} />
-      ) : (
-        <Alert type="success" showIcon message="未发现位号类型不符" />
-      ),
-    },
-    {
-      key: "risk-outputs",
-      label: `审查文件 ${outputs.length ? `(${outputs.length})` : ""}`,
-      children: (
-        <List
-          size="small"
-          dataSource={outputs}
-          renderItem={(p: string) => (
-            <List.Item>
-              <FileTextOutlined style={{ marginRight: 8, color: "#1677ff" }} />
-              {fname(p)}
-            </List.Item>
-          )}
-        />
-      ),
-    },
-  ];
+  if (rres.status === "error") {
+    return (
+      <Result
+        status="warning"
+        title="检查未完成"
+        subTitle={rres.error}
+        extra={<Button type="primary" onClick={onNext}>跳过，直接导出</Button>}
+      />
+    );
+  }
 
   return (
     <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-      <Card size="small" title="风险审查">
-        <Tabs items={riskTabs} />
-      </Card>
+      <RiskFindings
+        report={rres.risk_report}
+        outputs={rres.outputs || []}
+        preview={<BomPreviewTable preview={pres?.preview} />}
+      />
       <Space>
         <Button type="primary" size="large" onClick={onNext}>进入导出交付 <RightOutlined /></Button>
         <Button onClick={onBack}>返回上一步</Button>

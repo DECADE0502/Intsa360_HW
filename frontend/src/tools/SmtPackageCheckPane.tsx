@@ -25,23 +25,13 @@ import { toUserMessage } from "../api/errors";
 import { outputHref } from "../utils/outputHref";
 import { HistoryBomPicker } from "../components/HistoryBomPicker";
 import { useToolWorkspace } from "../state/toolWorkspace";
-
-type SmtReviewItem = {
-  key: string;
-  ref: string;
-  status: string;
-  kind: string;
-  severity?: string;
-  part_number?: string;
-  net_package?: string;
-  bom_package?: string;
-  model?: string;
-  description?: string;
-  name?: string;
-  grade?: string;
-  note?: string;
-  refs?: string[];
-};
+import {
+  referenceSummary,
+} from "../utils/businessResultGroups";
+import {
+  groupSmtItems,
+  type SmtReviewItem,
+} from "./smtPackage/grouping";
 
 function textOf(value: unknown) {
   return String(value ?? "");
@@ -202,36 +192,42 @@ export function SmtPackageCheckPane({ tool }: { tool: ToolInfo }) {
   const review = result?.smt_package_review;
   const items: SmtReviewItem[] = review?.items || [];
   const focusItems: SmtReviewItem[] = review?.focus_items || [];
-  const visibleItems = useMemo(() => {
+  const allGroups = useMemo(() => groupSmtItems(items), [items]);
+  const visibleGroups = useMemo(() => {
     const source = filter === "focus" ? focusItems : items;
     const q = query.trim().toLowerCase();
-    return source.filter((item) => {
+    return groupSmtItems(source).filter((group) => {
+      const item = group.items[0];
       const byFilter = filter === "focus" || filter === "all" || filterOf(item) === filter;
-      const hay = `${item.ref} ${item.status} ${item.part_number} ${item.net_package} ${item.bom_package} ${item.model} ${item.description} ${item.name} ${item.note}`.toLowerCase();
+      const hay = `${group.references.join(" ")} ${item.status} ${item.part_number} ${item.net_package} ${item.bom_package} ${item.model} ${item.description} ${item.name} ${item.note}`.toLowerCase();
       return byFilter && (!q || hay.includes(q));
     });
   }, [items, focusItems, filter, query]);
-  const selected = items.find((item) => item.key === selectedKey) || visibleItems[0] || items[0];
+  const selectedGroup = allGroups.find((group) => group.groupKey === selectedKey)
+    || visibleGroups[0]
+    || allGroups[0];
+  const selected = selectedGroup?.items[0];
   const counts = review?.status_counts || {};
+  const groupCount = (value: string) => allGroups.filter((group) => filterOf(group.items[0]) === value).length;
   const filterOptions = [
-    { label: "重点", value: "focus", count: focusItems.length },
-    { label: "需确认", value: "manual", count: counts.manual || 0 },
-    { label: "缺位号", value: "missing_bom", count: counts.missing_bom || 0 },
-    { label: "多余", value: "extra_bom", count: counts.extra_bom || 0 },
-    { label: "多封装", value: "multi_package", count: counts.multi_package || 0 },
-    { label: "高风险", value: "high_risk", count: counts.high_risk || 0 },
-    { label: "已跳过", value: "skipped", count: (counts.nc_skipped || 0) + (counts.non_smt_skipped || 0) },
-    { label: "全部", value: "all", count: items.length },
+    { label: "重点", value: "focus", count: groupSmtItems(focusItems).length },
+    { label: "需确认", value: "manual", count: groupCount("manual") },
+    { label: "缺位号", value: "missing_bom", count: groupCount("missing_bom") },
+    { label: "多余", value: "extra_bom", count: groupCount("extra_bom") },
+    { label: "多封装", value: "multi_package", count: groupCount("multi_package") },
+    { label: "高风险", value: "high_risk", count: groupCount("high_risk") },
+    { label: "已跳过", value: "skipped", count: groupCount("skipped") },
+    { label: "全部", value: "all", count: allGroups.length },
   ];
 
   useEffect(() => {
     if (review) {
       setSelectedKey((prev) => {
-        if (prev && items.some((item) => item.key === prev)) return prev;
-        return review.focus_items?.[0]?.key || review.items?.[0]?.key || "";
+        if (prev && allGroups.some((group) => group.groupKey === prev)) return prev;
+        return groupSmtItems(review.focus_items || [])[0]?.groupKey || allGroups[0]?.groupKey || "";
       });
     }
-  }, [review]);
+  }, [review, allGroups]);
 
   async function handleRun() {
     if (!netlistFiles.some((file) => file.name.toLowerCase() === "pstxprt.dat")) {
@@ -397,22 +393,26 @@ export function SmtPackageCheckPane({ tool }: { tool: ToolInfo }) {
                       </div>
                       <Input allowClear prefix={<SearchOutlined />} placeholder="搜索位号 / 编码 / 封装 / 描述" value={query} onChange={(event) => setQuery(event.target.value)} />
                       <div className="smt-focus-list">
-                        {visibleItems.map((item) => (
+                        {visibleGroups.map((group) => {
+                          const item = group.items[0];
+                          return (
                           <button
                             type="button"
-                            key={item.key}
-                            className={`smt-focus-item ${selected?.key === item.key ? "is-active" : ""}`}
-                            onClick={() => setSelectedKey(item.key)}
+                            key={group.groupKey}
+                            className={`smt-focus-item ${selectedGroup?.groupKey === group.groupKey ? "is-active" : ""}`}
+                            onClick={() => setSelectedKey(group.groupKey)}
                           >
                             <span className="smt-focus-top">
-                              <span className="smt-focus-ref">{item.ref}</span>
+                              <span className="smt-focus-ref">{referenceSummary(group.references)}</span>
                               <Tag color={statusColor(item.status)}>{item.status}</Tag>
                             </span>
+                            <span className="smt-focus-code">{group.references.length} 个位号</span>
                             <span className="smt-focus-code">{item.part_number || "-"}</span>
                             <span className="smt-focus-package">{item.net_package || item.bom_package || "-"}</span>
                             <span className="smt-focus-msg">{item.note}</span>
                           </button>
-                        ))}
+                          );
+                        })}
                       </div>
                     </aside>
 
@@ -421,12 +421,15 @@ export function SmtPackageCheckPane({ tool }: { tool: ToolInfo }) {
                         <>
                           <div className="smt-detail-head">
                             <div>
-                              <Typography.Title level={5}>{selected.ref}</Typography.Title>
+                              <Typography.Title level={5}>
+                                {selectedGroup.references.length} 个位号统一结论
+                              </Typography.Title>
                               <Typography.Text type="secondary">{review?.review_guide?.[selected.status] || selected.note}</Typography.Text>
                             </div>
                             <Tag color={statusColor(selected.status)}>{selected.status}</Tag>
                           </div>
                           <div className="smt-field-grid">
+                            <SmtField label="组内位号" value={selectedGroup.references.join(", ")} />
                             <SmtField label="网表封装" value={selected.net_package} />
                             <SmtField label="BOM 封装" value={selected.bom_package} />
                             <SmtField label="物料编码" value={selected.part_number} />
@@ -441,12 +444,18 @@ export function SmtPackageCheckPane({ tool }: { tool: ToolInfo }) {
                           </Typography.Title>
                           <Table
                             size="small"
-                            dataSource={visibleItems.map((item) => ({ ...item, key: item.key }))}
+                            dataSource={visibleGroups.map((group) => ({
+                              ...group.items[0],
+                              key: group.groupKey,
+                              references: group.references,
+                              reference_count: group.references.length,
+                            }))}
                             pagination={{ pageSize: 10 }}
                             scroll={{ x: true }}
                             onRow={(record) => ({ onClick: () => setSelectedKey(record.key) })}
                             columns={[
-                              { title: "位号", dataIndex: "ref", key: "ref", ellipsis: true },
+                              { title: "位号组", dataIndex: "references", key: "references", ellipsis: true, render: (value: string[]) => referenceSummary(value) },
+                              { title: "数量", dataIndex: "reference_count", key: "reference_count", width: 72 },
                               { title: "状态", dataIndex: "status", key: "status", render: (value: string) => <Tag color={statusColor(value)}>{value}</Tag> },
                               { title: "编码", dataIndex: "part_number", key: "part_number", ellipsis: true },
                               { title: "网表封装", dataIndex: "net_package", key: "net_package", ellipsis: true },

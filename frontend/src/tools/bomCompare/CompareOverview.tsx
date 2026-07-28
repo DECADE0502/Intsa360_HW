@@ -29,10 +29,12 @@ export function CompareOverview({
           <div className="bom-review-route-icon"><ListChecks size={19} /></div>
           <div>
             <span>第一步 · 核对贴装</span>
-            <strong>{semantic.placement_diff.length} 个位号发生变化</strong>
+            <strong>
+              {view.placementGroupCount} 组相同变化，涉及 {view.placementReferenceCount} 个位号
+            </strong>
             <p>
-              主料变化 {view.placement.migrated}，新增 {view.placement.added}，
-              移除 {view.placement.removed}。整板实际位号
+              主料变化 {view.placement.migrated} 组，新增 {view.placement.added} 组，
+              移除 {view.placement.removed} 组。整板实际位号
               {" "}{summary.actual_reference_count_old} → {summary.actual_reference_count_new}
               （{signed(view.referenceDelta)}）。
             </p>

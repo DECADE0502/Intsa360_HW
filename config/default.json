@@ -68,7 +68,24 @@
     "weak_part_number_values": [
       "TP", "TESTPOINT", "TEST POINT", "SHORT", "JUMPER", "GND", "MOUNTINGHOLE",
       "MOUNTING HOLE", "FIDUCIAL", "NO_CONNECT", "RES_NP", "CAP_NP"
-    ]
+    ],
+    "risk": {
+      "mechanical_keywords": [
+        "螺丝", "螺钉", "螺母", "螺柱", "螺母柱", "垫片", "华司", "铜柱",
+        "支柱", "散热片", "导热垫", "结构件", "定位柱", "STANDOFF", "SCREW"
+      ],
+      "shield_keywords": ["屏蔽支架", "屏蔽罩", "SHIELD BRACKET", "SHIELD COVER"],
+      "process_keywords": [
+        "测试点", "跳线", "短接", "基准", "工艺边", "MARK点", "FIDUCIAL",
+        "MOUNTINGHOLE", "MOUNTING HOLE"
+      ],
+      "process_ref_prefixes": ["TP", "JP", "FID", "MK", "MH", "Z_TP"],
+      "grade_ok": ["优选", "正常"],
+      "version_sensitive": ["EMMC", "DDR", "LPDDR", "UFS", "NAND", "SOC", "WIFI", "加密"],
+      "expected_prefix_type": {"C": "电容", "R": "电阻", "L": "电感"},
+      "code_prefix_type": {"C": "电容", "R": "电阻", "L": "电感"},
+      "normal_units": ["EA"]
+    }
   },
   "update": {
     "schema": 3,

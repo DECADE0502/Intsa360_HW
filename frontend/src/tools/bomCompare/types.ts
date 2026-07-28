@@ -42,6 +42,16 @@ export type PlacementDiff = {
   new_material_code: string;
 };
 
+export type PlacementGroup = {
+  group_id: string;
+  parent_code: string;
+  references: string[];
+  reference_count: number;
+  status: "added" | "removed" | "migrated";
+  old_material_code: string;
+  new_material_code: string;
+};
+
 export type SubstituteSnapshot = {
   parent_code?: string;
   group_code?: string;
@@ -128,6 +138,7 @@ export type SemanticCompare = {
   events: ChangeEvent[];
   raw_row_diff: RawRowDiff[];
   placement_diff: PlacementDiff[];
+  placement_groups?: PlacementGroup[];
   substitute_diff: SubstituteDiff[];
   board_metadata_diff: BoardMetadataDiff[];
   metadata_diff: MetadataDiff[];

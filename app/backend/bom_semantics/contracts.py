@@ -39,6 +39,8 @@ class CompareSummary:
     material_count_new: int = 0
     actual_reference_count_old: int = 0
     actual_reference_count_new: int = 0
+    placement_change_group_count: int = 0
+    placement_changed_reference_count: int = 0
     substitute_group_count_old: int = 0
     substitute_group_count_new: int = 0
     changed_event_count: int = 0
@@ -58,6 +60,8 @@ class CompareSummary:
             "material_count_new": self.material_count_new,
             "actual_reference_count_old": self.actual_reference_count_old,
             "actual_reference_count_new": self.actual_reference_count_new,
+            "placement_change_group_count": self.placement_change_group_count,
+            "placement_changed_reference_count": self.placement_changed_reference_count,
             "substitute_group_count_old": self.substitute_group_count_old,
             "substitute_group_count_new": self.substitute_group_count_new,
             "changed_event_count": self.changed_event_count,
@@ -80,6 +84,7 @@ class CompareResult:
     events: tuple[BomChangeEvent, ...]
     raw_row_diff: tuple[Mapping[str, object], ...] = ()
     placement_diff: tuple[Mapping[str, object], ...] = ()
+    placement_groups: tuple[Mapping[str, object], ...] = ()
     substitute_diff: tuple[Mapping[str, object], ...] = ()
     board_metadata_diff: tuple[Mapping[str, object], ...] = ()
     metadata_diff: tuple[Mapping[str, object], ...] = ()
@@ -101,6 +106,7 @@ class CompareResult:
             "events": [event.payload() for event in self.events],
             "raw_row_diff": [dict(item) for item in self.raw_row_diff],
             "placement_diff": [dict(item) for item in self.placement_diff],
+            "placement_groups": [dict(item) for item in self.placement_groups],
             "substitute_diff": [dict(item) for item in self.substitute_diff],
             "board_metadata_diff": [
                 dict(item) for item in self.board_metadata_diff

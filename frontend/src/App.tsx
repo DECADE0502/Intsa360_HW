@@ -26,6 +26,7 @@ import "./styles.css";
 const { Sider, Content } = Layout;
 type PluginGroups = { system: PluginInfo[]; platform: PluginInfo[]; user: PluginInfo[] };
 const BomProcessWizard = lazy(() => import("./tools/BomProcessWizard").then((module) => ({ default: module.BomProcessWizard })));
+const BomRiskPane = lazy(() => import("./tools/BomRiskPane").then((module) => ({ default: module.BomRiskPane })));
 const LegacyToolPane = lazy(() => import("./tools/LegacyToolPane").then((module) => ({ default: module.LegacyToolPane })));
 const SmtLayoutPane = lazy(() => import("./tools/SmtLayoutPane").then((module) => ({ default: module.SmtLayoutPane })));
 const RECONNECT_PROTOCOL_URL = "insta360-hw://reconnect";
@@ -463,11 +464,18 @@ export default function App() {
             <div style={{ display: active === "bom_process" ? "block" : "none" }}>
               <BomProcessWizard />
             </div>
+            {tools
+              .filter((tool) => tool.id === "bom_risk_check")
+              .map((tool) => (
+                <div key={tool.id} style={{ display: active === tool.id ? "block" : "none" }}>
+                  <BomRiskPane tool={tool} />
+                </div>
+              ))}
             <div style={{ display: active === "smt_layout" ? "block" : "none" }}>
               <SmtLayoutPane />
             </div>
             {tools
-              .filter((t) => !["bom_process", "smt_layout"].includes(t.id))
+              .filter((t) => !["bom_process", "bom_risk_check", "smt_layout"].includes(t.id))
               .map((t) => (
                 <div key={t.id} style={{ display: active === t.id ? "block" : "none" }}>
                   <LegacyToolPane tool={t} />

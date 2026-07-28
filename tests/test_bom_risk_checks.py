@@ -369,14 +369,14 @@ class BomRiskCheckTests(unittest.TestCase):
             self.assertEqual(finding["status"], "info")
             self.assertIn("屏蔽罩不会通过", finding["message"])
 
-    def test_sh_prefix_and_description_are_not_used_without_decision_manifest(self) -> None:
+    def test_sh_prefix_and_description_are_used_without_decision_manifest(self) -> None:
         findings = evaluate_bom_risks(
             [{"part_number": "SH-PN", "description": "屏蔽支架", "refs": ["SH1"]}]
         )
 
         finding = next(item for item in findings if item["name"] == "屏蔽支架")
         self.assertEqual(finding["status"], "info")
-        self.assertIn("无法仅凭 SH 位号或描述", finding["message"])
+        self.assertIn("依据 BOM 属性识别到 1 行", finding["message"])
 
     def test_emmc_and_ddr_warn_about_hardware_version(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

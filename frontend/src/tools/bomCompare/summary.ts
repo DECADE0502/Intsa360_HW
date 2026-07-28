@@ -1,7 +1,9 @@
 import type {
+  PlacementGroup,
   SemanticCompare,
   ValidationFinding,
 } from "./types";
+import { groupByBusinessOutcome } from "../../utils/businessResultGroups";
 
 export type FindingGroup = {
   key: string;
@@ -82,11 +84,44 @@ export function groupFindingsByRecord(rows: ValidationFinding[]): FindingGroup[]
   return Array.from(groups.values());
 }
 
+export function placementGroupsFor(
+  placementDiff: SemanticCompare["placement_diff"],
+  placementGroups?: PlacementGroup[],
+): PlacementGroup[] {
+  return placementGroups?.length
+    ? placementGroups
+    : groupByBusinessOutcome(
+      placementDiff,
+      (row) => [
+        row.parent_code,
+        row.status,
+        row.old_material_code,
+        row.new_material_code,
+      ].join("|"),
+      (row) => [row.reference],
+    ).map((group) => {
+      const first = group.items[0];
+      return {
+        group_id: group.groupKey,
+        parent_code: first.parent_code,
+        references: group.references,
+        reference_count: group.references.length,
+        status: first.status,
+        old_material_code: first.old_material_code,
+        new_material_code: first.new_material_code,
+      };
+    });
+}
+
 export function summarizeCompare(semantic: SemanticCompare) {
+  const placementGroups = placementGroupsFor(
+    semantic.placement_diff,
+    semantic.placement_groups,
+  );
   const placement = {
-    migrated: semantic.placement_diff.filter((row) => row.status === "migrated").length,
-    added: semantic.placement_diff.filter((row) => row.status === "added").length,
-    removed: semantic.placement_diff.filter((row) => row.status === "removed").length,
+    migrated: placementGroups.filter((row) => row.status === "migrated").length,
+    added: placementGroups.filter((row) => row.status === "added").length,
+    removed: placementGroups.filter((row) => row.status === "removed").length,
   };
   const substitute = {
     added: semantic.substitute_diff.filter((row) => row.status === "added").length,
@@ -110,6 +145,9 @@ export function summarizeCompare(semantic: SemanticCompare) {
     ?? groupFindingsByRecord(semantic.blockers).length;
   return {
     placement,
+    placementGroups,
+    placementGroupCount: placementGroups.length,
+    placementReferenceCount: semantic.placement_diff.length,
     substitute,
     metadataEventCount,
     metadataChangeCount,
