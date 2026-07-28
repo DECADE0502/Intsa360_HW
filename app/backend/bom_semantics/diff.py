@@ -804,6 +804,43 @@ def _blocker_events(findings: Iterable[ValidationFinding]) -> list[BomChangeEven
     ]
 
 
+def _blocking_record_count(findings: Iterable[ValidationFinding]) -> int:
+    records: set[tuple[object, ...]] = set()
+    for finding in findings:
+        if finding.source_ids:
+            records.update(("source", source_id) for source_id in finding.source_ids)
+            continue
+        details = dict(finding.details)
+        material_codes = details.get("material_codes")
+        if isinstance(material_codes, (list, tuple)):
+            material_target = tuple(str(code) for code in material_codes)
+        else:
+            material_target = (
+                str(
+                    details.get("material_code")
+                    or details.get("main_code")
+                    or details.get("group_code")
+                    or ""
+                ),
+            )
+        target = (
+            "target",
+            finding.parent_code,
+            str(details.get("group_code") or ""),
+            material_target,
+            tuple(finding.references),
+        )
+        if target[2:] == ("", ("",), ()):
+            target = (
+                "finding",
+                finding.parent_code,
+                finding.code,
+                tuple(finding.references),
+            )
+        records.add(target)
+    return len(records)
+
+
 def compare_board_boms(
     old_boards: Sequence[BoardBOM],
     new_boards: Sequence[BoardBOM],
@@ -894,6 +931,12 @@ def compare_board_boms(
             "events": [event.event_id for event in unique_events],
         },
     )
+    board_metadata_diff = _board_metadata_diff(old_boards, new_boards)
+    metadata_event_count = counts.get(ChangeKind.METADATA_ONLY.value, 0)
+    metadata_field_count = sum(
+        len(row.get("changed_fields") or ())
+        for row in (*metadata_diff, *board_metadata_diff)
+    )
     summary = CompareSummary(
         parent_count_old=len(old_boards),
         parent_count_new=len(new_boards),
@@ -904,7 +947,12 @@ def compare_board_boms(
         substitute_group_count_old=len(_groups(old_boards)),
         substitute_group_count_new=len(_groups(new_boards)),
         changed_event_count=len(unique_events),
+        review_event_count=len(unique_events) - metadata_event_count,
+        metadata_event_count=metadata_event_count,
+        metadata_change_count=len(metadata_diff) + len(board_metadata_diff),
+        metadata_field_count=metadata_field_count,
         blocker_count=len(blockers),
+        blocking_record_count=_blocking_record_count(blockers),
         event_counts=dict(counts),
     )
     return CompareResult(
@@ -916,7 +964,7 @@ def compare_board_boms(
         raw_row_diff=_raw_row_diff(old_boards, new_boards),
         placement_diff=placement_diff,
         substitute_diff=tuple(substitute_diff),
-        board_metadata_diff=_board_metadata_diff(old_boards, new_boards),
+        board_metadata_diff=board_metadata_diff,
         metadata_diff=tuple(metadata_diff),
         blockers=blockers,
         warnings=warnings,

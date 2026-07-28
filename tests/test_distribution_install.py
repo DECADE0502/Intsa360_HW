@@ -556,15 +556,29 @@ class DistributionLifecycleV2Tests(unittest.TestCase):
         self.assertIn("Start-HwV3Service -RuntimeRoot $newRuntime", installer)
         self.assertIn('Invoke-HwV3Fault -FaultAt $FaultAt -Point "runtime_verified"', installer)
 
-    def test_protocol_registration_has_one_installer_owned_authority(self) -> None:
+    def test_protocol_registration_has_installer_authority_and_owned_user_fallback(self) -> None:
         launcher = (ROOT / "launcher" / "Insta360_HW.cs").read_text(encoding="utf-8")
+        backend = (ROOT / "app" / "backend" / "services" / "reconnect_protocol.py").read_text(encoding="utf-8")
         uninstaller = (ROOT / "scripts" / "lifecycle" / "Uninstall.ps1").read_text(encoding="utf-8")
 
         self.assertNotIn("EnsureReconnectProtocolReady", launcher)
         self.assertNotIn("Registry.CurrentUser", launcher)
+        self.assertIn("HKEY_LOCAL_MACHINE", backend)
+        self.assertIn("HKEY_CURRENT_USER", backend)
+        self.assertIn('PROTOCOL_OWNER = "Insta360_HW"', backend)
+        self.assertIn("if machine.exists and not machine.owned", backend)
+        self.assertIn("if user.exists and not user.owned", backend)
         self.assertIn('HKLM:\\Software\\Classes\\insta360-hw', uninstaller)
         self.assertIn('HKCU:\\Software\\Classes\\insta360-hw', uninstaller)
         self.assertIn("Remove-OwnedProtocolRegistrationAtPath", uninstaller)
+        self.assertIn("$commandMatchesInstall", uninstaller)
+        self.assertIn('$owner -eq "Insta360_HW" -and $commandMatchesInstall', uninstaller)
+
+        v3_uninstaller = (ROOT / "scripts" / "lifecycle_v3" / "Uninstall.ps1").read_text(
+            encoding="utf-8-sig"
+        )
+        self.assertIn("$commandMatchesInstall", v3_uninstaller)
+        self.assertIn('$owner -eq "Insta360_HW" -and $commandMatchesInstall', v3_uninstaller)
 
     def test_lifecycle_wrappers_never_return_stale_native_exit_codes(self) -> None:
         for name in ("install.ps1", "uninstall.ps1", "oneclick_install.ps1"):

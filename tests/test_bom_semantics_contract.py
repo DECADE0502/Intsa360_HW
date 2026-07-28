@@ -87,7 +87,13 @@ def test_compare_result_blocks_export_when_blocker_exists() -> None:
         analysis_fingerprint="analysis",
         old_source_fingerprint="old",
         new_source_fingerprint="new",
-        summary=CompareSummary(blocker_count=1, changed_event_count=1),
+        summary=CompareSummary(
+            blocker_count=1,
+            blocking_record_count=1,
+            changed_event_count=1,
+            review_event_count=1,
+            metadata_field_count=2,
+        ),
         events=(event,),
         blockers=(blocker,),
     )
@@ -95,3 +101,6 @@ def test_compare_result_blocks_export_when_blocker_exists() -> None:
     assert result.can_export is False
     assert result.payload()["can_export"] is False
     assert result.payload()["events"][0]["kind"] == "substitute_structure_invalid"
+    assert result.payload()["summary"]["blocking_record_count"] == 1
+    assert result.payload()["summary"]["review_event_count"] == 1
+    assert result.payload()["summary"]["metadata_field_count"] == 2

@@ -422,7 +422,12 @@ def _semantic_summary(
         "substitute_group_count_old": result.summary.substitute_group_count_old,
         "substitute_group_count_new": result.summary.substitute_group_count_new,
         "changed_event_count": result.summary.changed_event_count,
+        "review_event_count": result.summary.review_event_count,
+        "metadata_event_count": result.summary.metadata_event_count,
+        "metadata_change_count": result.summary.metadata_change_count,
+        "metadata_field_count": result.summary.metadata_field_count,
         "blocker_count": result.summary.blocker_count,
+        "blocking_record_count": result.summary.blocking_record_count,
     }
 
 

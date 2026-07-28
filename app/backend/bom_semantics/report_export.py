@@ -69,8 +69,13 @@ def _summary_rows(result: CompareResult) -> list[Mapping[str, object]]:
         "actual_reference_count_new": "新版实际位号数",
         "substitute_group_count_old": "旧版替代组数",
         "substitute_group_count_new": "新版替代组数",
-        "changed_event_count": "业务变更数",
-        "blocker_count": "阻断项数",
+        "changed_event_count": "全部事件数",
+        "review_event_count": "需复核事件数",
+        "metadata_event_count": "元数据事件数",
+        "metadata_change_count": "非装配变更记录数",
+        "metadata_field_count": "非装配字段变化数",
+        "blocker_count": "阻断问题数",
+        "blocking_record_count": "受影响阻断记录数",
         "event_counts": "差异分类统计",
     }
     return [
@@ -195,7 +200,7 @@ def verify_compare_report(path: Path, result: CompareResult) -> None:
             str(row[0].value): row[1].value
             for row in workbook["对比摘要"].iter_rows(min_row=2, max_col=2)
         }
-        if summary_values.get("业务变更数") != result.summary.changed_event_count:
+        if summary_values.get("全部事件数") != result.summary.changed_event_count:
             raise ValueError("BOM 对比报告摘要统计不一致。")
     finally:
         workbook.close()

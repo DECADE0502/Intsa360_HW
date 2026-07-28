@@ -157,7 +157,10 @@ describe("BOM semantic compare workbench", () => {
     await user.upload(inputs[1], new File(["new"], "new.xlsx"));
     await user.click(screen.getByRole("button", { name: "开始语义对比" }));
 
-    expect(await screen.findByRole("tab", { name: "实际贴装 1" })).toBeInTheDocument();
+    expect(await screen.findByRole("tab", { name: "结果总览" })).toBeInTheDocument();
+    expect(screen.getByText("1 个位号发生变化")).toBeInTheDocument();
+    expect(screen.getByText("语义对比完成，可以继续交付检查")).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "贴装变化 1" }));
     expect(screen.getByText("MAT-A")).toBeInTheDocument();
     expect(screen.getByText("MAT-B")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "替代关系 1" })).toBeInTheDocument();
@@ -165,8 +168,8 @@ describe("BOM semantic compare workbench", () => {
 
     await user.click(screen.getByRole("tab", { name: "替代关系 1" }));
     await waitFor(() => expect(screen.getAllByText("BOARD-A").length).toBeGreaterThan(0));
-    expect(screen.getByText("MAT-A / MAT-B")).toBeInTheDocument();
-    expect(screen.getByText("MAT-B / MAT-A")).toBeInTheDocument();
+    expect(screen.getAllByText("MAT-A").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("MAT-B").length).toBeGreaterThan(0);
   });
 
   it("paginates large blocker lists instead of mounting every finding", async () => {
@@ -199,8 +202,9 @@ describe("BOM semantic compare workbench", () => {
     await user.click(screen.getByRole("button", { name: "开始语义对比" }));
 
     expect(await screen.findByRole("tab", { name: "风险与交付 10" })).toBeInTheDocument();
-    expect(container.querySelectorAll(".bom-finding-page article")).toHaveLength(8);
-    expect(screen.getByText("共 10 项")).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "风险与交付 10" }));
+    expect(container.querySelectorAll(".bom-finding-page article")).toHaveLength(6);
+    expect(screen.getByText("共 10 条记录")).toBeInTheDocument();
     expect(screen.queryByText("物料冲突 9")).not.toBeInTheDocument();
   });
 
@@ -262,7 +266,7 @@ describe("BOM semantic compare workbench", () => {
     expect(await screen.findByText("这是同一块板的不同版本吗？")).toBeInTheDocument();
     expect(screen.getByText("BOARD-OLD")).toBeInTheDocument();
     expect(screen.getByText("共享位号")).toBeInTheDocument();
-    expect(screen.queryByRole("tab", { name: /实际贴装/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /贴装变化/ })).not.toBeInTheDocument();
     await waitFor(() => {
       expect(
         window.localStorage.getItem("insta360_hw_tool_workspace:bom_compare"),
@@ -274,7 +278,7 @@ describe("BOM semantic compare workbench", () => {
     expect(await screen.findByText("这是同一块板的不同版本吗？")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "确认按同一板卡不同版本对比" }));
 
-    expect(await screen.findByRole("tab", { name: "实际贴装 1" })).toBeInTheDocument();
+    expect(await screen.findByRole("tab", { name: "贴装变化 1" })).toBeInTheDocument();
     expect(requestBodies).toHaveLength(2);
     expect(requestBodies[0].scope_confirmation).toBeUndefined();
     expect(requestBodies[1].scope_confirmation).toBe(true);

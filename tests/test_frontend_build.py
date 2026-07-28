@@ -62,7 +62,7 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn("healthProbeInFlight", app)
         self.assertIn("healthProbeFailures", app)
         self.assertIn("healthProbeFailures.current >= 2", app)
-        self.assertIn("if (healthProbeInFlight.current) return false", app)
+        self.assertIn("if (healthProbeInFlight.current) return healthProbeInFlight.current", app)
 
     def test_vite_build_separates_stable_vendor_chunks(self) -> None:
         config = (ROOT / "frontend" / "vite.config.ts").read_text(encoding="utf-8")
@@ -352,6 +352,9 @@ class FrontendBuildTests(unittest.TestCase):
         # navigation to unknown schemes without a user gesture.
         self.assertIn("window.location.href = RECONNECT_PROTOCOL_URL", app)
         self.assertNotIn('document.createElement("iframe")', app)
+        self.assertIn("const alreadyReady = await refreshRuntimeStatus", handler)
+        self.assertLess(handler.index("const alreadyReady"), handler.index("triggerReconnectProtocol()"))
+        self.assertIn("if (alreadyReady)", handler)
         self.assertIn("正在重新连接本地服务，请稍候", app)
         self.assertNotIn("如新窗口未自动打开", app)
         self.assertIn("await refreshPlatformCatalog()", handler)
@@ -633,13 +636,16 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn("<BomComparePane", legacy)
         self.assertIn("bom-compare-workbench", pane)
         self.assertIn("bom-source-band", pane)
-        self.assertIn("bom-summary-strip", pane)
+        self.assertIn("bom-result-verdict", pane)
         self.assertIn("bom-semantic-tabs", pane)
+        self.assertIn("<CompareOverview", pane)
         self.assertIn("<PlacementDiff", pane)
         self.assertIn("<SubstituteDiff", pane)
         self.assertIn("<MetadataDiff", pane)
         self.assertIn("<ExportPanel", pane)
         self.assertIn(".bom-source-band", css)
+        self.assertIn(".bom-result-verdict", css)
+        self.assertIn(".bom-review-route", css)
         self.assertIn(
             "grid-template-columns: minmax(300px, 1fr) 38px minmax(300px, 1fr) minmax(190px, 230px)",
             css,

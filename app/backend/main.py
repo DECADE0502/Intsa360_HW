@@ -16,6 +16,7 @@ from app.backend.api.routers import include_versioned_routes
 from app.backend.api.routers.files import output_router
 from app.backend.api.security import install_security
 from app.backend.services.platform_logging import close_platform_logging, configure_platform_logging, install_request_logging
+from app.backend.services.reconnect_protocol import ensure_reconnect_protocol
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -53,9 +54,18 @@ def create_app(root: Path | None = None) -> FastAPI:
     app.state.platform_logger = logger
     app.state.close_observability = lambda: close_platform_logging(logger)
     install_request_logging(app, logger)
+    reconnect_protocol = ensure_reconnect_protocol(runtime_root)
+    app.state.reconnect_protocol = reconnect_protocol
     logger.info(
         "Platform backend initialized",
-        extra={"event": "service_start", "context": {"runtime_root": str(runtime_root), "pid": os.getpid()}},
+        extra={
+            "event": "service_start",
+            "context": {
+                "runtime_root": str(runtime_root),
+                "pid": os.getpid(),
+                "reconnect_protocol": reconnect_protocol,
+            },
+        },
     )
 
     include_versioned_routes(app)

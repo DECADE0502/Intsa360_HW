@@ -34,6 +34,38 @@ function fieldTags(fields: string[] = []) {
     : <span>-</span>;
 }
 
+function variantValue(
+  row: MetadataDiffType,
+  side: "old" | "new",
+  field: string,
+) {
+  const metadata = side === "old" ? row.old_metadata : row.new_metadata;
+  if (metadata && field in metadata) return metadata[field];
+  const variants = side === "old" ? row.old_variants : row.new_variants;
+  return variants?.[0]?.[field];
+}
+
+function FieldChanges({
+  fields,
+  oldValue,
+  newValue,
+}: {
+  fields: string[];
+  oldValue: (field: string) => unknown;
+  newValue: (field: string) => unknown;
+}) {
+  return (
+    <dl className="bom-field-change-list">
+      {fields.map((field) => (
+        <div key={field}>
+          <dt>{fieldLabels[field] || field}</dt>
+          <dd><span>{compact(oldValue(field))}</span><b>→</b><span>{compact(newValue(field))}</span></dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 export function MetadataDiff({
   rows,
   boardRows = [],
@@ -44,8 +76,27 @@ export function MetadataDiff({
   if (!rows.length && !boardRows.length) {
     return <Empty description="板级信息和普通字段没有变化" />;
   }
+  const fieldCounts = new Map<string, number>();
+  rows.forEach((row) => {
+    (row.changed_fields || []).forEach((field) => {
+      fieldCounts.set(field, (fieldCounts.get(field) || 0) + 1);
+    });
+  });
+  boardRows.forEach((row) => {
+    row.changed_fields.forEach((field) => {
+      fieldCounts.set(field, (fieldCounts.get(field) || 0) + 1);
+    });
+  });
   return (
     <div className="bom-metadata-layers">
+      <div className="bom-layer-summary">
+        {Array.from(fieldCounts.entries())
+          .sort((left, right) => right[1] - left[1])
+          .map(([field, count]) => (
+            <span key={field}><strong>{count}</strong> {fieldLabels[field] || field}</span>
+          ))}
+        <p>这些字段单独复核，不直接改变主料实际位号的贴装结论。</p>
+      </div>
       {boardRows.length ? (
         <section>
           <h3>板级信息</h3>
@@ -59,22 +110,15 @@ export function MetadataDiff({
             columns={[
               { title: "比较范围", dataIndex: "comparison_parent_code", width: 190 },
               {
-                title: "变化字段",
-                dataIndex: "changed_fields",
-                width: 260,
-                render: fieldTags,
-              },
-              {
-                title: "旧版",
-                dataIndex: "old",
-                width: 260,
-                render: (value) => <pre className="bom-variant-json">{compact(value)}</pre>,
-              },
-              {
-                title: "新版",
-                dataIndex: "new",
-                width: 260,
-                render: (value) => <pre className="bom-variant-json">{compact(value)}</pre>,
+                title: "字段变化",
+                width: 680,
+                render: (_, row) => (
+                  <FieldChanges
+                    fields={row.changed_fields}
+                    oldValue={(field) => row.old[field]}
+                    newValue={(field) => row.new[field]}
+                  />
+                ),
               },
             ]}
           />
@@ -89,7 +133,25 @@ export function MetadataDiff({
             rowKey={(row) => `${row.parent_code}:${row.material_code}`}
             dataSource={rows}
             pagination={{ pageSize: 12 }}
-            scroll={{ x: 1500 }}
+            scroll={{ x: 980 }}
+            expandable={{
+              expandedRowRender: (row) => (
+                <div className="bom-raw-row-detail">
+                  <div>
+                    <span>旧版完整属性</span>
+                    <pre className="bom-variant-json">
+                      {compact({ variants: row.old_variants, metadata: row.old_metadata })}
+                    </pre>
+                  </div>
+                  <div>
+                    <span>新版完整属性</span>
+                    <pre className="bom-variant-json">
+                      {compact({ variants: row.new_variants, metadata: row.new_metadata })}
+                    </pre>
+                  </div>
+                </div>
+              ),
+            }}
             columns={[
               { title: "父项", dataIndex: "parent_code", width: 170, fixed: "left" },
               {
@@ -100,33 +162,20 @@ export function MetadataDiff({
                 render: (value) => <Tag>{value}</Tag>,
               },
               {
-                title: "变化字段",
+                title: "字段",
                 dataIndex: "changed_fields",
-                width: 260,
+                width: 220,
                 render: fieldTags,
               },
               {
-                title: "旧版属性",
-                width: 400,
+                title: "旧版 → 新版",
+                width: 520,
                 render: (_, row) => (
-                  <pre className="bom-variant-json">
-                    {compact({
-                      variants: row.old_variants,
-                      metadata: row.old_metadata,
-                    })}
-                  </pre>
-                ),
-              },
-              {
-                title: "新版属性",
-                width: 400,
-                render: (_, row) => (
-                  <pre className="bom-variant-json">
-                    {compact({
-                      variants: row.new_variants,
-                      metadata: row.new_metadata,
-                    })}
-                  </pre>
+                  <FieldChanges
+                    fields={row.changed_fields || []}
+                    oldValue={(field) => variantValue(row, "old", field)}
+                    newValue={(field) => variantValue(row, "new", field)}
+                  />
                 ),
               },
               {

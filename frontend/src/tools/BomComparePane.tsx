@@ -5,6 +5,7 @@ import {
   Empty,
   Input,
   Pagination,
+  Segmented,
   Table,
   Tabs,
   Tag,
@@ -31,6 +32,7 @@ import { toUserMessage } from "../api/errors";
 import { HistoryBomPicker } from "../components/HistoryBomPicker";
 import { useToolWorkspace } from "../state/toolWorkspace";
 import { ExportPanel } from "./bomCompare/ExportPanel";
+import { CompareOverview } from "./bomCompare/CompareOverview";
 import { MetadataDiff } from "./bomCompare/MetadataDiff";
 import { PlacementDiff } from "./bomCompare/PlacementDiff";
 import { SourceInspection } from "./bomCompare/SourceInspection";
@@ -43,6 +45,11 @@ import {
   type RawRowDiff,
   type ValidationFinding,
 } from "./bomCompare/types";
+import {
+  groupFindingsByRecord,
+  sourceRecordLabel,
+  summarizeCompare,
+} from "./bomCompare/summary";
 
 function SourceSelector({
   label,
@@ -95,26 +102,6 @@ function SourceSelector({
         </div>
       </div>
     </section>
-  );
-}
-
-function Metric({
-  label,
-  value,
-  tone = "plain",
-  note,
-}: {
-  label: string;
-  value: number;
-  tone?: "plain" | "info" | "warn" | "danger";
-  note?: string;
-}) {
-  return (
-    <div className={`bom-semantic-metric is-${tone}`}>
-      <strong>{value}</strong>
-      <span>{label}</span>
-      {note ? <small>{note}</small> : null}
-    </div>
   );
 }
 
@@ -180,7 +167,7 @@ function EventTable({ events }: { events: ChangeEvent[] }) {
       return !normalized || haystack.includes(normalized);
     });
   }, [events, query]);
-  if (!events.length) return <Empty description="没有业务变化" />;
+  if (!events.length) return <Empty description="没有需要复核的业务事件" />;
   return (
     <div className="bom-event-table">
       <Input
@@ -230,64 +217,133 @@ function EventTable({ events }: { events: ChangeEvent[] }) {
 }
 
 function FindingList({ rows }: { rows: ValidationFinding[] }) {
-  const pageSize = 8;
+  const groups = groupFindingsByRecord(rows);
+  const pageSize = 6;
   const [page, setPage] = useState(1);
-  const findingSignature = rows
-    .map((finding) => `${finding.code}:${finding.parent_code || ""}:${finding.references?.join(",") || ""}`)
+  const findingSignature = groups
+    .map((group) => group.key)
     .join("|");
   useEffect(() => setPage(1), [findingSignature]);
 
-  if (!rows.length) return <Empty description="没有阻断或警告" />;
-  const visibleRows = rows.slice((page - 1) * pageSize, page * pageSize);
+  if (!groups.length) return <Empty description="没有阻断或警告" />;
+  const visibleRows = groups.slice((page - 1) * pageSize, page * pageSize);
   return (
     <div className="bom-finding-list">
       <div className="bom-finding-page">
-        {visibleRows.map((finding, index) => {
-          const materialCodes = Array.isArray(finding.details?.material_codes)
-            ? finding.details.material_codes.filter((value) => typeof value === "string").join(", ")
-            : "";
-          const target = [
-            finding.details?.material_code,
-            materialCodes,
-            finding.details?.group_code,
-            finding.details?.main_code,
-          ]
-            .filter((value) => typeof value === "string" && value)
-            .join(" / ");
-          const sourceParent = typeof finding.details?.source_parent_code === "string"
-            ? finding.details.source_parent_code
-            : "";
-          return (
-            <article
-              key={`${finding.code}:${finding.parent_code}:${(page - 1) * pageSize + index}`}
-              className={`is-${finding.severity}`}
-            >
-              <Tag color={finding.severity === "blocker" ? "red" : finding.severity === "warning" ? "orange" : "blue"}>
-                {finding.severity === "blocker" ? "阻断" : finding.severity === "warning" ? "警告" : "提示"}
-              </Tag>
-              <div>
-                <strong>{finding.message}</strong>
-                <span>
-                  {finding.parent_code || "全局"} · {finding.code}
-                  {sourceParent ? ` · 来源父项 ${sourceParent}` : ""}
-                  {target ? ` · ${target}` : ""}
-                </span>
-                {finding.references?.length ? <p>位号：{finding.references.join(", ")}</p> : null}
-              </div>
-            </article>
-          );
-        })}
+        {visibleRows.map((group) => (
+          <article key={group.key} className={`is-${group.severity}`}>
+            <Tag color={group.severity === "blocker" ? "red" : group.severity === "warning" ? "orange" : "blue"}>
+              {group.severity === "blocker" ? "阻断" : group.severity === "warning" ? "警告" : "提示"}
+            </Tag>
+            <div>
+              <strong>{group.target || sourceRecordLabel(group.sourceId) || "待处理记录"}</strong>
+              <span>
+                {group.parentCode}
+                {group.sourceId ? ` · ${sourceRecordLabel(group.sourceId)}` : ""}
+              </span>
+              <ul>
+                {group.messages.map((message) => <li key={message}>{message}</li>)}
+              </ul>
+              {group.references.length ? <p>位号：{group.references.join(", ")}</p> : null}
+            </div>
+          </article>
+        ))}
       </div>
-      {rows.length > pageSize ? (
+      {groups.length > pageSize ? (
         <Pagination
           className="bom-finding-pagination"
           current={page}
           pageSize={pageSize}
-          total={rows.length}
+          total={groups.length}
           showSizeChanger={false}
-          showTotal={(total) => `共 ${total} 项`}
+          showTotal={(total) => `共 ${total} 条记录`}
           onChange={setPage}
         />
+      ) : null}
+    </div>
+  );
+}
+
+function ResultVerdict({
+  semantic,
+  onNavigate,
+}: {
+  semantic: NonNullable<BomCompareResponse["semantic"]>;
+  onNavigate: (key: string) => void;
+}) {
+  const view = summarizeCompare(semantic);
+  const blocked = view.blockingRecordCount > 0;
+  return (
+    <section className={`bom-result-verdict ${blocked ? "is-blocked" : "is-ready"}`}>
+      <div className="bom-result-verdict-main">
+        <div className="bom-result-verdict-icon">
+          {blocked ? <ShieldAlert size={21} /> : <CheckCircle2 size={21} />}
+        </div>
+        <div>
+          <span className="bom-kicker">对比结论</span>
+          <strong>{blocked ? "存在阻断，当前版本暂不可交付" : "语义对比完成，可以继续交付检查"}</strong>
+          <p>
+            {blocked
+              ? `${view.blockingRecordCount} 条源记录包含 ${semantic.blockers.length} 个字段或结构问题。`
+              : "实际贴装、替代关系和非装配字段已分层，不会把替代料重复计入整板数量。"}
+          </p>
+        </div>
+      </div>
+      <div className="bom-result-verdict-facts">
+        <button type="button" onClick={() => onNavigate("placement")}>
+          <strong>{semantic.placement_diff.length}</strong><span>贴装位号变化</span>
+        </button>
+        <button type="button" onClick={() => onNavigate("substitute")}>
+          <strong>{semantic.substitute_diff.length}</strong><span>替代组变化</span>
+        </button>
+        <button type="button" onClick={() => onNavigate("details")}>
+          <strong>{view.metadataFieldCount}</strong><span>非装配字段变化</span>
+        </button>
+        <button type="button" onClick={() => onNavigate("delivery")}>
+          <strong>{view.blockingRecordCount}</strong><span>待处理源记录</span>
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function DetailLayers({
+  semantic,
+  sourceInspections,
+}: {
+  semantic: NonNullable<BomCompareResponse["semantic"]>;
+  sourceInspections?: BomCompareResponse["source_inspections"];
+}) {
+  const [layer, setLayer] = useState("metadata");
+  const view = summarizeCompare(semantic);
+  const boardMetadataDiff = semantic.board_metadata_diff || [];
+  return (
+    <div className="bom-detail-layers">
+      <div className="bom-detail-layer-picker">
+        <Segmented
+          value={layer}
+          onChange={(value) => setLayer(String(value))}
+          options={[
+            { label: `非装配字段 ${view.metadataFieldCount}`, value: "metadata" },
+            { label: `需复核事件 ${view.reviewEventCount}`, value: "events" },
+            { label: `原始审计 ${semantic.raw_row_diff.length}`, value: "raw" },
+            { label: "来源体检", value: "source" },
+          ]}
+        />
+        <p>
+          这些内容用于追溯和交付复核，不与贴装位号、替代组数量相加。
+        </p>
+      </div>
+      {layer === "metadata" ? (
+        <MetadataDiff rows={semantic.metadata_diff} boardRows={boardMetadataDiff} />
+      ) : null}
+      {layer === "events" ? <EventTable events={view.reviewEvents} /> : null}
+      {layer === "raw" ? <RawRows rows={semantic.raw_row_diff} /> : null}
+      {layer === "source" && sourceInspections ? (
+        <div className="bom-source-inspection-grid">
+          <SourceInspection label="旧版来源" inspection={sourceInspections.old} />
+          <SourceInspection label="新版来源" inspection={sourceInspections.new} />
+        </div>
       ) : null}
     </div>
   );
@@ -368,7 +424,7 @@ export function BomComparePane({ tool }: { tool: ToolInfo }) {
       historyBom1: "",
       historyBom2: "",
       result: null as BomCompareResponse | null,
-      activeTab: "placement",
+      activeTab: "overview",
       selectedReference: "",
     },
     { heavyKeys: ["result"], maxBytes: 3 * 1024 * 1024 },
@@ -378,7 +434,7 @@ export function BomComparePane({ tool }: { tool: ToolInfo }) {
   const [historyBom1, setHistoryBom1] = useState(String(workspace.historyBom1 || ""));
   const [historyBom2, setHistoryBom2] = useState(String(workspace.historyBom2 || ""));
   const [result, setResult] = useState<BomCompareResponse | null>(workspace.result || null);
-  const [activeTab, setActiveTab] = useState(String(workspace.activeTab || "placement"));
+  const [activeTab, setActiveTab] = useState(String(workspace.activeTab || "overview"));
   const [selectedReference, setSelectedReference] = useState(String(workspace.selectedReference || ""));
   const [running, setRunning] = useState(false);
   const [lastPaths, setLastPaths] = useState<{ bom1: string; bom2: string } | null>(null);
@@ -389,7 +445,7 @@ export function BomComparePane({ tool }: { tool: ToolInfo }) {
 
   const semantic = result?.semantic;
   const summary = semantic?.summary;
-  const boardMetadataDiff = semantic?.board_metadata_diff || [];
+  const presentation = semantic ? summarizeCompare(semantic) : null;
 
   async function sourcePaths() {
     const [leftUpload, rightUpload] = await Promise.all([
@@ -433,7 +489,7 @@ export function BomComparePane({ tool }: { tool: ToolInfo }) {
         ...(scopeConfirmation ? { scope_confirmation: true } : {}),
       });
       setResult(next);
-      setActiveTab(next.semantic?.blockers?.length ? "delivery" : "placement");
+      setActiveTab("overview");
       setSelectedReference(next.semantic?.placement_diff?.[0]?.reference || "");
     } catch (error) {
       setResult({ status: "error", tool: "bom_compare", error: toUserMessage(error) });
@@ -448,7 +504,7 @@ export function BomComparePane({ tool }: { tool: ToolInfo }) {
     setHistoryBom1("");
     setHistoryBom2("");
     setResult(null);
-    setActiveTab("placement");
+    setActiveTab("overview");
     setSelectedReference("");
     setLastPaths(null);
     resetWorkspace();
@@ -531,7 +587,9 @@ export function BomComparePane({ tool }: { tool: ToolInfo }) {
         </div>
       ) : null}
 
-      {result?.status === "ok" && result.source_inspections ? (
+      {result?.status === "ok"
+        && result.source_inspections
+        && (!semantic || result.needs_scope_confirmation) ? (
         <div className="bom-source-inspection-grid">
           <SourceInspection label="旧版来源" inspection={result.source_inspections.old} />
           <SourceInspection label="新版来源" inspection={result.source_inspections.new} />
@@ -551,24 +609,7 @@ export function BomComparePane({ tool }: { tool: ToolInfo }) {
 
       {result?.status === "ok" && semantic && summary ? (
         <>
-          <section className="bom-summary-strip" aria-label="对比摘要">
-            <Metric label="旧版实际位号" value={summary.actual_reference_count_old} />
-            <Metric label="新版实际位号" value={summary.actual_reference_count_new} />
-            <Metric label="业务变化" value={summary.changed_event_count} tone="info" />
-            <Metric label="贴装位号差异" value={semantic.placement_diff.length} tone="warn" />
-            <Metric label="替代关系差异" value={semantic.substitute_diff.length} tone="info" />
-            <Metric label="阻断项" value={summary.blocker_count} tone={summary.blocker_count ? "danger" : "plain"} />
-          </section>
-
-          {semantic.blockers.length ? (
-            <Alert
-              type="error"
-              showIcon
-              icon={<ShieldAlert size={18} />}
-              message={`发现 ${semantic.blockers.length} 个阻断项`}
-              description="报告可以下载用于定位，但正式 PLM / OA 输出必须先解决阻断项。"
-            />
-          ) : null}
+          <ResultVerdict semantic={semantic} onNavigate={setActiveTab} />
 
           <Tabs
             className="bom-semantic-tabs"
@@ -576,8 +617,13 @@ export function BomComparePane({ tool }: { tool: ToolInfo }) {
             onChange={setActiveTab}
             items={[
               {
+                key: "overview",
+                label: "结果总览",
+                children: <CompareOverview semantic={semantic} onNavigate={setActiveTab} />,
+              },
+              {
                 key: "placement",
-                label: `实际贴装 ${semantic.placement_diff.length}`,
+                label: `贴装变化 ${semantic.placement_diff.length}`,
                 children: (
                   <PlacementDiff
                     rows={semantic.placement_diff}
@@ -593,34 +639,14 @@ export function BomComparePane({ tool }: { tool: ToolInfo }) {
                 children: <SubstituteDiff rows={semantic.substitute_diff} />,
               },
               {
-                key: "events",
-                label: `业务事件 ${semantic.events.length}`,
-                children: <EventTable events={semantic.events} />,
-              },
-              {
-                key: "raw",
-                label: `原始行 ${semantic.raw_row_diff.length}`,
-                children: <RawRows rows={semantic.raw_row_diff} />,
-              },
-              {
-                key: "metadata",
-                label: `元数据 ${semantic.metadata_diff.length + boardMetadataDiff.length}`,
-                children: (
-                  <MetadataDiff
-                    rows={semantic.metadata_diff}
-                    boardRows={boardMetadataDiff}
-                  />
-                ),
-              },
-              {
                 key: "delivery",
-                label: `风险与交付 ${semantic.blockers.length + semantic.warnings.length}`,
+                label: `风险与交付 ${presentation?.findingGroups.length || 0}`,
                 children: (
                   <div className="bom-delivery-grid">
                     <section>
                       <div className="bom-section-heading">
                         <span className="bom-kicker">质量门禁</span>
-                        <h3>风险与阻断项</h3>
+                        <h3>按受影响记录处理</h3>
                       </div>
                       <FindingList rows={[...semantic.blockers, ...semantic.warnings]} />
                     </section>
@@ -632,6 +658,16 @@ export function BomComparePane({ tool }: { tool: ToolInfo }) {
                       <ExportPanel outputs={result.outputs || []} canExport={semantic.can_export} />
                     </section>
                   </div>
+                ),
+              },
+              {
+                key: "details",
+                label: "更多明细",
+                children: (
+                  <DetailLayers
+                    semantic={semantic}
+                    sourceInspections={result.source_inspections}
+                  />
                 ),
               },
             ]}

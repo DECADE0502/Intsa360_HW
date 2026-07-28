@@ -2,6 +2,7 @@ import { Alert, Tag, Tooltip } from "antd";
 import { CircleCheck, CircleX, Layers3, PackageSearch } from "lucide-react";
 import type { SourceInspectionPayload } from "./types";
 import { profileLabels } from "./types";
+import { groupFindingsByRecord } from "./summary";
 
 export function SourceInspection({
   label,
@@ -21,6 +22,7 @@ export function SourceInspection({
   );
   const blockers = inspection.findings.filter((finding) => finding.severity === "blocker");
   const warnings = inspection.findings.filter((finding) => finding.severity === "warning");
+  const blockerRecords = groupFindingsByRecord(blockers);
 
   return (
     <section className="bom-source-inspection" aria-label={`${label}来源体检`}>
@@ -44,7 +46,7 @@ export function SourceInspection({
           <span><PackageSearch size={14} /> {placements} 个位号</span>
         </Tooltip>
         <span>{groups} 个替代组</span>
-        <span>{blockers.length} 个阻断</span>
+        <span>{blockerRecords.length} 条记录待处理</span>
         {warnings.length ? <span>{warnings.length} 个警告</span> : null}
       </div>
       <div className="bom-board-tags">
@@ -59,8 +61,8 @@ export function SourceInspection({
         <Alert
           type="error"
           showIcon
-          message={blockers[0].message}
-          description={blockers.length > 1 ? `另有 ${blockers.length - 1} 个阻断项，请在“风险与交付”中查看。` : undefined}
+          message={`${blockerRecords.length} 条源记录未通过质量门禁`}
+          description={`共 ${blockers.length} 个字段或结构问题，请在“风险与交付”中按记录处理。`}
         />
       ) : null}
     </section>

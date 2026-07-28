@@ -28,5 +28,13 @@ def test_layered_report_round_trip_matches_compare_counts(tmp_path: Path) -> Non
         assert workbook["业务事件"].max_row - 1 == len(result.events)
         assert workbook["实际贴装差异"].max_row - 1 == len(result.placement_diff)
         assert workbook["业务事件"]["B2"].number_format == "@"
+        summary = {
+            row[0].value: row[1].value
+            for row in workbook["对比摘要"].iter_rows(min_row=2, max_col=2)
+        }
+        assert summary["全部事件数"] == result.summary.changed_event_count
+        assert summary["需复核事件数"] == result.summary.review_event_count
+        assert summary["非装配变更记录数"] == result.summary.metadata_change_count
+        assert summary["非装配字段变化数"] == result.summary.metadata_field_count
     finally:
         workbook.close()

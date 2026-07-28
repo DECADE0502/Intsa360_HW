@@ -132,7 +132,7 @@ export default function App() {
   const [active, setActive] = useState("__home");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [loading, setLoading] = useState(true);
-  const healthProbeInFlight = useRef(false);
+  const healthProbeInFlight = useRef<Promise<boolean> | null>(null);
   const healthProbeFailures = useRef(0);
 
   async function refreshPlugins() {
@@ -204,32 +204,39 @@ export default function App() {
   }
 
   async function refreshRuntimeStatus(options: { preserveReconnectMessage?: boolean } = {}) {
-    if (healthProbeInFlight.current) return false;
-    healthProbeInFlight.current = true;
-    try {
-      const health = await fetchServiceHealth();
-      healthProbeFailures.current = 0;
-      setStatus((prev: any) => ({
-        ...(prev || {}),
-        version: health.version || prev?.version,
-        revision: health.revision || prev?.revision,
-        pid: health.pid || prev?.pid,
-        uptime_seconds: health.uptime_seconds,
-      }));
-      setServiceOnline(true);
-      setServiceError("");
-      return true;
-    } catch (err: any) {
-      healthProbeFailures.current += 1;
-      if (healthProbeFailures.current >= 2) {
-        setServiceOnline(false);
-        if (!options.preserveReconnectMessage) {
-          setServiceError(toUserMessage(err));
+    if (healthProbeInFlight.current) return healthProbeInFlight.current;
+    const probe = (async () => {
+      try {
+        const health = await fetchServiceHealth();
+        healthProbeFailures.current = 0;
+        setStatus((prev: any) => ({
+          ...(prev || {}),
+          version: health.version || prev?.version,
+          revision: health.revision || prev?.revision,
+          pid: health.pid || prev?.pid,
+          uptime_seconds: health.uptime_seconds,
+        }));
+        setServiceOnline(true);
+        setServiceError("");
+        return true;
+      } catch (err: any) {
+        healthProbeFailures.current += 1;
+        if (healthProbeFailures.current >= 2) {
+          setServiceOnline(false);
+          if (!options.preserveReconnectMessage) {
+            setServiceError(toUserMessage(err));
+          }
         }
+        return false;
       }
-      return false;
+    })();
+    healthProbeInFlight.current = probe;
+    try {
+      return await probe;
     } finally {
-      healthProbeInFlight.current = false;
+      if (healthProbeInFlight.current === probe) {
+        healthProbeInFlight.current = null;
+      }
     }
   }
 
@@ -276,10 +283,15 @@ export default function App() {
   async function restartBackendAndReconnect() {
     if (serviceReconnecting) return;
     setServiceReconnecting(true);
-    setServiceOnline(false);
-    setServiceError("正在重新连接本地服务，请稍候…");
-    triggerReconnectProtocol();
     try {
+      const alreadyReady = await refreshRuntimeStatus({ preserveReconnectMessage: true });
+      if (alreadyReady) {
+        await refreshPlatformCatalog();
+        return;
+      }
+      setServiceOnline(false);
+      setServiceError("正在重新连接本地服务，请稍候…");
+      triggerReconnectProtocol();
       const ready = await pollBackendUntilReady();
       if (!ready) {
         setServiceError(

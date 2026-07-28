@@ -59,9 +59,9 @@ function Remove-OwnedProtocolRegistrationAtPath {
     $command = [string](Get-Item -LiteralPath $commandPath).GetValue("")
   }
   $expectedExe = Join-Path $InstallRoot "Insta360_HW.exe"
-  $legacyOwned = $label -eq "URL:Insta360_HW reconnect protocol" -and
-    $command.IndexOf($expectedExe, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
-  if ($owner -eq "Insta360_HW" -or $legacyOwned) {
+  $commandMatchesInstall = $command.IndexOf($expectedExe, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+  $legacyOwned = $label -eq "URL:Insta360_HW reconnect protocol" -and $commandMatchesInstall
+  if (($owner -eq "Insta360_HW" -and $commandMatchesInstall) -or $legacyOwned) {
     Remove-Item -LiteralPath $protocolPath -Recurse -Force
   }
 }

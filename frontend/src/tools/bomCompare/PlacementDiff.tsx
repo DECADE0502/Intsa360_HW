@@ -5,10 +5,27 @@ import type { ChangeEvent, PlacementDiff as PlacementDiffType } from "./types";
 import { changeKindLabels } from "./types";
 
 const statusLabels = {
-  migrated: { label: "换料 / 迁移", color: "red" },
-  added: { label: "新增贴装", color: "blue" },
-  removed: { label: "删除 / 未贴", color: "orange" },
+  migrated: { label: "主料变化", color: "red" },
+  added: { label: "新增位号", color: "blue" },
+  removed: { label: "移除位号", color: "orange" },
 };
+
+function materialDescription(
+  events: ChangeEvent[],
+  side: "old_snapshot" | "new_snapshot",
+  materialCode: string,
+) {
+  if (!materialCode) return "";
+  for (const event of events) {
+    const snapshot = event[side];
+    if (snapshot?.material_code !== materialCode) continue;
+    const variants = Array.isArray(snapshot.variants) ? snapshot.variants : [];
+    const variant = variants[0] as Record<string, unknown> | undefined;
+    const description = variant?.description || variant?.model || variant?.name;
+    if (description) return String(description);
+  }
+  return "";
+}
 
 export function PlacementDiff({
   rows,
@@ -33,8 +50,16 @@ export function PlacementDiff({
   }, [filter, query, rows]);
   const selected = rows.find((row) => row.reference === selectedReference) || filtered[0];
   const related = selected
-    ? events.filter((event) => event.references?.includes(selected.reference))
+    ? events.filter(
+      (event) => event.impact !== "metadata" && event.references?.includes(selected.reference),
+    )
     : [];
+  const oldDescription = selected
+    ? materialDescription(related, "old_snapshot", selected.old_material_code)
+    : "";
+  const newDescription = selected
+    ? materialDescription(related, "new_snapshot", selected.new_material_code)
+    : "";
 
   useEffect(() => {
     if (selected && selected.reference !== selectedReference) {
@@ -55,9 +80,9 @@ export function PlacementDiff({
           onChange={(value) => setFilter(String(value))}
           options={[
             { label: `全部 ${rows.length}`, value: "all" },
-            { label: "迁移", value: "migrated" },
+            { label: "主料变化", value: "migrated" },
             { label: "新增", value: "added" },
-            { label: "删除", value: "removed" },
+            { label: "移除", value: "removed" },
           ]}
         />
         <Input
@@ -97,17 +122,19 @@ export function PlacementDiff({
               <div>
                 <span>旧版主料</span>
                 <strong>{selected.old_material_code || "无"}</strong>
+                {oldDescription ? <p>{oldDescription}</p> : null}
               </div>
               <ArrowRight aria-hidden size={20} />
               <div>
                 <span>新版主料</span>
                 <strong>{selected.new_material_code || "无"}</strong>
+                {newDescription ? <p>{newDescription}</p> : null}
               </div>
             </div>
             <dl className="bom-evidence-list">
               <div><dt>父项</dt><dd>{selected.parent_code}</dd></div>
               <div><dt>判定层</dt><dd>主料实际位号</dd></div>
-              <div><dt>采购数量影响</dt><dd>替代料空位号不计入实际贴装数量</dd></div>
+              <div><dt>统计口径</dt><dd>只按主料实际位号计数，替代料不重复累加</dd></div>
             </dl>
           </>
         ) : null}
@@ -127,4 +154,3 @@ export function PlacementDiff({
     </div>
   );
 }
-

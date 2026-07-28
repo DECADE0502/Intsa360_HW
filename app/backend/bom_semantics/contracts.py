@@ -42,7 +42,12 @@ class CompareSummary:
     substitute_group_count_old: int = 0
     substitute_group_count_new: int = 0
     changed_event_count: int = 0
+    review_event_count: int = 0
+    metadata_event_count: int = 0
+    metadata_change_count: int = 0
+    metadata_field_count: int = 0
     blocker_count: int = 0
+    blocking_record_count: int = 0
     event_counts: Mapping[str, int] = field(default_factory=dict)
 
     def payload(self) -> dict[str, object]:
@@ -56,7 +61,12 @@ class CompareSummary:
             "substitute_group_count_old": self.substitute_group_count_old,
             "substitute_group_count_new": self.substitute_group_count_new,
             "changed_event_count": self.changed_event_count,
+            "review_event_count": self.review_event_count,
+            "metadata_event_count": self.metadata_event_count,
+            "metadata_change_count": self.metadata_change_count,
+            "metadata_field_count": self.metadata_field_count,
             "blocker_count": self.blocker_count,
+            "blocking_record_count": self.blocking_record_count,
             "event_counts": dict(self.event_counts),
         }
 

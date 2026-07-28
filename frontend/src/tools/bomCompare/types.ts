@@ -6,6 +6,7 @@ export type ValidationFinding = {
   message: string;
   parent_code?: string;
   references?: string[];
+  source_ids?: string[];
   details?: Record<string, unknown>;
 };
 
@@ -110,7 +111,12 @@ export type SemanticSummary = {
   substitute_group_count_old: number;
   substitute_group_count_new: number;
   changed_event_count: number;
-  blocker_count: number;
+  review_event_count?: number;
+    metadata_event_count?: number;
+    metadata_change_count?: number;
+    metadata_field_count?: number;
+    blocker_count: number;
+  blocking_record_count?: number;
   event_counts: Record<string, number>;
 };
 
