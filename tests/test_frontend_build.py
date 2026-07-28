@@ -599,14 +599,18 @@ class FrontendBuildTests(unittest.TestCase):
 
     def test_bom_risk_review_is_split_into_tabs(self) -> None:
         wizard = (ROOT / "frontend" / "src" / "tools" / "BomProcessWizard.tsx").read_text(encoding="utf-8")
+        findings = (ROOT / "frontend" / "src" / "tools" / "bomRisk" / "RiskFindings.tsx").read_text(encoding="utf-8")
 
-        self.assertIn("Tabs", wizard)
-        self.assertIn("riskTabs", wizard)
-        self.assertIn('key: "risk-overview"', wizard)
-        self.assertIn('key: "risk-basic"', wizard)
-        self.assertIn('key: "risk-grade"', wizard)
-        self.assertIn('key: "risk-type"', wizard)
-        self.assertIn('key: "risk-outputs"', wizard)
+        self.assertIn('import { RiskFindings } from "./bomRisk/RiskFindings"', wizard)
+        self.assertIn("<RiskFindings", wizard)
+        self.assertIn("<Tabs", findings)
+        self.assertIn('key: "findings"', findings)
+        self.assertIn('key: "grades"', findings)
+        self.assertIn('key: "types"', findings)
+        self.assertIn('key: "substitutes"', findings)
+        self.assertIn('key: "categories"', findings)
+        self.assertIn('key: "versions"', findings)
+        self.assertIn('key: "outputs"', findings)
 
     def test_bom_deliver_view_previews_final_bom(self) -> None:
         wizard = (ROOT / "frontend" / "src" / "tools" / "BomProcessWizard.tsx").read_text(encoding="utf-8")
@@ -622,7 +626,8 @@ class FrontendBuildTests(unittest.TestCase):
 
         self.assertIn("<RiskView rrun={rrun} rres={rres} pres={pres}", wizard)
         self.assertIn("function RiskView({ rrun, rres, pres, onNext, onBack }: any)", wizard)
-        self.assertIn('key: "risk-final-preview"', wizard)
+        self.assertIn("<RiskFindings", wizard)
+        self.assertIn("preview={<BomPreviewTable", wizard)
         self.assertIn("<BomPreviewTable preview={pres?.preview} />", wizard)
 
     def test_bom_compare_uses_dedicated_horizontal_workbench(self) -> None:
