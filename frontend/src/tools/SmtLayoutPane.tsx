@@ -5,7 +5,6 @@ import {
   DeleteOutlined,
   DownloadOutlined,
   FileExcelOutlined,
-  FileTextOutlined,
   FolderOpenOutlined,
   PlayCircleOutlined,
   PrinterOutlined,
@@ -97,25 +96,17 @@ function DirectorySource({ kind, title, buttonLabel, files, onFiles }: Directory
 
 function BomSource({
   file,
-  decisionFile,
-  semanticFile,
   historyBom,
   historyDecisionManifest,
   historySemanticManifest,
   onFile,
-  onDecisionFile,
-  onSemanticFile,
   onHistoryBom,
 }: {
   file?: File;
-  decisionFile?: File;
-  semanticFile?: File;
   historyBom: string;
   historyDecisionManifest: string;
   historySemanticManifest: string;
   onFile: (file?: File) => void;
-  onDecisionFile: (file?: File) => void;
-  onSemanticFile: (file?: File) => void;
   onHistoryBom: (path: string, decisionManifest?: string, semanticManifest?: string) => void;
 }) {
   return (
@@ -132,8 +123,6 @@ function BomSource({
             );
             if (path) {
               onFile(undefined);
-              onDecisionFile(undefined);
-              onSemanticFile(undefined);
             }
           }}
         />
@@ -143,8 +132,6 @@ function BomSource({
           fileList={file ? [{ uid: "bom", name: file.name, status: "done" as const }] : []}
           beforeUpload={(next) => {
             onFile(next);
-            onDecisionFile(undefined);
-            onSemanticFile(undefined);
             onHistoryBom("", "", "");
             return false;
           }}
@@ -155,45 +142,13 @@ function BomSource({
         >
           <Button aria-label="选择 PLM/OA BOM" icon={<FileExcelOutlined />}>选择 PLM/OA BOM</Button>
         </Upload>
-        <Upload
-          accept=".json"
-          maxCount={1}
-          fileList={decisionFile ? [{ uid: "decision", name: decisionFile.name, status: "done" as const }] : []}
-          beforeUpload={(next) => {
-            onDecisionFile(next);
-            return false;
-          }}
-          onRemove={() => {
-            onDecisionFile(undefined);
-            return true;
-          }}
-        >
-          <Button aria-label="选择 BOM 决策清单" icon={<FileTextOutlined />}>选择决策清单（推荐）</Button>
-        </Upload>
-        <Upload
-          accept=".json"
-          maxCount={1}
-          fileList={semanticFile ? [{ uid: "semantic", name: semanticFile.name, status: "done" as const }] : []}
-          beforeUpload={(next) => {
-            onSemanticFile(next);
-            return false;
-          }}
-          onRemove={() => {
-            onSemanticFile(undefined);
-            return true;
-          }}
-        >
-          <Button aria-label="选择 BOM 语义清单" icon={<FileTextOutlined />}>
-            选择语义清单（推荐）
-          </Button>
-        </Upload>
         {historyBom ? (
           <Typography.Text type={historySemanticManifest || historyDecisionManifest ? "success" : "secondary"}>
             {historySemanticManifest
-              ? "已自动关联同次处理的 BOM 语义清单"
+              ? "已自动关联该 BOM 的处理记录"
               : historyDecisionManifest
-                ? "已自动关联同次处理的决策清单"
-                : "该历史记录没有语义清单，将使用兼容推理模式"}
+                ? "已自动关联该 BOM 的处理记录"
+                : "将根据成品 BOM 与贴片坐标进行分析"}
           </Typography.Text>
         ) : null}
       </Space>
@@ -525,6 +480,7 @@ function NcLayoutTab({
   const conflictRefs = ncSummary?.conflict_refs ?? [];
   const hasNetlistEvidence = ncSummary?.inference_mode === "with_netlist";
   const usedDecisionManifest = Boolean(ncSummary?.decision_manifest_used);
+  const totalComponents = result.summary?.total_components ?? components.length;
 
   return (
     <div className="smt-nc-tab">
@@ -540,9 +496,18 @@ function NcLayoutTab({
         <Alert
           type={unverifiedCount ? "warning" : "info"}
           showIcon
-          message={usedDecisionManifest ? "已使用 BOM 决策清单" : hasNetlistEvidence ? "网表已交叉验证" : "未提供决策清单和网表，当前结果为候选 NC"}
+          message={
+            hasNetlistEvidence
+              ? `全板已加载 ${totalComponents} 个器件，网表已交叉验证`
+              : usedDecisionManifest
+                ? `全板已加载 ${totalComponents} 个器件，并已关联 BOM 处理记录`
+                : `全板已加载 ${totalComponents} 个器件`
+          }
           description={(
             <Space wrap>
+              {!hasNetlistEvidence && !usedDecisionManifest ? (
+                <Typography.Text type="secondary">未贴位号由贴片坐标与成品 BOM 的差集推导，结果需人工确认。</Typography.Text>
+              ) : null}
               <Tag color="red">确定 NC {confirmedCount}</Tag>
               <Tag color="gold">候选 NC {candidateCount}</Tag>
               <Tag color="blue">待确认 {unverifiedCount}</Tag>
@@ -649,8 +614,17 @@ function NcLayoutTab({
         </Space>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "320px minmax(0, 1fr)", gap: 12, minHeight: 520 }}>
-        <section style={{ border: "1px solid #e2e5e9", borderRadius: 6, padding: 10, minWidth: 0 }}>
+      <div
+        className={styles.ncWorkspace}
+        style={{
+          display: "grid",
+          gridTemplateColumns: ncItems.length ? "320px minmax(0, 1fr)" : "minmax(0, 1fr)",
+          gap: 12,
+          minHeight: 520,
+        }}
+      >
+        {ncItems.length ? (
+          <section style={{ border: "1px solid #e2e5e9", borderRadius: 6, padding: 10, minWidth: 0 }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
             <Typography.Text strong>NC 与待确认位号</Typography.Text>
             <Typography.Text type="secondary">{visibleNcItems.length} / {ncItems.length}</Typography.Text>
@@ -661,7 +635,8 @@ function NcLayoutTab({
             onHover={(ref) => setHoveredRef(ref || "")}
             onSelect={onSelectedRef}
           />
-        </section>
+          </section>
+        ) : null}
         <section style={{ minWidth: 0, height: 520 }}>
           <PcbCanvas
             key={canvasKey}
@@ -695,8 +670,6 @@ export function SmtLayoutPane() {
   );
   const [smtFiles, setSmtFiles] = useState<File[]>([]);
   const [bomFile, setBomFile] = useState<File | undefined>();
-  const [decisionFile, setDecisionFile] = useState<File | undefined>();
-  const [semanticFile, setSemanticFile] = useState<File | undefined>();
   const [netlistFiles, setNetlistFiles] = useState<File[]>([]);
   const [historyBom, setHistoryBom] = useState(workspace.historyBom || "");
   const [historyDecisionManifest, setHistoryDecisionManifest] = useState(workspace.historyDecisionManifest || "");
@@ -723,6 +696,29 @@ export function SmtLayoutPane() {
     }
   }, [sanityAvailable, workspace.activeTab, setWorkspace]);
 
+  function invalidateResult() {
+    setError("");
+    setSelectedRef("");
+    setWorkspace((current) => (
+      current.result ? { ...current, result: null, activeTab: "nc" } : current
+    ));
+  }
+
+  function updateSmtFiles(value: SetStateAction<File[]>) {
+    invalidateResult();
+    setSmtFiles(value);
+  }
+
+  function updateBomFile(file?: File) {
+    invalidateResult();
+    setBomFile(file);
+  }
+
+  function updateNetlistFiles(value: SetStateAction<File[]>) {
+    invalidateResult();
+    setNetlistFiles(value);
+  }
+
   async function handleRun() {
     if (!smtFiles.some((file) => file.name.toLowerCase() === "xy.txt")) {
       setError("请选择包含 XY.txt 的 SMT 资料目录。");
@@ -743,21 +739,19 @@ export function SmtLayoutPane() {
     setRunning(true);
     setError("");
     try {
-      const [smtUpload, bomUpload, decisionUpload, semanticUpload, netlistUpload] = await Promise.all([
+      const [smtUpload, bomUpload, netlistUpload] = await Promise.all([
         uploadFiles(smtFiles),
         historyBom || !bomFile ? Promise.resolve(null) : uploadFiles([bomFile]),
-        historyDecisionManifest || !decisionFile ? Promise.resolve(null) : uploadFiles([decisionFile]),
-        historySemanticManifest || !semanticFile ? Promise.resolve(null) : uploadFiles([semanticFile]),
         netlistFiles.length ? uploadFiles(netlistFiles) : Promise.resolve(null),
       ]);
       const result = await runSmtLayout({
         smt_folder: smtUpload.folder,
         processed_bom: historyBom || bomUpload?.files[0]?.path || "",
-        ...((historyDecisionManifest || decisionUpload?.files[0]?.path) ? {
-          decision_manifest: historyDecisionManifest || decisionUpload?.files[0]?.path || "",
+        ...(historyDecisionManifest ? {
+          decision_manifest: historyDecisionManifest,
         } : {}),
-        ...((historySemanticManifest || semanticUpload?.files[0]?.path) ? {
-          semantic_manifest: historySemanticManifest || semanticUpload?.files[0]?.path || "",
+        ...(historySemanticManifest ? {
+          semantic_manifest: historySemanticManifest,
         } : {}),
         ...(netlistUpload ? { netlist_folder: netlistUpload.folder } : {}),
       });
@@ -774,8 +768,6 @@ export function SmtLayoutPane() {
     setSelectedRef("");
     setSmtFiles([]);
     setBomFile(undefined);
-    setDecisionFile(undefined);
-    setSemanticFile(undefined);
     setNetlistFiles([]);
     setHistoryBom("");
     setHistoryDecisionManifest("");
@@ -825,26 +817,27 @@ export function SmtLayoutPane() {
 
       <div
         className="smt-layout-inputs"
-        style={{ display: "grid", gridTemplateColumns: "minmax(220px, 1fr) minmax(220px, 1fr) minmax(220px, 1fr)", gap: 10 }}
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))",
+          gap: 10,
+        }}
       >
         <DirectorySource
           kind="smt"
           title="SMT 资料目录"
           buttonLabel="选择 SMT 资料目录"
           files={smtFiles}
-          onFiles={setSmtFiles}
+          onFiles={updateSmtFiles}
         />
         <BomSource
           file={bomFile}
-          decisionFile={decisionFile}
-          semanticFile={semanticFile}
           historyBom={historyBom}
           historyDecisionManifest={historyDecisionManifest}
           historySemanticManifest={historySemanticManifest}
-          onFile={setBomFile}
-          onDecisionFile={setDecisionFile}
-          onSemanticFile={setSemanticFile}
+          onFile={updateBomFile}
           onHistoryBom={(path, decisionManifest, semanticManifest) => {
+            invalidateResult();
             setHistoryBom(path);
             setHistoryDecisionManifest(decisionManifest || "");
             setHistorySemanticManifest(semanticManifest || "");
@@ -855,7 +848,7 @@ export function SmtLayoutPane() {
           title="Cadence 网表目录（可选）"
           buttonLabel="选择网表目录"
           files={netlistFiles}
-          onFiles={setNetlistFiles}
+          onFiles={updateNetlistFiles}
         />
       </div>
 

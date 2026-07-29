@@ -57,8 +57,9 @@ describe("SMT layout pane skeleton", () => {
     expect(screen.getByRole("button", { name: "选择 SMT 资料目录" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "选择 PLM/OA BOM" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "选择网表目录" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /决策清单|语义清单/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "SMT 资料文件夹" })).not.toBeInTheDocument();
-    expect(container.querySelectorAll('input[type="file"]')).toHaveLength(5);
+    expect(container.querySelectorAll('input[type="file"]')).toHaveLength(3);
   });
 
   it("uploads selected sources and runs with server-side paths", async () => {
@@ -115,7 +116,7 @@ describe("SMT layout pane skeleton", () => {
 
     await user.upload(inputs[0], [new File(["VERSION=2.0\nUUNITS=MM\n"], "XY.txt"), new File(["dxf"], "outline.dxf")]);
     await user.upload(inputs[1], new File(["bom"], "PLM.xlsx"));
-    await user.upload(inputs[4], [new File(["net"], "pstxnet.dat"), new File(["parts"], "pstxprt.dat")]);
+    await user.upload(inputs[2], [new File(["net"], "pstxnet.dat"), new File(["parts"], "pstxprt.dat")]);
     await user.click(screen.getByRole("button", { name: "开始分析" }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/tools/smt_layout/run", expect.anything()));
@@ -125,5 +126,54 @@ describe("SMT layout pane skeleton", () => {
       processed_bom: "C:/uploads/bom/PLM.xlsx",
       netlist_folder: "C:/uploads/netlist",
     });
+  });
+
+  it("invalidates a displayed result when the SMT source changes", async () => {
+    const user = userEvent.setup();
+    window.localStorage.setItem(
+      "insta360_hw_tool_workspace:smt_layout",
+      JSON.stringify({
+        __v: 2,
+        saved_at: Date.now(),
+        data: {
+          historyBom: "",
+          historyDecisionManifest: "",
+          historySemanticManifest: "",
+          activeTab: "nc",
+          result: {
+            status: "ok",
+            tool: "smt_layout",
+            outputs: [],
+            board: { outline_rings: [[[0, 0], [10, 0], [10, 10], [0, 10]]], bbox_mm: [0, 0, 10, 10], source: "dxf" },
+            components: [{
+              ref: "R1",
+              x_mm: 5,
+              y_mm: 5,
+              rotation: 0,
+              side: "top",
+              footprint: "R0201",
+              part_number: "PN1",
+              description: "",
+              model: "",
+              grade: "",
+              status: "installed",
+              high_risk: false,
+            }],
+            nc_summary: { total: 0, refs: [] },
+            sanity: { status: "skipped_no_netlist" },
+            fai_table: { headers: [], rows: [] },
+            summary: { total_components: 1, top_count: 1, bottom_count: 0, nc_count: 0, high_risk_count: 0 },
+          },
+        },
+      }),
+    );
+    const { container } = renderWithProviders(<SmtLayoutPane />);
+
+    expect(container.querySelector('[data-ref="R1"]')).toBeInTheDocument();
+    const smtInput = container.querySelectorAll<HTMLInputElement>('input[type="file"]')[0];
+    await user.upload(smtInput, new File(["VERSION=2.0\nUUNITS=MM\n"], "XY.txt"));
+
+    expect(container.querySelector('[data-ref="R1"]')).not.toBeInTheDocument();
+    expect(screen.getByText("完成分析后在此查看 NC 布局")).toBeInTheDocument();
   });
 });

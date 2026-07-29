@@ -80,6 +80,39 @@ function seedWorkspace() {
   );
 }
 
+function seedInstalledOnlyWorkspace() {
+  window.localStorage.setItem(
+    "insta360_hw_tool_workspace:smt_layout",
+    JSON.stringify({
+      __v: 2,
+      saved_at: Date.now(),
+      data: {
+        historyBom: "",
+        historyDecisionManifest: "",
+        historySemanticManifest: "",
+        result: {
+          ...result,
+          components: [component("C1", 40, 35, "top", { status: "installed" })],
+          nc_summary: {
+            total: 0,
+            refs: [],
+            confirmed_refs: [],
+            candidate_refs: [],
+            unverified_refs: [],
+            conflict_refs: [],
+            non_nc_refs: [],
+            inference_mode: "without_netlist",
+            decision_manifest_used: false,
+            explicit_summary_used: false,
+          },
+          summary: { total_components: 1, top_count: 1, bottom_count: 0, nc_count: 0, high_risk_count: 0 },
+        },
+        activeTab: "nc",
+      },
+    }),
+  );
+}
+
 function renderPane() {
   seedWorkspace();
   return renderWithProviders(<SmtLayoutPane />);
@@ -113,7 +146,7 @@ describe("SMT layout NC tab", () => {
     expect(screen.queryByTestId("nc-row-U9")).not.toBeInTheDocument();
     expect(screen.getByTestId("nc-row-R1")).toHaveTextContent("确定 NC");
     expect(screen.getByTestId("nc-row-SH1")).toHaveTextContent("候选 NC");
-    expect(screen.getByText("网表已交叉验证")).toBeInTheDocument();
+    expect(screen.getByText(/全板已加载 4 个器件，网表已交叉验证/)).toBeInTheDocument();
   });
 
   it("shows XY-only anomalies under the unverified evidence filter", async () => {
@@ -178,5 +211,14 @@ describe("SMT layout NC tab", () => {
     expect(screen.getByTestId("nc-row-SH1")).toBeInTheDocument();
     expect(container.querySelector('[data-ref="R1"]')).not.toBeInTheDocument();
     expect(container.querySelector('[data-ref="SH1"]')).toBeInTheDocument();
+  });
+
+  it("uses the full width for the board when there are no NC rows", () => {
+    seedInstalledOnlyWorkspace();
+    const { container } = renderWithProviders(<SmtLayoutPane />);
+
+    expect(container.querySelector('[data-ref="C1"]')).toBeInTheDocument();
+    expect(screen.queryByText("NC 与待确认位号")).not.toBeInTheDocument();
+    expect(screen.getByText("全板已加载 1 个器件")).toBeInTheDocument();
   });
 });

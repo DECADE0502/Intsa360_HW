@@ -38,6 +38,10 @@
 }
 
 @media (max-width: 1100px) {
+  .ncWorkspace {
+    grid-template-columns: 1fr !important;
+  }
+
   .sanityGrid {
     grid-template-columns: 1fr;
   }
