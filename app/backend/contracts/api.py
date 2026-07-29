@@ -51,7 +51,7 @@ class SmtComponent(ContractModel):
 class SmtBoard(ContractModel):
     outline_rings: list[list[tuple[float, float]]]
     bbox_mm: tuple[float, float, float, float]
-    source: Literal["dxf", "gerber_bbox", "explicit"]
+    source: Literal["dxf", "gerber_bbox", "explicit", "component_bbox"]
 
 
 class SmtSanityItem(ContractModel):

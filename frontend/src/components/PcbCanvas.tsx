@@ -24,8 +24,8 @@ type Gesture =
 
 function boardBounds(outline: PcbCanvasProps["outline"], components: SmtComponent[]) {
   const points = outline.flat();
-  const xs = points.length ? points.map(([x]) => x) : components.map((item) => item.x_mm);
-  const ys = points.length ? points.map(([, y]) => y) : components.map((item) => item.y_mm);
+  const xs = [...points.map(([x]) => x), ...components.map((item) => item.x_mm)];
+  const ys = [...points.map(([, y]) => y), ...components.map((item) => item.y_mm)];
   const minX = xs.length ? Math.min(...xs) : 0;
   const maxX = xs.length ? Math.max(...xs) : 100;
   const minY = ys.length ? Math.min(...ys) : 0;

@@ -98,3 +98,13 @@ def test_smt_layout_response_schema_rejects_extra_fields() -> None:
 
     with pytest.raises(ValidationError):
         SmtLayoutResponse.model_validate(payload)
+
+
+def test_smt_layout_response_accepts_component_bbox_fallback() -> None:
+    payload = _full_payload()
+    payload["board"]["source"] = "component_bbox"
+
+    response = SmtLayoutResponse.model_validate(payload)
+
+    assert response.board is not None
+    assert response.board.source == "component_bbox"

@@ -451,10 +451,19 @@ def _run_smt_layout_impl(root: Path, params: dict[str, object]) -> dict[str, obj
     outline_bbox = params.get("outline_bbox_mm")
     if outline_bbox is not None and not isinstance(outline_bbox, (list, tuple)):
         raise ValueError("outline_bbox_mm 必须是四个毫米坐标")
+    component_bbox = None
+    if parsed_components:
+        component_bbox = (
+            min(component.x_mm for component in parsed_components),
+            min(component.y_mm for component in parsed_components),
+            max(component.x_mm for component in parsed_components),
+            max(component.y_mm for component in parsed_components),
+        )
     outline = resolve_board_outline(
         smt_folder,
         outline_bbox_mm=outline_bbox,
         outline_dxf_layer=str(params.get("outline_dxf_layer") or "").strip() or None,
+        component_bbox_mm=component_bbox,
     )
     bom_by_ref, explicit_nc_by_ref, explicit_non_nc_by_ref = _bom_by_ref(
         processed_bom,

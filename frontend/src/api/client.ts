@@ -393,7 +393,7 @@ export type SmtComponent = {
 export type SmtBoard = {
   outline_rings: Array<Array<[number, number]>>;
   bbox_mm: [number, number, number, number];
-  source: "dxf" | "gerber_bbox" | "explicit";
+  source: "dxf" | "gerber_bbox" | "explicit" | "component_bbox";
 };
 
 export type SmtSanityItem = {

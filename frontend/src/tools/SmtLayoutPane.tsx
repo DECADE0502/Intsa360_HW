@@ -529,6 +529,14 @@ function NcLayoutTab({
   return (
     <div className="smt-nc-tab">
       <Space direction="vertical" size={8} style={{ width: "100%", marginBottom: 12 }}>
+        {result.board.source === "component_bbox" ? (
+          <Alert
+            type="warning"
+            showIcon
+            message="未找到与贴片坐标匹配的单板板框"
+            description="当前使用器件坐标范围辅助显示；器件位置可核对，但浅色矩形不代表真实板框。请检查资料中是否包含单板 Outline DXF 或 Gerber。"
+          />
+        ) : null}
         <Alert
           type={unverifiedCount ? "warning" : "info"}
           showIcon

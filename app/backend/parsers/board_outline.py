@@ -16,12 +16,25 @@ _GERBER_EXTENSIONS = (".art", ".gbr", ".ger")
 class BoardOutline:
     rings: list[list[Point]]
     bbox: BBox
-    source: Literal["dxf", "gerber_bbox", "explicit"]
+    source: Literal["dxf", "gerber_bbox", "explicit", "component_bbox"]
 
 
 def _rectangle(bbox: BBox) -> list[Point]:
     xmin, ymin, xmax, ymax = bbox
     return [(xmin, ymin), (xmax, ymin), (xmax, ymax), (xmin, ymax)]
+
+
+def _translate_ring(ring: list[Point], dx: float, dy: float) -> list[Point]:
+    return [(x + dx, y + dy) for x, y in ring]
+
+
+def _component_bbox_outline(component_bbox: BBox) -> BoardOutline:
+    xmin, ymin, xmax, ymax = component_bbox
+    width = max(xmax - xmin, 1.0)
+    height = max(ymax - ymin, 1.0)
+    padding = max(min(width, height) * 0.04, 1.0)
+    bbox = (xmin - padding, ymin - padding, xmax + padding, ymax + padding)
+    return BoardOutline(rings=[_rectangle(bbox)], bbox=bbox, source="component_bbox")
 
 
 def _validate_bbox(value: Sequence[float]) -> BBox:
@@ -34,6 +47,21 @@ def _validate_bbox(value: Sequence[float]) -> BBox:
     return bbox  # type: ignore[return-value]
 
 
+def _normalize_component_bbox(value: Sequence[float]) -> BBox:
+    if len(value) != 4:
+        raise ValueError("component_bbox_mm 必须包含 xmin、ymin、xmax、ymax")
+    xmin, ymin, xmax, ymax = (float(item) for item in value)
+    if xmax < xmin or ymax < ymin:
+        raise ValueError("component_bbox_mm 范围无效")
+    if xmax == xmin:
+        xmin -= 0.5
+        xmax += 0.5
+    if ymax == ymin:
+        ymin -= 0.5
+        ymax += 0.5
+    return xmin, ymin, xmax, ymax
+
+
 def _bbox(rings: list[list[Point]]) -> BBox:
     points = [point for ring in rings for point in ring]
     if not points:
@@ -41,6 +69,55 @@ def _bbox(rings: list[list[Point]]) -> BBox:
     xs = [point[0] for point in points]
     ys = [point[1] for point in points]
     return min(xs), min(ys), max(xs), max(ys)
+
+
+def _fit_ring_to_components(ring: list[Point], component_bbox: BBox) -> tuple[float, list[Point]] | None:
+    ring_bbox = _bbox([ring])
+    ring_width = ring_bbox[2] - ring_bbox[0]
+    ring_height = ring_bbox[3] - ring_bbox[1]
+    component_width = max(component_bbox[2] - component_bbox[0], 1e-6)
+    component_height = max(component_bbox[3] - component_bbox[1], 1e-6)
+    width_ratio = ring_width / component_width
+    height_ratio = ring_height / component_height
+
+    # Component centers must fit inside one physical board. The upper bound
+    # prevents a full panel outline from beating one of its individual boards.
+    if width_ratio < 0.98 or height_ratio < 0.98 or width_ratio > 3.0 or height_ratio > 3.0:
+        return None
+
+    already_aligned = (
+        ring_bbox[0] <= component_bbox[0] <= component_bbox[2] <= ring_bbox[2]
+        and ring_bbox[1] <= component_bbox[1] <= component_bbox[3] <= ring_bbox[3]
+    )
+    if already_aligned:
+        translated = ring
+    else:
+        ring_center_x = (ring_bbox[0] + ring_bbox[2]) / 2.0
+        ring_center_y = (ring_bbox[1] + ring_bbox[3]) / 2.0
+        component_center_x = (component_bbox[0] + component_bbox[2]) / 2.0
+        component_center_y = (component_bbox[1] + component_bbox[3]) / 2.0
+        translated = _translate_ring(
+            ring,
+            component_center_x - ring_center_x,
+            component_center_y - ring_center_y,
+        )
+    score = abs(width_ratio - 1.0) + abs(height_ratio - 1.0)
+    return score, translated
+
+
+def _fit_outline_to_components(
+    outline: BoardOutline,
+    component_bbox: BBox,
+) -> tuple[float, BoardOutline] | None:
+    candidates = [
+        fitted
+        for ring in outline.rings
+        if (fitted := _fit_ring_to_components(ring, component_bbox)) is not None
+    ]
+    if not candidates:
+        return None
+    score, ring = min(candidates, key=lambda item: item[0])
+    return score, BoardOutline(rings=[ring], bbox=_bbox([ring]), source=outline.source)
 
 
 def _area(ring: list[Point]) -> float:
@@ -219,6 +296,7 @@ def resolve_board_outline(
     *,
     outline_bbox_mm: Sequence[float] | None = None,
     outline_dxf_layer: str | None = None,
+    component_bbox_mm: Sequence[float] | None = None,
 ) -> BoardOutline:
     if outline_bbox_mm is not None:
         bbox = _validate_bbox(outline_bbox_mm)
@@ -227,15 +305,17 @@ def resolve_board_outline(
     folder = Path(smt_folder)
     if not folder.is_dir():
         raise ValueError("SMT 文件夹未找到 DXF 或 Gerber，且未指定 outline_bbox_mm")
-    dxf_files = sorted(folder.glob("*.dxf"), key=lambda path: (path.stat().st_size, path.name.casefold()))
+    component_bbox = _normalize_component_bbox(component_bbox_mm) if component_bbox_mm is not None else None
+    dxf_files = sorted(folder.rglob("*.dxf"), key=lambda path: (path.stat().st_size, path.name.casefold()))
     gerber_files = sorted(
-        (path for path in folder.iterdir() if path.is_file() and path.suffix.casefold() in _GERBER_EXTENSIONS),
+        (path for path in folder.rglob("*") if path.is_file() and path.suffix.casefold() in _GERBER_EXTENSIONS),
         key=lambda path: path.name.casefold(),
     )
     if not dxf_files and not gerber_files:
         raise ValueError("SMT 文件夹未找到 DXF 或 Gerber，且未指定 outline_bbox_mm")
 
     dxf_error: ValueError | None = None
+    fitted_candidates: list[tuple[float, BoardOutline]] = []
     if dxf_files:
         try:
             import ezdxf  # noqa: F401
@@ -244,17 +324,33 @@ def resolve_board_outline(
         else:
             for dxf_path in dxf_files:
                 try:
-                    return _read_dxf(dxf_path, outline_dxf_layer)
+                    outline = _read_dxf(dxf_path, outline_dxf_layer)
+                    if component_bbox is None or outline_dxf_layer:
+                        return outline
+                    fitted = _fit_outline_to_components(outline, component_bbox)
+                    if fitted is not None:
+                        fitted_candidates.append(fitted)
+                        if fitted[0] <= 0.25:
+                            return fitted[1]
                 except (OSError, ValueError) as exc:
                     dxf_error = ValueError(str(exc))
-            if outline_dxf_layer or not gerber_files:
+            if fitted_candidates:
+                return min(fitted_candidates, key=lambda item: item[0])[1]
+            if outline_dxf_layer:
                 raise dxf_error or ValueError("未在 DXF 中定位板轮廓层，请指定 outline_dxf_layer")
 
     for gerber_path in gerber_files:
         try:
-            return _read_gerber_bbox(gerber_path)
+            outline = _read_gerber_bbox(gerber_path)
+            if component_bbox is None:
+                return outline
+            fitted = _fit_outline_to_components(outline, component_bbox)
+            if fitted is not None:
+                return fitted[1]
         except (OSError, ValueError):
             continue
+    if component_bbox is not None:
+        return _component_bbox_outline(component_bbox)
     if dxf_error:
         raise dxf_error
     raise ValueError("SMT 文件夹未找到 DXF 或 Gerber，且未指定 outline_bbox_mm")
