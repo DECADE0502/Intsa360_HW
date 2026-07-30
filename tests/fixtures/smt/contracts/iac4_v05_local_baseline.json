@@ -1,0 +1,47 @@
+{
+  "fixture_kind": "local_real_sample_baseline",
+  "release": "0.5.11",
+  "revision": "c62f17d",
+  "expected_counts": {
+    "placements": 1037,
+    "top": 450,
+    "bottom": 587
+  },
+  "sources": [
+    {
+      "relative_path": "XY.txt",
+      "size": 143398,
+      "sha256": "8d2aa17863b5d66b88ef51949c0c4d24ec05099161fd5f2858061dc4b7157cbb",
+      "expected_role": "placement_coordinate"
+    },
+    {
+      "relative_path": "IAC4_MB_V05-260507SMD.pdf",
+      "size": 996166,
+      "sha256": "b681b2b4b5e0cd854bec42bf25c1c1617e255ae238ff735c784628d2b07057a7",
+      "expected_role": "assembly_drawing"
+    },
+    {
+      "relative_path": "原理图/IAC4_MB_V05_20260507.pdf",
+      "size": 1056296,
+      "sha256": "629452fc88727db1937ac50d949cb012b644a7a1c5672c6826ee65162ed6e191",
+      "expected_role": "schematic_drawing"
+    },
+    {
+      "relative_path": "IAC4_MB_V04(HO12DT3251F0)拼板.dxf",
+      "size": 277474,
+      "sha256": "257d577321ea757ac179ada39527c392af207d896b91a70a128277654f6ed22d",
+      "expected_role": "panel_drawing"
+    },
+    {
+      "relative_path": "iac4_mpcb_asm_260417.dxf",
+      "size": 10309673,
+      "sha256": "67b82443049a77a34fbc5e9b76e941a356a0080b408aa82bec380e437627c377",
+      "expected_role": "assembly_drawing"
+    }
+  ],
+  "notes": [
+    "Original files are intentionally not stored in this repository.",
+    "Expected roles are golden review expectations, not filename matching rules.",
+    "Coordinate scope semantics still require explicit sample verification."
+  ]
+}

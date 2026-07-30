@@ -60,7 +60,61 @@ CREATE TABLE IF NOT EXISTS repository_state (
 );
 """
 
+MIGRATION_3 = """
+CREATE TABLE IF NOT EXISTS smt_analysis_runs (
+    id TEXT PRIMARY KEY,
+    source_fingerprint TEXT NOT NULL,
+    parser_version TEXT NOT NULL,
+    rule_version TEXT NOT NULL,
+    state TEXT NOT NULL,
+    source_relative_path TEXT NOT NULL,
+    context_json TEXT NOT NULL,
+    active_revision INTEGER,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    last_error TEXT NOT NULL DEFAULT ''
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_smt_analysis_cache_key
+ON smt_analysis_runs(source_fingerprint, parser_version, rule_version);
+
+CREATE TABLE IF NOT EXISTS smt_analysis_revisions (
+    run_id TEXT NOT NULL REFERENCES smt_analysis_runs(id) ON DELETE CASCADE,
+    revision INTEGER NOT NULL CHECK (revision > 0),
+    state TEXT NOT NULL,
+    dependencies_json TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (run_id, revision)
+);
+
+CREATE TABLE IF NOT EXISTS smt_analysis_decisions (
+    run_id TEXT NOT NULL REFERENCES smt_analysis_runs(id) ON DELETE CASCADE,
+    placement_id TEXT NOT NULL,
+    input_fingerprint TEXT NOT NULL,
+    decision_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (run_id, placement_id)
+);
+
+CREATE TABLE IF NOT EXISTS smt_analysis_page_assets (
+    run_id TEXT NOT NULL REFERENCES smt_analysis_runs(id) ON DELETE CASCADE,
+    page_id TEXT NOT NULL,
+    cache_relative_path TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    media_type TEXT NOT NULL,
+    pixel_width INTEGER NOT NULL CHECK (pixel_width > 0),
+    pixel_height INTEGER NOT NULL CHECK (pixel_height > 0),
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (run_id, page_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_smt_analysis_page_path
+ON smt_analysis_page_assets(cache_relative_path);
+"""
+
 MIGRATIONS = (
     (1, MIGRATION_1),
     (2, MIGRATION_2),
+    (3, MIGRATION_3),
 )

@@ -1,0 +1,213 @@
+{
+  "schema_version": 2,
+  "run_id": "smt-run-fixture",
+  "state": "review",
+  "parser_version": "smt-parser-v2",
+  "rule_version": "smt-rules-v2",
+  "source_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "created_at": "2026-07-30T00:00:00+08:00",
+  "updated_at": "2026-07-30T00:01:00+08:00",
+  "sources": [
+    {
+      "asset_id": "asset-xy",
+      "relative_path": "SMT/XY.txt",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "media_type": "text/plain",
+      "file_size": 120,
+      "roles": [
+        "placement_coordinate"
+      ],
+      "classification_state": "classified",
+      "evidence": [
+        {
+          "kind": "coordinate_columns",
+          "source_id": "asset-xy",
+          "source_location": "line 3",
+          "value": "ref,x,y,rotation,mirror,footprint",
+          "weight": "strong",
+          "message": "Detected a supported placement-coordinate structure."
+        }
+      ],
+      "page_count": null,
+      "sheet_names": []
+    },
+    {
+      "asset_id": "asset-drawing",
+      "relative_path": "SMT/assembly.pdf",
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "media_type": "application/pdf",
+      "file_size": 220,
+      "roles": [
+        "assembly_drawing"
+      ],
+      "classification_state": "classified",
+      "evidence": [],
+      "page_count": 2,
+      "sheet_names": []
+    }
+  ],
+  "coordinate_sets": [
+    {
+      "coordinate_set_id": "coordinate-top",
+      "source_asset_id": "asset-xy",
+      "adapter_id": "cadence_xy_bang_v1",
+      "sheet_or_section": "",
+      "declared_unit": "MM",
+      "normalized_unit": "mm",
+      "unit_state": "declared",
+      "scope_semantics": "unknown",
+      "side_mapping": {
+        "N": "top",
+        "M": "bottom"
+      },
+      "rotation_semantics": "degrees_ccw",
+      "quality_report": {
+        "valid_rows": 1,
+        "rejected_rows": 0,
+        "unnamed_rows": 0,
+        "duplicate_refs": [],
+        "issues": []
+      },
+      "occurrences": [
+        {
+          "occurrence_id": "occ-R1",
+          "raw_ref": "R1",
+          "ref": "R1",
+          "raw_x": "10",
+          "raw_y": "20",
+          "normalized_x": 10.0,
+          "normalized_y": 20.0,
+          "raw_side": "N",
+          "side": "top",
+          "raw_rotation": "0",
+          "normalized_rotation": 0.0,
+          "footprint": "R0402",
+          "source_line": 3,
+          "warnings": []
+        }
+      ]
+    }
+  ],
+  "drawing_pages": [
+    {
+      "page_id": "page-top",
+      "source_asset_id": "asset-drawing",
+      "page_number": 1,
+      "pixel_width": 1600,
+      "pixel_height": 1200,
+      "page_rotation": 0,
+      "crop_rect": null,
+      "side_candidate": "top",
+      "drawing_role": "board_top_candidate",
+      "preview_url": "/api/smt-analysis/runs/smt-run-fixture/pages/page-top/preview",
+      "tile_manifest_url": null,
+      "extracted_refs": [
+        "R1"
+      ],
+      "positioned_refs": [],
+      "evidence": []
+    }
+  ],
+  "registrations": [
+    {
+      "registration_id": "registration-top",
+      "coordinate_set_id": "coordinate-top",
+      "page_id": "page-top",
+      "side": "top",
+      "model": "similarity",
+      "transform": [
+        10.0,
+        0.0,
+        0.0,
+        10.0,
+        100.0,
+        50.0
+      ],
+      "anchors": [
+        {
+          "anchor_id": "anchor-R1",
+          "ref": "R1",
+          "coordinate_x": 10.0,
+          "coordinate_y": 20.0,
+          "image_x": 200.0,
+          "image_y": 250.0,
+          "source": "user",
+          "inlier": true
+        }
+      ],
+      "validation": {
+        "anchor_count": 1,
+        "inlier_ratio": 1.0,
+        "spatial_coverage": 0.0,
+        "median_error": 0.0,
+        "p95_error": 0.0,
+        "inside_ratio": 1.0,
+        "runner_up_gap": null,
+        "mirror_ambiguous": false,
+        "blocking_reasons": [
+          "More distributed anchors are required before verification."
+        ]
+      },
+      "confidence_state": "needs_calibration",
+      "decision_source": "user_calibrated"
+    }
+  ],
+  "placements": [
+    {
+      "placement_id": "placement-R1",
+      "ref": "R1",
+      "side": "top",
+      "coordinate_occurrence_ids": [
+        "occ-R1"
+      ],
+      "image_x": 200.0,
+      "image_y": 250.0,
+      "bom_requirement": {
+        "parent_code": "PCBA-1",
+        "quantity": 1.0,
+        "materials": [
+          {
+            "part_number": "PN-R1",
+            "description": "Resistor",
+            "model": "10K",
+            "grade": "",
+            "is_primary": true
+          }
+        ],
+        "source_rows": [
+          2
+        ]
+      },
+      "netlist_present": true,
+      "drawing_present": true,
+      "role": "smt_component",
+      "assembly_state": "installed",
+      "blocking_reasons": [],
+      "evidence_chain": [
+        {
+          "kind": "bom_membership",
+          "source_id": "bom",
+          "source_location": "row 2",
+          "value": "R1",
+          "weight": "strong",
+          "message": "The processed BOM requires this placement."
+        }
+      ],
+      "decision": null
+    }
+  ],
+  "summary": {
+    "source_count": 2,
+    "coordinate_set_count": 1,
+    "drawing_page_count": 1,
+    "placement_count": 1,
+    "installed_count": 1,
+    "confirmed_nc_count": 0,
+    "candidate_nc_count": 0,
+    "unresolved_count": 0,
+    "blocking_count": 1
+  },
+  "blocking_reasons": [
+    "Top-side registration still needs calibration."
+  ]
+}

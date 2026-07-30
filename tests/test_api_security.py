@@ -92,6 +92,49 @@ def test_upload_rejects_single_file_over_configured_limit(tmp_path: Path) -> Non
     assert not uploads.exists() or not any(uploads.iterdir())
 
 
+def test_tree_upload_preserves_safe_relative_paths(tmp_path: Path) -> None:
+    root = tmp_path / "runtime"
+    app = create_app(root)
+    with TestClient(app, base_url=BASE_URL) as client:
+        response = client.post(
+            "/api/v1/upload/tree",
+            files=[
+                ("files", ("vendor/正面/位号图.pdf", b"%PDF-test", "application/pdf")),
+                ("files", ("vendor/坐标/placement.data", b"coords", "text/plain")),
+            ],
+            headers=_session_headers(client),
+        )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    relative_paths = {
+        item["relative_path"].replace("\\", "/")
+        for item in payload["files"]
+    }
+    assert relative_paths == {
+        "vendor/正面/位号图.pdf",
+        "vendor/坐标/placement.data",
+    }
+    folder = Path(payload["folder"])
+    assert (folder / "vendor" / "正面" / "位号图.pdf").read_bytes() == b"%PDF-test"
+
+
+def test_tree_upload_rejects_relative_path_traversal(tmp_path: Path) -> None:
+    root = tmp_path / "runtime"
+    app = create_app(root)
+    with TestClient(app, base_url=BASE_URL) as client:
+        response = client.post(
+            "/api/v1/upload/tree",
+            files={
+                "files": ("../outside.txt", b"blocked", "text/plain"),
+            },
+            headers=_session_headers(client),
+        )
+
+    assert response.status_code == 400
+    assert not (root / "data" / "uploads" / "outside.txt").exists()
+
+
 def test_interrupted_stream_removes_partial_body(tmp_path: Path) -> None:
     class InterruptedRequest:
         async def stream(self):
@@ -121,4 +164,3 @@ def test_package_traversal_is_rejected_after_session_validation(tmp_path: Path) 
 
     assert response.status_code == 400
     assert response.json()["error_kind"] == "bad_package_path"
-

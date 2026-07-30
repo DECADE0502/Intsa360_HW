@@ -761,10 +761,18 @@ class PlatformApiTests(unittest.TestCase):
         router_text = (ROOT / "app" / "backend" / "api" / "routers" / "files.py").read_text(encoding="utf-8")
         stream_text = (ROOT / "app" / "backend" / "api" / "uploads.py").read_text(encoding="utf-8")
 
-        upload_impl = router_text.split("async def upload_files", 1)[1].split("def package_outputs", 1)[0]
+        upload_impl = router_text.split("async def _upload_files", 1)[1].split(
+            '@api_router.post("/upload")',
+            1,
+        )[0]
+        route_impl = router_text.split("async def upload_files", 1)[1].split(
+            '@api_router.post("/upload/tree")',
+            1,
+        )[0]
         self.assertIn("NamedTemporaryFile", upload_impl)
         self.assertIn("stream_request_to_disk", upload_impl)
         self.assertIn("parse_multipart_files_from_disk", upload_impl)
+        self.assertIn("return await _upload_files(", route_impl)
         self.assertIn("async for chunk in request.stream()", stream_text)
         self.assertIn("file_limit", stream_text)
         self.assertNotIn("await request.body()", upload_impl)

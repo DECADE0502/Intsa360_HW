@@ -85,7 +85,7 @@ def test_health_reports_factual_process_database_and_cadence_state(tmp_path: Pat
     assert payload["uptime_seconds"] >= 0
     assert payload["database"]["status"] == "ok"
     assert payload["database"]["quick_check"] == "ok"
-    assert payload["database"]["migrations"] == [1, 2]
+    assert payload["database"]["migrations"] == [1, 2, 3]
     assert payload["components"]["database"] == payload["database"]
     assert payload["components"]["cadence"] == payload["cadence"]
     assert payload["cadence"]["status"] == "ok"

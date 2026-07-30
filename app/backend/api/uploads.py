@@ -4,6 +4,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import AsyncIterator, Protocol
+from urllib.parse import unquote
 
 from python_multipart.multipart import MultipartParser, parse_options_header
 
@@ -98,6 +99,7 @@ def parse_multipart_files_from_disk(
     target_dir: Path,
     *,
     file_limit: int,
+    preserve_relative_paths: bool = False,
 ) -> list[dict[str, str]]:
     boundary = multipart_boundary(content_type_header)
     files: list[dict[str, str]] = []
@@ -110,12 +112,27 @@ def parse_multipart_files_from_disk(
     target: Path | None = None
     written = 0
     finished = False
+    relative_name = ""
+    seen_targets: set[Path] = set()
+
+    def safe_relative_filename(raw: str) -> Path:
+        normalized = unquote(raw).replace("\\", "/").strip().lstrip("/")
+        parts = [part for part in normalized.split("/") if part not in {"", "."}]
+        if (
+            not parts
+            or any(part == ".." for part in parts)
+            or ":" in parts[0]
+            or any("\x00" in part for part in parts)
+        ):
+            raise ValueError("上传文件相对路径无效")
+        return Path(*parts)
 
     def on_part_begin() -> None:
-        nonlocal headers, output, filename, target, written
+        nonlocal headers, output, filename, relative_name, target, written
         headers = {}
         output = None
         filename = ""
+        relative_name = ""
         target = None
         written = 0
 
@@ -131,16 +148,31 @@ def parse_multipart_files_from_disk(
         header_value.clear()
 
     def on_headers_finished() -> None:
-        nonlocal output, filename, target
+        nonlocal output, filename, relative_name, target
         disposition = headers.get(b"content-disposition", b"")
         _, options = parse_options_header(disposition)
         raw_filename = options.get(b"filename", b"")
         if not raw_filename:
             return
-        filename = Path(_decode_header_value(raw_filename)).name
+        decoded = _decode_header_value(raw_filename)
+        relative = (
+            safe_relative_filename(decoded)
+            if preserve_relative_paths
+            else Path(Path(decoded).name)
+        )
+        filename = relative.name
+        relative_name = relative.as_posix()
         if not filename:
             return
-        target = target_dir / filename
+        target = (target_dir / relative).resolve()
+        try:
+            target.relative_to(target_dir.resolve())
+        except ValueError as exc:
+            raise ValueError("上传文件相对路径越界") from exc
+        if target in seen_targets:
+            raise ValueError(f"上传目录包含重复路径：{relative_name}")
+        seen_targets.add(target)
+        target.parent.mkdir(parents=True, exist_ok=True)
         output = target.open("wb")
         created.append(target)
 
@@ -163,7 +195,13 @@ def parse_multipart_files_from_disk(
             output.close()
             output = None
         if target is not None:
-            files.append({"name": filename, "path": str(target)})
+            files.append(
+                {
+                    "name": filename,
+                    "relative_path": relative_name,
+                    "path": str(target),
+                }
+            )
 
     def on_end() -> None:
         nonlocal finished

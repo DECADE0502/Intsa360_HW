@@ -19,6 +19,7 @@ import { RefdesVirtualList, type RefdesListItem } from "../components/RefdesVirt
 import { useToolWorkspace } from "../state/toolWorkspace";
 import { outputHref } from "../utils/outputHref";
 import styles from "./SmtLayoutPane.module.css";
+import { SmtAnalysisPane } from "./smtAnalysis/SmtAnalysisPane";
 
 
 type SmtLayoutWorkspace = {
@@ -656,7 +657,7 @@ function NcLayoutTab({
 }
 
 
-export function SmtLayoutPane() {
+function LegacySmtLayoutPane() {
   const [workspace, setWorkspace, resetWorkspace] = useToolWorkspace<SmtLayoutWorkspace>(
     "smt_layout",
     {
@@ -869,4 +870,25 @@ export function SmtLayoutPane() {
       />
     </div>
   );
+}
+
+
+function hasLegacySavedResult() {
+  if (typeof window === "undefined") return false;
+  try {
+    const raw = window.localStorage.getItem(
+      "insta360_hw_tool_workspace:smt_layout",
+    );
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    const data = parsed?.data || parsed;
+    return Boolean(data?.result);
+  } catch {
+    return false;
+  }
+}
+
+export function SmtLayoutPane() {
+  const [legacy] = useState(hasLegacySavedResult);
+  return legacy ? <LegacySmtLayoutPane /> : <SmtAnalysisPane />;
 }

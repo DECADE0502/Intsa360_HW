@@ -39,7 +39,7 @@ def test_database_creates_versioned_asset_and_run_schema(tmp_path: Path) -> None
         versions = connection.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()
 
     assert {"assets", "runs", "run_inputs", "run_outputs", "schema_migrations", "repository_state"} <= tables
-    assert versions == [(1,), (2,)]
+    assert versions == [(1,), (2,), (3,)]
     assert AppPaths(root).platform_database_path.is_file()
 
 

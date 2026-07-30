@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
-import { afterAll, afterEach, beforeAll } from "vitest";
+import { afterAll, afterEach, beforeAll, vi } from "vitest";
 import { server } from "./src/test/server";
 
 Object.defineProperty(window, "matchMedia", {
@@ -16,6 +16,30 @@ Object.defineProperty(window, "matchMedia", {
       removeEventListener: () => {},
       removeListener: () => {},
     }) as MediaQueryList,
+});
+
+Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+  configurable: true,
+  value: vi.fn(() => ({
+    arc: vi.fn(),
+    beginPath: vi.fn(),
+    clearRect: vi.fn(),
+    closePath: vi.fn(),
+    drawImage: vi.fn(),
+    fill: vi.fn(),
+    fillRect: vi.fn(),
+    fillText: vi.fn(),
+    lineTo: vi.fn(),
+    moveTo: vi.fn(),
+    rect: vi.fn(),
+    restore: vi.fn(),
+    save: vi.fn(),
+    scale: vi.fn(),
+    setTransform: vi.fn(),
+    stroke: vi.fn(),
+    strokeText: vi.fn(),
+    translate: vi.fn(),
+  })),
 });
 
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));

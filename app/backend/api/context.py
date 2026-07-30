@@ -11,6 +11,7 @@ from fastapi import Request
 
 from app.backend.paths import AppPaths
 from app.backend.services.jobs import PersistentJobService
+from app.backend.services.smt_analysis_service import SmtAnalysisService
 from app.backend.tool_registry import ToolRegistry, build_registry
 
 
@@ -22,6 +23,8 @@ class AppContext:
     _registry_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     _jobs: PersistentJobService | None = None
     _jobs_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    _smt_analysis: SmtAnalysisService | None = None
+    _smt_analysis_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     started_monotonic: float = field(default_factory=time.monotonic)
 
@@ -40,6 +43,14 @@ class AppContext:
                 if self._jobs is None:
                     self._jobs = PersistentJobService(self.paths.platform_jobs_dir)
         return self._jobs
+
+    @property
+    def smt_analysis(self) -> SmtAnalysisService:
+        if self._smt_analysis is None:
+            with self._smt_analysis_lock:
+                if self._smt_analysis is None:
+                    self._smt_analysis = SmtAnalysisService(self.root)
+        return self._smt_analysis
 
 
 def build_context(root: Path) -> AppContext:

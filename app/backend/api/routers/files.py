@@ -29,8 +29,12 @@ def _timestamp_for_filename() -> str:
     return datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
-@api_router.post("/upload")
-async def upload_files(request: Request, context: AppContext = Depends(get_context)):
+async def _upload_files(
+    request: Request,
+    context: AppContext,
+    *,
+    preserve_relative_paths: bool,
+):
     content_type_header = request.headers.get("content-type", "")
     if "multipart/form-data" not in content_type_header:
         return JSONResponse({"error": "multipart/form-data required"}, status_code=400)
@@ -51,6 +55,7 @@ async def upload_files(request: Request, context: AppContext = Depends(get_conte
             content_type_header,
             target_dir,
             file_limit=limits.file_bytes,
+            preserve_relative_paths=preserve_relative_paths,
         )
         return {"status": "ok", "session": session, "files": files, "folder": str(target_dir)}
     except UploadLimitError as exc:
@@ -63,6 +68,24 @@ async def upload_files(request: Request, context: AppContext = Depends(get_conte
     finally:
         if body_path is not None:
             body_path.unlink(missing_ok=True)
+
+
+@api_router.post("/upload")
+async def upload_files(request: Request, context: AppContext = Depends(get_context)):
+    return await _upload_files(
+        request,
+        context,
+        preserve_relative_paths=False,
+    )
+
+
+@api_router.post("/upload/tree")
+async def upload_file_tree(request: Request, context: AppContext = Depends(get_context)):
+    return await _upload_files(
+        request,
+        context,
+        preserve_relative_paths=True,
+    )
 
 
 @api_router.post("/package")
