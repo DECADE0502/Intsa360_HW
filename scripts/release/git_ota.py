@@ -121,6 +121,14 @@ def _clone_branch(
     target: Path,
     transport_environment: Mapping[str, str] | None = None,
 ) -> None:
+    # A failed Windows clone can leave a partial .git directory behind. The
+    # target is always publisher-owned temporary state, so remove that stale
+    # checkout before asking Git to create a fresh one.
+    if target.is_symlink() or target.is_file():
+        target.unlink()
+    elif target.is_dir():
+        shutil.rmtree(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
     _run_git(
         target.parent,
         "clone",

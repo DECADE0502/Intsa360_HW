@@ -202,6 +202,20 @@ def test_first_publish_creates_verified_parentless_channel(
     assert len(_git(checkout, "rev-list", "--parents", "-n", "1", "HEAD").split()) == 1
 
 
+def test_clone_branch_replaces_a_partial_windows_checkout(
+    tmp_path: Path, repositories: tuple[Path, Path]
+) -> None:
+    publisher = _load_module(PUBLISHER_PATH, "git_ota_clone_recovery")
+    _source, remote = repositories
+    target = tmp_path / "stale-clone"
+    (target / ".git").mkdir(parents=True)
+    (target / ".git" / "config").write_text("partial clone\n", encoding="utf-8")
+
+    publisher._clone_branch(str(remote), "main", target)
+
+    assert _git(target, "rev-parse", "--abbrev-ref", "HEAD") == "main"
+
+
 def test_successive_publish_keeps_only_current_and_previous(
     tmp_path: Path, repositories: tuple[Path, Path]
 ) -> None:
