@@ -6,7 +6,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import type { SmtLayoutResponse } from "../api/client";
-import { SmtLayoutPane } from "../tools/SmtLayoutPane";
+import { LegacySmtLayoutPane } from "../tools/SmtLayoutPane";
 import { renderWithProviders } from "./render";
 
 
@@ -54,7 +54,7 @@ function renderPane() {
       data: { smt: "C:/smt", bom: "C:/bom.xlsx", netlist: "", result, activeTab: "fai" },
     }),
   );
-  return renderWithProviders(<SmtLayoutPane />);
+  return renderWithProviders(<LegacySmtLayoutPane />);
 }
 
 

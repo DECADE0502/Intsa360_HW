@@ -3,7 +3,7 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import type { SmtComponent, SmtLayoutResponse } from "../api/client";
-import { SmtLayoutPane } from "../tools/SmtLayoutPane";
+import { LegacySmtLayoutPane } from "../tools/SmtLayoutPane";
 import { renderWithProviders } from "./render";
 
 
@@ -115,7 +115,7 @@ function seedInstalledOnlyWorkspace() {
 
 function renderPane() {
   seedWorkspace();
-  return renderWithProviders(<SmtLayoutPane />);
+  return renderWithProviders(<LegacySmtLayoutPane />);
 }
 
 function mockCanvasRect(svg: SVGSVGElement) {
@@ -215,7 +215,7 @@ describe("SMT layout NC tab", () => {
 
   it("uses the full width for the board when there are no NC rows", () => {
     seedInstalledOnlyWorkspace();
-    const { container } = renderWithProviders(<SmtLayoutPane />);
+    const { container } = renderWithProviders(<LegacySmtLayoutPane />);
 
     expect(container.querySelector('[data-ref="C1"]')).toBeInTheDocument();
     expect(screen.queryByText("NC 与待确认位号")).not.toBeInTheDocument();

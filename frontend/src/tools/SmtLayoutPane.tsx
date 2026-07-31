@@ -657,7 +657,7 @@ function NcLayoutTab({
 }
 
 
-function LegacySmtLayoutPane() {
+export function LegacySmtLayoutPane() {
   const [workspace, setWorkspace, resetWorkspace] = useToolWorkspace<SmtLayoutWorkspace>(
     "smt_layout",
     {
@@ -889,6 +889,8 @@ function hasLegacySavedResult() {
 }
 
 export function SmtLayoutPane() {
-  const [legacy] = useState(hasLegacySavedResult);
-  return legacy ? <LegacySmtLayoutPane /> : <SmtAnalysisPane />;
+  // The old result view drew a synthetic PCB outline from coordinates. Always
+  // enter the PDF-backed workflow so stale local results cannot bypass the
+  // source-page confirmation and render a misleading board.
+  return <SmtAnalysisPane />;
 }

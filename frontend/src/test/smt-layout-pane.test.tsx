@@ -6,7 +6,7 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 
-import { SmtLayoutPane } from "../tools/SmtLayoutPane";
+import { LegacySmtLayoutPane, SmtLayoutPane } from "../tools/SmtLayoutPane";
 import { renderWithProviders } from "./render";
 import { server } from "./server";
 
@@ -228,7 +228,7 @@ describe("SMT layout pane skeleton", () => {
         },
       }),
     );
-    const { container } = renderWithProviders(<SmtLayoutPane />);
+    const { container } = renderWithProviders(<LegacySmtLayoutPane />);
 
     expect(container.querySelector('[data-ref="R1"]')).toBeInTheDocument();
     const smtInput = container.querySelectorAll<HTMLInputElement>('input[type="file"]')[0];

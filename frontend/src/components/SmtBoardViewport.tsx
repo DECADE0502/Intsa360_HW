@@ -1,9 +1,4 @@
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   KeyboardEvent as ReactKeyboardEvent,
   PointerEvent as ReactPointerEvent,
@@ -23,8 +18,9 @@ import type {
   SmtPlacement,
 } from "../tools/smtAnalysis/types";
 import {
+  ASSEMBLY_STATE_COLORS,
   buildViewportTransform,
-  drawPlacementHotspot,
+  hotspotRadius,
   imageToScreen,
   pageBounds,
   placementContentBounds,
@@ -54,10 +50,9 @@ type PanState = {
   moved: boolean;
 } | null;
 
-type CanvasSize = {
+type ViewportSize = {
   width: number;
   height: number;
-  dpr: number;
 };
 
 type FitMode = "components" | "page";
@@ -82,16 +77,108 @@ function normalizeSet(values?: Set<string>) {
   return new Set(Array.from(values || [], (value) => value.toUpperCase()));
 }
 
-function canvasPoint(
-  canvas: HTMLCanvasElement,
-  clientX: number,
-  clientY: number,
-) {
-  const rect = canvas.getBoundingClientRect();
+function eventPoint(element: HTMLElement, clientX: number, clientY: number) {
+  const rect = element.getBoundingClientRect();
   return {
     x: clientX - rect.left,
     y: clientY - rect.top,
   };
+}
+
+function stageTransform(transform: BoardViewportTransform) {
+  return `translate(${transform.viewportWidth / 2 - transform.centerX * transform.scale}px, ${transform.viewportHeight / 2 - transform.centerY * transform.scale}px) scale(${transform.scale})`;
+}
+
+function PlacementMarker({
+  placement,
+  scale,
+  selected,
+  emphasized,
+  muted,
+}: {
+  placement: SmtPlacement;
+  scale: number;
+  selected: boolean;
+  emphasized: boolean;
+  muted: boolean;
+}) {
+  const x = Number(placement.image_x);
+  const y = Number(placement.image_y);
+  const color = ASSEMBLY_STATE_COLORS[placement.assembly_state] || "#667085";
+  const radius = hotspotRadius(selected || emphasized) / Math.max(scale, 0.001);
+  const stroke = selected ? "#101828" : "#ffffff";
+  const strokeWidth = (selected ? 3 : emphasized ? 1.5 : 0.8) / Math.max(scale, 0.001);
+  const opacity = muted ? 0.16 : emphasized ? 1 : 0.58;
+  const labelSize = 12 / Math.max(scale, 0.001);
+  const labelOffset = 10 / Math.max(scale, 0.001);
+  const labelY = -8 / Math.max(scale, 0.001);
+  const ref = placement.ref.toUpperCase();
+
+  return (
+    <g
+      data-ref={placement.ref}
+      data-placement-id={placement.placement_id}
+      data-state={placement.assembly_state}
+      transform={`translate(${x} ${y})`}
+      opacity={opacity}
+    >
+      <title>{`${placement.ref} · ${placement.assembly_state}`}</title>
+      {placement.assembly_state === "conflicting" ? (
+        <path
+          d={`M 0 ${-radius} L ${radius} ${radius} L ${-radius} ${radius} Z`}
+          fill={color}
+          stroke={stroke}
+          strokeWidth={strokeWidth}
+        />
+      ) : placement.assembly_state === "unresolved" ||
+        placement.assembly_state === "coordinate_only" ? (
+        <path
+          d={`M 0 ${-radius} L ${radius} 0 L 0 ${radius} L ${-radius} 0 Z`}
+          fill={color}
+          stroke={stroke}
+          strokeWidth={strokeWidth}
+        />
+      ) : placement.assembly_state === "non_smt" ? (
+        <rect
+          x={-radius}
+          y={-radius}
+          width={radius * 2}
+          height={radius * 2}
+          fill={color}
+          stroke={stroke}
+          strokeWidth={strokeWidth}
+        />
+      ) : (
+        <circle
+          r={radius}
+          fill={placement.assembly_state === "candidate_nc" ? "none" : color}
+          stroke={placement.assembly_state === "candidate_nc" ? color : stroke}
+          strokeWidth={placement.assembly_state === "candidate_nc" ? strokeWidth * 1.4 : strokeWidth}
+        />
+      )}
+      {placement.assembly_state === "confirmed_nc" ? (
+        <path
+          d={`M ${-radius * 0.62} ${radius * 0.62} L ${radius * 0.62} ${-radius * 0.62}`}
+          stroke="#ffffff"
+          strokeWidth={2 / Math.max(scale, 0.001)}
+        />
+      ) : null}
+      {selected && (
+        <text
+          x={radius + labelOffset}
+          y={labelY}
+          fontSize={labelSize}
+          fontWeight={600}
+          fill="#101828"
+          stroke="#ffffff"
+          strokeWidth={4 / Math.max(scale, 0.001)}
+          paintOrder="stroke"
+        >
+          {ref}
+        </text>
+      )}
+    </g>
+  );
 }
 
 export function SmtBoardViewport({
@@ -129,16 +216,14 @@ export function SmtBoardViewport({
   );
   const [view, setView] = useState<BoardView>(INITIAL_VIEW);
   const [fitMode, setFitMode] = useState<FitMode>("components");
-  const [size, setSize] = useState<CanvasSize>({
+  const [size, setSize] = useState<ViewportSize>({
     width: 900,
     height: 560,
-    dpr: 1,
   });
-  const [image, setImage] = useState<HTMLImageElement | null>(null);
-  const [imageError, setImageError] = useState(false);
+  const [imageState, setImageState] = useState<"loading" | "ready" | "error">(
+    "loading",
+  );
   const frameRef = useRef<HTMLDivElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const transformRef = useRef<BoardViewportTransform | null>(null);
   const panRef = useRef<PanState>(null);
   const highlighted = useMemo(
     () => normalizeSet(highlightedRefs),
@@ -175,6 +260,34 @@ export function SmtBoardViewport({
       Math.max(12, span / 18),
     );
   }, [bounds, placements]);
+  const transform = useMemo(
+    () =>
+      buildViewportTransform({
+        bounds,
+        viewportWidth: size.width,
+        viewportHeight: size.height,
+        zoom: view.zoom,
+        centerX: view.centerX,
+        centerY: view.centerY,
+      }),
+    [bounds, size.height, size.width, view],
+  );
+  const renderedPlacements = useMemo(() => {
+    const padding = 24 / Math.max(transform.scale, 0.001);
+    const topLeft = screenToImage(transform, -padding, -padding);
+    const bottomRight = screenToImage(
+      transform,
+      size.width + padding,
+      size.height + padding,
+    );
+    const visible = index.query({
+      minX: Math.min(topLeft.x, bottomRight.x),
+      minY: Math.min(topLeft.y, bottomRight.y),
+      maxX: Math.max(topLeft.x, bottomRight.x),
+      maxY: Math.max(topLeft.y, bottomRight.y),
+    });
+    return visible.map((item) => item.value);
+  }, [index, size.height, size.width, transform]);
 
   function reset() {
     setView(INITIAL_VIEW);
@@ -198,18 +311,14 @@ export function SmtBoardViewport({
     }));
   }
 
-  function wheel(event: ReactWheelEvent<HTMLCanvasElement>) {
+  function wheel(event: ReactWheelEvent<HTMLDivElement>) {
     event.preventDefault();
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const point = canvasPoint(canvas, event.clientX, event.clientY);
+    const frame = frameRef.current;
+    if (!frame) return;
+    const point = eventPoint(frame, event.clientX, event.clientY);
     setView((current) => {
       const currentTransform = transformFor(current);
-      const imagePoint = screenToImage(
-        currentTransform,
-        point.x,
-        point.y,
-      );
+      const imagePoint = screenToImage(currentTransform, point.x, point.y);
       const nextZoom = Math.min(
         12,
         Math.max(0.5, current.zoom * Math.exp(-event.deltaY * 0.0012)),
@@ -232,9 +341,8 @@ export function SmtBoardViewport({
     });
   }
 
-  function pointerDown(event: ReactPointerEvent<HTMLCanvasElement>) {
+  function pointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return;
-    const transform = transformFor(view);
     panRef.current = {
       clientX: event.clientX,
       clientY: event.clientY,
@@ -247,14 +355,12 @@ export function SmtBoardViewport({
     event.currentTarget.dataset.dragging = "true";
   }
 
-  function pointerMove(event: ReactPointerEvent<HTMLCanvasElement>) {
+  function pointerMove(event: ReactPointerEvent<HTMLDivElement>) {
     const pan = panRef.current;
     if (!pan) return;
     const dx = event.clientX - pan.clientX;
     const dy = event.clientY - pan.clientY;
-    if (Math.abs(dx) + Math.abs(dy) > 3) {
-      pan.moved = true;
-    }
+    if (Math.abs(dx) + Math.abs(dy) > 3) pan.moved = true;
     setView((current) => ({
       ...current,
       centerX: pan.centerX - dx / pan.scale,
@@ -262,13 +368,12 @@ export function SmtBoardViewport({
     }));
   }
 
-  function selectAt(event: ReactPointerEvent<HTMLCanvasElement>) {
-    const canvas = canvasRef.current;
-    const transform = transformRef.current;
-    if (!canvas || !transform) return;
-    const point = canvasPoint(canvas, event.clientX, event.clientY);
+  function selectAt(event: ReactPointerEvent<HTMLDivElement>) {
+    const frame = frameRef.current;
+    if (!frame) return;
+    const point = eventPoint(frame, event.clientX, event.clientY);
     const imagePoint = screenToImage(transform, point.x, point.y);
-    const radius = 14 / transform.scale;
+    const radius = 14 / Math.max(transform.scale, 0.001);
     const matches = index.query({
       minX: imagePoint.x - radius,
       minY: imagePoint.y - radius,
@@ -289,22 +394,18 @@ export function SmtBoardViewport({
       })
       .filter((candidate) => candidate.distance <= 14)
       .sort((left, right) => left.distance - right.distance)[0];
-    if (nearest) {
-      onSelect?.(nearest.placement);
-    }
+    if (nearest) onSelect?.(nearest.placement);
   }
 
-  function pointerUp(event: ReactPointerEvent<HTMLCanvasElement>) {
+  function pointerUp(event: ReactPointerEvent<HTMLDivElement>) {
     const pan = panRef.current;
     panRef.current = null;
     event.currentTarget.dataset.dragging = "false";
     event.currentTarget.releasePointerCapture?.(event.pointerId);
-    if (pan && !pan.moved) {
-      selectAt(event);
-    }
+    if (pan && !pan.moved) selectAt(event);
   }
 
-  function keyboard(event: ReactKeyboardEvent<HTMLCanvasElement>) {
+  function keyboard(event: ReactKeyboardEvent<HTMLDivElement>) {
     if (event.key === "+" || event.key === "=") {
       event.preventDefault();
       zoom(1.25);
@@ -320,8 +421,7 @@ export function SmtBoardViewport({
       )
     ) {
       event.preventDefault();
-      const transform = transformFor(view);
-      const step = 36 / transform.scale;
+      const step = 36 / Math.max(transform.scale, 0.001);
       setView((current) => ({
         ...current,
         centerX:
@@ -350,7 +450,6 @@ export function SmtBoardViewport({
       setSize({
         width: Math.max(320, Math.round(rect.width || 900)),
         height: Math.max(360, Math.round(rect.height || 560)),
-        dpr: Math.min(2, Math.max(1, window.devicePixelRatio || 1)),
       });
     };
     sync();
@@ -365,28 +464,7 @@ export function SmtBoardViewport({
   }, [page?.page_id, side, fitMode]);
 
   useEffect(() => {
-    if (!page?.preview_url) {
-      setImage(null);
-      setImageError(false);
-      return;
-    }
-    let cancelled = false;
-    const next = new Image();
-    next.decoding = "async";
-    next.onload = () => {
-      if (cancelled) return;
-      setImage(next);
-      setImageError(false);
-    };
-    next.onerror = () => {
-      if (cancelled) return;
-      setImage(null);
-      setImageError(true);
-    };
-    next.src = page.preview_url;
-    return () => {
-      cancelled = true;
-    };
+    setImageState(page?.preview_url ? "loading" : "error");
   }, [page?.preview_url]);
 
   useEffect(() => {
@@ -401,115 +479,23 @@ export function SmtBoardViewport({
     }));
   }, [placements, selectedRef]);
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !page?.pixel_width || !page.pixel_height) return;
-    canvas.width = Math.round(size.width * size.dpr);
-    canvas.height = Math.round(size.height * size.dpr);
-    canvas.style.width = `${size.width}px`;
-    canvas.style.height = `${size.height}px`;
-    const context = canvas.getContext("2d");
-    if (!context) return;
-    context.setTransform(size.dpr, 0, 0, size.dpr, 0, 0);
-    context.clearRect(0, 0, size.width, size.height);
-    context.fillStyle = "#eef2f1";
-    context.fillRect(0, 0, size.width, size.height);
-
-    const transform = transformFor(view);
-    transformRef.current = transform;
-    if (image) {
-      context.save();
-      context.translate(size.width / 2, size.height / 2);
-      context.scale(transform.scale, transform.scale);
-      context.translate(-transform.centerX, -transform.centerY);
-      context.imageSmoothingEnabled = true;
-      context.drawImage(
-        image,
-        0,
-        0,
-        page.pixel_width,
-        page.pixel_height,
-      );
-      context.restore();
-    } else {
-      context.fillStyle = imageError ? "#a61d24" : "#667085";
-      context.font = "14px system-ui, sans-serif";
-      context.textAlign = "center";
-      context.fillText(
-        imageError ? "位号图载入失败" : "正在载入位号图",
-        size.width / 2,
-        size.height / 2,
-      );
-    }
-
-    const hasHighlights = highlighted.size > 0;
-    for (const placement of placements) {
-      const screen = imageToScreen(
-        transform,
-        Number(placement.image_x),
-        Number(placement.image_y),
-      );
-      if (
-        screen.x < -20 ||
-        screen.y < -20 ||
-        screen.x > size.width + 20 ||
-        screen.y > size.height + 20
-      ) {
-        continue;
-      }
-      const selected =
-        placement.ref.toUpperCase() === selectedRef.toUpperCase();
-      const emphasized =
-        selected || highlighted.has(placement.ref.toUpperCase());
-      drawPlacementHotspot(context, placement, screen.x, screen.y, {
-        selected,
-        emphasized,
-        muted: hasHighlights && !emphasized,
-      });
-      if (selected && view.zoom >= 1.6) {
-        context.save();
-        context.font = "600 12px system-ui, sans-serif";
-        context.textBaseline = "bottom";
-        context.lineWidth = 4;
-        context.strokeStyle = "#ffffff";
-        context.fillStyle = "#101828";
-        context.strokeText(placement.ref, screen.x + 10, screen.y - 8);
-        context.fillText(placement.ref, screen.x + 10, screen.y - 8);
-        context.restore();
-      }
-    }
-    canvas.dataset.renderState = image
-      ? "ready"
-      : imageError
-        ? "error"
-        : "loading";
-    canvas.dataset.hotspotCount = String(placements.length);
-  }, [
-    bounds,
-    highlighted,
-    image,
-    imageError,
-    page?.pixel_height,
-    page?.pixel_width,
-    placements,
-    selectedRef,
-    size,
-    view,
-  ]);
-
   if (!page?.preview_url || !page.pixel_width || !page.pixel_height) {
     return (
       <div className={styles.root}>
         <div className={styles.toolbar}>
-          <Typography.Text strong>坐标诊断视图</Typography.Text>
-          <Tag color="gold">无可信底图或配准</Tag>
+          <Typography.Text strong>PDF 位号图</Typography.Text>
+          <Tag color="gold">暂无可用 PDF 页面或配准结果</Tag>
         </div>
-        <div className={styles.empty}>
-          位号图尚未完成配准，不能显示可信叠加结果
-        </div>
+        <div className={styles.empty}>位号图尚未完成配准，暂时不能显示叠加结果</div>
       </div>
     );
   }
+
+  const stageStyle = {
+    width: `${page.pixel_width}px`,
+    height: `${page.pixel_height}px`,
+    transform: stageTransform(transform),
+  };
 
   return (
     <div className={styles.root}>
@@ -530,63 +516,107 @@ export function SmtBoardViewport({
             />
           ) : (
             <Typography.Text strong>
-              {side === "bottom" ? "背面" : "正面"}位号图
+              {side === "bottom" ? "背面" : "正面"} PDF 位号图
             </Typography.Text>
           )}
           <Segmented
-            aria-label="板图显示范围"
+            aria-label="页面显示范围"
             size="small"
             value={fitMode}
             options={[
               { label: "器件区域", value: "components" },
-              { label: "完整页面", value: "page" },
+              { label: "完整 PDF 页面", value: "page" },
             ]}
             onChange={(value) => setFitMode(value as FitMode)}
           />
           <Typography.Text type="secondary">
-            {placements.length} 个坐标热点
+            PDF 原页 · {renderedPlacements.length} 个可见坐标
           </Typography.Text>
         </Space>
         <Space size={4}>
           <Tooltip title="缩小">
             <Button
-              aria-label="缩小板面"
+              aria-label="缩小页面"
               icon={<MinusOutlined />}
               onClick={() => zoom(0.8)}
             />
           </Tooltip>
           <Tooltip title="放大">
             <Button
-              aria-label="放大板面"
+              aria-label="放大页面"
               icon={<PlusOutlined />}
               onClick={() => zoom(1.25)}
             />
           </Tooltip>
           <Tooltip title="适合窗口">
             <Button
-              aria-label="重置板面"
+              aria-label="重置页面视图"
               icon={<FullscreenOutlined />}
               onClick={reset}
             />
           </Tooltip>
         </Space>
       </div>
-      <div ref={frameRef} className={styles.canvasFrame}>
-        <canvas
-          ref={canvasRef}
-          className={styles.canvas}
-          role="img"
-          tabIndex={0}
-          aria-label={`${side === "bottom" ? "背面" : "正面"}真实位号图与坐标热点`}
-          onWheel={wheel}
-          onPointerDown={pointerDown}
-          onPointerMove={pointerMove}
-          onPointerUp={pointerUp}
-          onPointerCancel={pointerUp}
-          onKeyDown={keyboard}
-        />
+      <div
+        ref={frameRef}
+        className={styles.viewportFrame}
+        role="img"
+        tabIndex={0}
+        aria-label={`${side === "bottom" ? "背面" : "正面"} PDF 位号图与坐标热点`}
+        data-pdf-source="true"
+        data-render-state={imageState}
+        data-marker-count={renderedPlacements.length}
+        onWheel={wheel}
+        onPointerDown={pointerDown}
+        onPointerMove={pointerMove}
+        onPointerUp={pointerUp}
+        onPointerCancel={pointerUp}
+        onKeyDown={keyboard}
+      >
+        <div className={styles.pdfStage} style={stageStyle}>
+          <img
+            className={styles.pdfPage}
+            src={page.preview_url}
+            width={page.pixel_width}
+            height={page.pixel_height}
+            alt=""
+            aria-hidden="true"
+            draggable={false}
+            onLoad={() => setImageState("ready")}
+            onError={() => setImageState("error")}
+          />
+          <svg
+            className={styles.markerLayer}
+            width={page.pixel_width}
+            height={page.pixel_height}
+            viewBox={`0 0 ${page.pixel_width} ${page.pixel_height}`}
+            aria-hidden="true"
+          >
+            {renderedPlacements.map((placement) => {
+              const selected =
+                placement.ref.toUpperCase() === selectedRef.toUpperCase();
+              const emphasized =
+                selected || highlighted.has(placement.ref.toUpperCase());
+              return (
+                <PlacementMarker
+                  key={placement.placement_id}
+                  placement={placement}
+                  scale={transform.scale}
+                  selected={selected}
+                  emphasized={emphasized}
+                  muted={highlighted.size > 0 && !emphasized}
+                />
+              );
+            })}
+          </svg>
+        </div>
+        {imageState === "error" ? (
+          <div className={styles.renderMessage}>PDF 页面载入失败</div>
+        ) : imageState === "loading" ? (
+          <div className={styles.renderMessage}>正在载入 PDF 页面</div>
+        ) : null}
         <div className={styles.canvasHint}>
-          滚轮缩放 · 拖动平移 · 点击热点查看位号
+          滚轮缩放 · 拖动平移 · 点击坐标热点查看位号
         </div>
       </div>
     </div>

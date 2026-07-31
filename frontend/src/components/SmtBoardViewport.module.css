@@ -21,29 +21,59 @@
   background: #fff;
 }
 
-.canvasFrame {
+.viewportFrame {
   position: relative;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-}
-
-.canvas {
-  display: block;
-  width: 100%;
-  height: 100%;
-  touch-action: none;
+  background: #f7f8fa;
   cursor: grab;
+  touch-action: none;
   user-select: none;
   outline: none;
 }
 
-.canvas[data-dragging="true"] {
+.viewportFrame[data-dragging="true"] {
   cursor: grabbing;
 }
 
-.canvas:focus-visible {
+.viewportFrame:focus-visible {
   box-shadow: inset 0 0 0 2px #1677ff;
+}
+
+.pdfStage {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.pdfPage {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  pointer-events: none;
+}
+
+.markerLayer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: block;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.renderMessage {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #667085;
+  font-size: 13px;
+  pointer-events: none;
 }
 
 .canvasHint {

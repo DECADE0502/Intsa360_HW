@@ -10,6 +10,7 @@ import { AnchorEditor } from "../tools/smtAnalysis/AnchorEditor";
 import { IdentificationStep } from "../tools/smtAnalysis/IdentificationStep";
 import { RegistrationStep } from "../tools/smtAnalysis/RegistrationStep";
 import { ReviewWorkbench } from "../tools/smtAnalysis/ReviewWorkbench";
+import { SmtLayoutPane } from "../tools/SmtLayoutPane";
 import type {
   SmtAnalysisRunResponse,
   SmtCoordinateOccurrence,
@@ -146,22 +147,28 @@ describe("SMT analysis workflow components", () => {
     ).toBeDisabled();
   });
 
-  it("renders the real drawing and hotspots on one canvas instead of a synthetic DOM board", async () => {
+  it("renders the PDF page directly and overlays only coordinate hotspots", async () => {
     const run = loadRun();
     const onSelect = vi.fn();
     renderWithProviders(
       <SmtBoardViewport run={run} side="top" onSelect={onSelect} />,
     );
 
-    const canvas = screen.getByRole("img", {
-      name: "正面真实位号图与坐标热点",
+    const viewport = screen.getByRole("img", {
+      name: "正面 PDF 位号图与坐标热点",
     });
-    expect(canvas.tagName).toBe("CANVAS");
-    expect(canvas).toHaveAttribute("data-hotspot-count", "1");
+    expect(viewport.tagName).toBe("DIV");
+    expect(viewport).toHaveAttribute("data-pdf-source", "true");
+    expect(viewport).toHaveAttribute("data-marker-count", "1");
+    expect(viewport.querySelector("img")).toHaveAttribute(
+      "src",
+      run.drawing_pages[0].preview_url,
+    );
+    expect(viewport.querySelector('[data-ref="R1"]')).toBeInTheDocument();
     expect(
       screen.getByRole("radio", { name: "器件区域" }),
     ).toBeChecked();
-    vi.spyOn(canvas, "getBoundingClientRect").mockReturnValue({
+    vi.spyOn(viewport, "getBoundingClientRect").mockReturnValue({
       x: 0,
       y: 0,
       left: 0,
@@ -172,13 +179,13 @@ describe("SMT analysis workflow components", () => {
       height: 560,
       toJSON: () => ({}),
     });
-    fireEvent.pointerDown(canvas, {
+    fireEvent.pointerDown(viewport, {
       button: 0,
       pointerId: 1,
       clientX: 194,
       clientY: 131,
     });
-    fireEvent.pointerUp(canvas, {
+    fireEvent.pointerUp(viewport, {
       button: 0,
       pointerId: 1,
       clientX: 194,
@@ -187,6 +194,26 @@ describe("SMT analysis workflow components", () => {
     expect(onSelect).toHaveBeenCalledWith(
       expect.objectContaining({ ref: "R1" }),
     );
+  });
+
+  it("does not revive the legacy synthetic board from an old saved result", () => {
+    window.localStorage.setItem(
+      "insta360_hw_tool_workspace:smt_layout",
+      JSON.stringify({
+        data: {
+          historyBom: "D:/old/processed.xlsx",
+          result: { board: { outline_rings: [] }, components: [] },
+        },
+      }),
+    );
+
+    renderWithProviders(<SmtLayoutPane />);
+
+    expect(
+      screen.getByRole("button", { name: "选择 SMT 资料目录" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "PCB 布局视图" })).not.toBeInTheDocument();
+    window.localStorage.removeItem("insta360_hw_tool_workspace:smt_layout");
   });
 
   it("keeps thousand-part review lists virtualized", () => {

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 
 import type { SmtComponent, SmtLayoutResponse, SmtSanity } from "../api/client";
-import { SmtLayoutPane } from "../tools/SmtLayoutPane";
+import { LegacySmtLayoutPane } from "../tools/SmtLayoutPane";
 import { renderWithProviders } from "./render";
 
 
@@ -83,7 +83,7 @@ function renderPane(result = makeResult()) {
       data: { smt: "C:/smt", bom: "C:/bom.xlsx", netlist: "C:/netlist", result, activeTab: "sanity" },
     }),
   );
-  return renderWithProviders(<SmtLayoutPane />);
+  return renderWithProviders(<LegacySmtLayoutPane />);
 }
 
 
