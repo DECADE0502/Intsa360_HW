@@ -199,26 +199,6 @@ export function ReviewWorkbench({
         data-evidence-open={evidenceOpen}
       >
         <div className={styles.reviewLayout}>
-          <section className={styles.viewportPanel}>
-            <SmtBoardViewport
-              run={run}
-              side={boardSide}
-              selectedRef={selected?.ref}
-              highlightedRefs={highlightedRefs}
-              onSideChange={setBoardSide}
-              onSelect={(placement: SmtPlacement) => {
-                setSelectedRef(placement.ref);
-                if (
-                  placement.side === "top" ||
-                  placement.side === "bottom"
-                ) {
-                  setBoardSide(placement.side);
-                }
-                setEvidenceOpen(true);
-              }}
-            />
-          </section>
-
           <section className={styles.reviewList}>
             <div className={styles.panelHeader}>
               <Typography.Text strong>位号与异常</Typography.Text>
@@ -274,6 +254,26 @@ export function ReviewWorkbench({
                 )
               }
               onApply={decideBatch}
+            />
+          </section>
+
+          <section className={styles.viewportPanel}>
+            <SmtBoardViewport
+              run={run}
+              side={boardSide}
+              selectedRef={selected?.ref}
+              highlightedRefs={highlightedRefs}
+              onSideChange={setBoardSide}
+              onSelect={(placement: SmtPlacement) => {
+                setSelectedRef(placement.ref);
+                if (
+                  placement.side === "top" ||
+                  placement.side === "bottom"
+                ) {
+                  setBoardSide(placement.side);
+                }
+                setEvidenceOpen(true);
+              }}
             />
           </section>
         </div>

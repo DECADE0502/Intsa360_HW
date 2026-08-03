@@ -95,19 +95,6 @@
   font-weight: 650;
 }
 
-.candidateLayout {
-  display: grid;
-  grid-template-columns: minmax(300px, 0.85fr) minmax(0, 1.65fr);
-  gap: 14px;
-}
-
-.candidatePanel {
-  min-width: 0;
-  border: 1px solid #dfe4e8;
-  border-radius: 6px;
-  overflow: hidden;
-}
-
 .panelHeader {
   display: flex;
   align-items: center;
@@ -116,57 +103,6 @@
   padding: 11px 12px;
   border-bottom: 1px solid #e5e7eb;
   background: #fafbfc;
-}
-
-.coordinateList {
-  display: grid;
-}
-
-.coordinateOption {
-  display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-  padding: 11px 12px;
-  border-bottom: 1px solid #edf0f2;
-  cursor: pointer;
-}
-
-.coordinateOption:last-child {
-  border-bottom: 0;
-}
-
-.coordinateOption[data-selected="true"] {
-  background: #eef8f6;
-  box-shadow: inset 3px 0 #167f73;
-}
-
-.pageGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 10px;
-  padding: 12px;
-}
-
-.pageCandidate {
-  min-width: 0;
-  border: 1px solid #e1e5e8;
-  border-radius: 6px;
-  overflow: hidden;
-  background: #fff;
-}
-
-.pagePreview {
-  display: block;
-  width: 100%;
-  aspect-ratio: 4 / 3;
-  object-fit: contain;
-  background: #f4f6f7;
-  border-bottom: 1px solid #e5e7eb;
-}
-
-.pageMeta {
-  padding: 9px;
 }
 
 .configurationBar {
@@ -258,7 +194,7 @@
 
 .reviewLayout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(310px, 350px);
+  grid-template-columns: minmax(310px, 350px) minmax(0, 1fr);
   gap: 12px;
   min-height: 0;
 }
@@ -321,6 +257,110 @@
 .placementRow[data-selected="true"] {
   background: #eaf5f3;
   box-shadow: inset 3px 0 #167f73;
+}
+
+.placementRow[data-checkbox="false"] {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.referenceNavigator {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid #dfe4e8;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.referenceControls {
+  display: grid;
+  gap: 8px;
+  padding: 9px;
+  border-bottom: 1px solid #edf0f2;
+}
+
+.referenceFooter {
+  padding: 8px 10px;
+  border-top: 1px solid #edf0f2;
+  background: #fafbfc;
+}
+
+.identificationSourceBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid #dfe4e8;
+  border-radius: 6px;
+  background: #fafbfc;
+}
+
+.identificationSourceMain {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-width: 0;
+}
+
+.identificationWorkspace {
+  display: grid;
+  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+  gap: 12px;
+  min-height: 620px;
+}
+
+.identificationPreview {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid #dfe4e8;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.pageSelectionBar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 9px 12px;
+  border-bottom: 1px solid #edf0f2;
+  background: #fafbfc;
+}
+
+.pageAssignmentList {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  max-height: 92px;
+  overflow: auto;
+  padding: 7px 10px;
+  border-bottom: 1px solid #edf0f2;
+  background: #fff;
+}
+
+.pageAssignment {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 2px 4px;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  background: #fafbfc;
+}
+
+.identificationPreviewViewport {
+  min-height: 0;
+  height: clamp(560px, 68vh, 780px);
 }
 
 .placementIdentity {
@@ -418,7 +458,7 @@
 
 @media (max-width: 1180px) {
   .reviewLayout {
-    grid-template-columns: minmax(0, 1fr) 310px;
+    grid-template-columns: 310px minmax(0, 1fr);
   }
 
   .evidenceDockBody {
@@ -436,8 +476,8 @@
 
 @media (max-width: 820px) {
   .sourceField,
-  .candidateLayout,
   .registrationLayout,
+  .identificationWorkspace,
   .reviewLayout {
     grid-template-columns: 1fr;
   }
@@ -454,6 +494,11 @@
 
   .summaryItem {
     border-bottom: 1px solid #e5e7eb;
+  }
+
+  .identificationSourceBar {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .reviewList {

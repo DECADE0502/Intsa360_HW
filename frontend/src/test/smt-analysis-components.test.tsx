@@ -14,6 +14,7 @@ import { SmtLayoutPane } from "../tools/SmtLayoutPane";
 import type {
   SmtAnalysisRunResponse,
   SmtCoordinateOccurrence,
+  SmtExtractedRef,
 } from "../tools/smtAnalysis/types";
 import { renderWithProviders } from "./render";
 
@@ -52,12 +53,17 @@ describe("SMT analysis workflow components", () => {
       />,
     );
 
-    expect(
-      screen.getByRole("img", { name: /assembly\.pdf 第 1 页/ }),
-    ).toHaveAttribute("src", run.drawing_pages[0].preview_url);
-    const topChoices = screen.getAllByText("正面");
-    expect(topChoices).toHaveLength(2);
-    await user.click(topChoices[1]);
+    const viewport = screen.getByRole("img", {
+      name: "正面 PDF 位号图与坐标热点",
+    });
+    expect(viewport.querySelector("img")).toHaveAttribute(
+      "src",
+      run.drawing_pages[0].preview_url,
+    );
+    const duplicatePage = screen.getByTestId(
+      "smt-page-assignment-page-top-duplicate",
+    );
+    await user.click(within(duplicatePage).getByText("正面"));
 
     expect(
       screen.getByText("同一面选择了多个位号图页面，请保留一个。"),
@@ -65,6 +71,70 @@ describe("SMT analysis workflow components", () => {
     expect(
       screen.getByRole("button", { name: /确认识别结果/ }),
     ).toBeDisabled();
+  });
+
+  it("switches between NC buckets and jumps to the matching PDF page", async () => {
+    const user = userEvent.setup();
+    const run = loadRun();
+    const topMarker: SmtExtractedRef = {
+      extracted_ref_id: "extracted-R1",
+      ref: "R1",
+      image_x: 200,
+      image_y: 250,
+      bbox: [190, 240, 210, 260],
+      source: "vector_text",
+      source_index: 0,
+    };
+    const bottomMarker: SmtExtractedRef = {
+      ...topMarker,
+      extracted_ref_id: "extracted-R2",
+      ref: "R2",
+      image_x: 420,
+      image_y: 380,
+      source_index: 1,
+    };
+    run.drawing_pages[0].positioned_refs = [topMarker];
+    run.drawing_pages.push({
+      ...run.drawing_pages[0],
+      page_id: "page-bottom",
+      page_number: 2,
+      side_candidate: "bottom",
+      drawing_role: "board_bottom_candidate",
+      extracted_refs: ["R2"],
+      positioned_refs: [bottomMarker],
+    });
+    run.placements = [
+      run.placements[0],
+      {
+        ...run.placements[0],
+        placement_id: "placement-R2",
+        ref: "R2",
+        side: "bottom",
+        coordinate_occurrence_ids: ["occ-R2"],
+        image_x: 420,
+        image_y: 380,
+      },
+    ];
+
+    renderWithProviders(
+      <IdentificationStep
+        run={run}
+        busy={false}
+        error=""
+        onConfirm={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("非 NC 2")).toBeInTheDocument();
+    await user.click(screen.getByTestId("smt-placement-R2"));
+
+    const viewport = screen.getByRole("img", {
+      name: "背面 PDF 位号图与坐标热点",
+    });
+    expect(viewport.querySelector('[data-ref="R2"]')).toHaveAttribute(
+      "data-selected",
+      "true",
+    );
   });
 
   it("creates an anchor by pairing a coordinate ref with a drawing click", async () => {

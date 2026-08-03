@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Button,
-  Radio,
   Segmented,
   Select,
   Space,
@@ -15,11 +14,14 @@ import {
   TableOutlined,
 } from "@ant-design/icons";
 
+import { SmtBoardViewport } from "../../components/SmtBoardViewport";
 import type { SourceConfirmationInput } from "./api";
+import { ReferenceNavigator } from "./ReferenceNavigator";
 import type {
   SmtAnalysisRunResponse,
   SmtBoardSide,
   SmtCoordinateScope,
+  SmtPlacement,
 } from "./types";
 import styles from "./SmtAnalysisPane.module.css";
 
@@ -58,10 +60,6 @@ const SCOPE_OPTIONS: Array<{
   },
 ];
 
-function roleCount(run: SmtAnalysisRunResponse, role: string) {
-  return run.sources.filter((source) => source.roles.includes(role as never)).length;
-}
-
 function pageDefault(run: SmtAnalysisRunResponse) {
   const result: Record<string, SmtBoardSide> = {};
   const used = new Set<SmtBoardSide>();
@@ -75,6 +73,37 @@ function pageDefault(run: SmtAnalysisRunResponse) {
     }
   });
   return result;
+}
+
+const NC_STATES = new Set(["confirmed_nc", "candidate_nc"]);
+
+function pageContainsRef(page: SmtAnalysisRunResponse["drawing_pages"][number], ref: string) {
+  const normalized = ref.toUpperCase();
+  return (
+    page.positioned_refs?.some((item) => item.ref.toUpperCase() === normalized) ||
+    page.extracted_refs.some((item) => item.toUpperCase() === normalized)
+  );
+}
+
+function pageForPlacement(
+  run: SmtAnalysisRunResponse,
+  placement: SmtPlacement,
+  currentPageId?: string,
+) {
+  const matches = run.drawing_pages.filter((page) =>
+    pageContainsRef(page, placement.ref),
+  );
+  return (
+    matches.find((page) => page.page_id === currentPageId) ||
+    matches.find(
+      (page) =>
+        page.drawing_role.startsWith("board_") &&
+        page.side_candidate === placement.side,
+    ) ||
+    matches.find((page) => page.drawing_role.startsWith("board_")) ||
+    matches.find((page) => page.side_candidate === placement.side) ||
+    matches[0]
+  );
 }
 
 export function IdentificationStep({
@@ -92,6 +121,28 @@ export function IdentificationStep({
   const [pages, setPages] = useState<Record<string, SmtBoardSide>>(() =>
     pageDefault(run),
   );
+  const firstPlacement = useMemo(
+    () =>
+      run.placements.find((item) => NC_STATES.has(item.assembly_state)) ||
+      run.placements[0],
+    [run.placements],
+  );
+  const [selectedRef, setSelectedRef] = useState(
+    firstPlacement?.ref || "",
+  );
+  const [selectedPageId, setSelectedPageId] = useState(() => {
+    const page = firstPlacement
+      ? pageForPlacement(run, firstPlacement)
+      : undefined;
+    return (
+      page?.page_id ||
+      run.drawing_pages.find((item) => item.side_candidate === "top")
+        ?.page_id ||
+      run.drawing_pages[0]?.page_id ||
+      ""
+    );
+  });
+  const [showBlockingDetails, setShowBlockingDetails] = useState(false);
   const selectedSet = useMemo(
     () =>
       run.coordinate_sets.find(
@@ -112,6 +163,27 @@ export function IdentificationStep({
     () => new Map(run.sources.map((source) => [source.asset_id, source])),
     [run.sources],
   );
+  const previewPages = useMemo(
+    () =>
+      run.drawing_pages.filter(
+        (page) => Boolean(page.preview_url) || page.extracted_refs.length > 0,
+      ),
+    [run.drawing_pages],
+  );
+  const selectedPage = useMemo(
+    () =>
+      run.drawing_pages.find((page) => page.page_id === selectedPageId) ||
+      previewPages[0],
+    [previewPages, run.drawing_pages, selectedPageId],
+  );
+  const selectedPageSide = selectedPage
+    ? pages[selectedPage.page_id] === "top" || pages[selectedPage.page_id] === "bottom"
+      ? pages[selectedPage.page_id]
+      : selectedPage.side_candidate === "top" ||
+          selectedPage.side_candidate === "bottom"
+        ? selectedPage.side_candidate
+        : undefined
+    : undefined;
   const chosenSides = Object.values(pages);
   const duplicateSide =
     chosenSides.filter((side) => side === "top").length > 1 ||
@@ -121,6 +193,26 @@ export function IdentificationStep({
     !duplicateSide &&
     (!run.drawing_pages.length || chosenSides.length > 0) &&
     (selectedSet?.unit_state !== "unknown" || Boolean(unit));
+
+  useEffect(() => {
+    setSelectedRef(firstPlacement?.ref || "");
+    const page = firstPlacement
+      ? pageForPlacement(run, firstPlacement)
+      : undefined;
+    setSelectedPageId(
+      page?.page_id ||
+        run.drawing_pages.find((item) => item.side_candidate === "top")
+          ?.page_id ||
+        run.drawing_pages[0]?.page_id ||
+        "",
+    );
+  }, [firstPlacement, run.drawing_pages, run.run_id]);
+
+  function selectPlacement(placement: SmtPlacement) {
+    setSelectedRef(placement.ref);
+    const page = pageForPlacement(run, placement, selectedPageId);
+    if (page) setSelectedPageId(page.page_id);
+  }
 
   return (
     <div>
@@ -144,138 +236,178 @@ export function IdentificationStep({
           type="warning"
           showIcon
           message="资料需要确认"
-          description={run.blocking_reasons.join("；")}
+          description={
+            <Space direction="vertical" size={4}>
+              <Typography.Text>
+                检测到 {run.blocking_reasons.length} 项需要确认，先选择位号查看对应位号图。
+              </Typography.Text>
+              <Button
+                type="link"
+                size="small"
+                style={{ padding: 0, alignSelf: "flex-start" }}
+                onClick={() => setShowBlockingDetails((current) => !current)}
+              >
+                {showBlockingDetails ? "收起详情" : "查看详情"}
+              </Button>
+              {showBlockingDetails ? (
+                <div style={{ maxHeight: 160, overflow: "auto" }}>
+                  {run.blocking_reasons.slice(0, 30).map((reason, index) => (
+                    <Typography.Paragraph key={`${index}-${reason}`} style={{ margin: "0 0 4px" }}>
+                      {reason}
+                    </Typography.Paragraph>
+                  ))}
+                  {run.blocking_reasons.length > 30 ? (
+                    <Typography.Text type="secondary">
+                      其余 {run.blocking_reasons.length - 30} 项已折叠。
+                    </Typography.Text>
+                  ) : null}
+                </div>
+              ) : null}
+            </Space>
+          }
           style={{ marginBottom: 12 }}
         />
       ) : null}
 
-      <div className={styles.candidateLayout}>
-        <section className={styles.candidatePanel}>
-          <div className={styles.panelHeader}>
-            <Space>
-              <TableOutlined />
-              <Typography.Text strong>坐标数据</Typography.Text>
-            </Space>
+      <div className={styles.identificationSourceBar}>
+        <div className={styles.identificationSourceMain}>
+          <Space size={8}>
+            <TableOutlined />
+            <Typography.Text strong>坐标数据</Typography.Text>
             <Tag>{run.coordinate_sets.length} 个候选</Tag>
-          </div>
-          <div className={styles.coordinateList}>
-            {run.coordinate_sets.map((candidate) => {
+          </Space>
+          <Select
+            aria-label="坐标数据"
+            value={coordinateSetId || undefined}
+            placeholder="选择坐标文件或工作表"
+            style={{ minWidth: 320, maxWidth: "100%" }}
+            options={run.coordinate_sets.map((candidate) => {
               const source = sourceById.get(candidate.source_asset_id);
-              return (
-                <label
-                  className={styles.coordinateOption}
-                  data-selected={
-                    candidate.coordinate_set_id === coordinateSetId
-                  }
-                  key={candidate.coordinate_set_id}
-                >
-                  <Radio
-                    checked={candidate.coordinate_set_id === coordinateSetId}
-                    onChange={() =>
-                      setCoordinateSetId(candidate.coordinate_set_id)
-                    }
-                  />
-                  <span>
-                    <Typography.Text strong ellipsis>
-                      {source?.relative_path || candidate.sheet_or_section}
-                    </Typography.Text>
-                    <br />
-                    <Typography.Text type="secondary">
-                      {candidate.quality_report.valid_rows} 个位号
-                      {candidate.sheet_or_section
-                        ? ` · ${candidate.sheet_or_section}`
-                        : ""}
-                    </Typography.Text>
-                  </span>
-                  <Tag
-                    color={
-                      candidate.quality_report.issues.some(
-                        (issue) => issue.severity === "blocking",
-                      )
-                        ? "red"
-                        : "green"
-                    }
-                  >
-                    {candidate.normalized_unit || "单位待确认"}
-                  </Tag>
-                </label>
-              );
+              return {
+                value: candidate.coordinate_set_id,
+                label: `${source?.relative_path || candidate.sheet_or_section} · ${candidate.quality_report.valid_rows} 个位号`,
+              };
             })}
-            {!run.coordinate_sets.length ? (
-              <div className={styles.emptyPanel}>未识别到坐标数据</div>
-            ) : null}
-          </div>
-        </section>
+            onChange={setCoordinateSetId}
+          />
+          {selectedSet ? (
+            <Typography.Text type="secondary">
+              已识别 {selectedSet.quality_report.valid_rows} 个坐标位号
+              {selectedSet.sheet_or_section ? ` · ${selectedSet.sheet_or_section}` : ""}
+            </Typography.Text>
+          ) : null}
+        </div>
+        {!run.coordinate_sets.length ? (
+          <Typography.Text type="secondary">未识别到坐标数据</Typography.Text>
+        ) : null}
+      </div>
 
-        <section className={styles.candidatePanel}>
+      <div className={styles.identificationWorkspace}>
+        <ReferenceNavigator
+          run={run}
+          selectedRef={selectedRef}
+          onSelect={selectPlacement}
+        />
+        <section className={styles.identificationPreview}>
           <div className={styles.panelHeader}>
-            <Space>
+            <Space size={8}>
               <FileImageOutlined />
-              <Typography.Text strong>位号图页面</Typography.Text>
+              <Typography.Text strong>位号图原页</Typography.Text>
             </Space>
             <Typography.Text type="secondary">
-              从 {roleCount(run, "assembly_drawing")} 个图纸文件中识别
+              点击左侧位号后自动定位
             </Typography.Text>
           </div>
-          {run.drawing_pages.length ? (
-            <div className={styles.pageGrid}>
-              {run.drawing_pages.map((page) => {
+          <div className={styles.pageSelectionBar}>
+            <Typography.Text strong>当前页面</Typography.Text>
+            <Select
+              aria-label="当前位号图页面"
+              value={selectedPage?.page_id || undefined}
+              placeholder="选择 PDF 位号图页面"
+              style={{ minWidth: 280, maxWidth: "100%" }}
+              options={previewPages.map((page) => {
                 const source = sourceById.get(page.source_asset_id);
-                const selected = pages[page.page_id] || "unknown";
-                return (
-                  <article className={styles.pageCandidate} key={page.page_id}>
-                    {page.preview_url ? (
-                      <img
-                        className={styles.pagePreview}
-                        src={page.preview_url}
-                        alt={`${source?.relative_path || "位号图"} 第 ${page.page_number} 页`}
-                      />
-                    ) : (
-                      <div className={styles.pagePreview} />
-                    )}
-                    <div className={styles.pageMeta}>
-                      <Typography.Text strong ellipsis={{ tooltip: source?.relative_path }}>
-                        {source?.relative_path || "图纸"}
-                      </Typography.Text>
-                      <Typography.Paragraph
-                        type="secondary"
-                        ellipsis={{ rows: 1, tooltip: true }}
-                        style={{ margin: "2px 0 8px" }}
-                      >
-                        第 {page.page_number} 页 · 提取 {page.extracted_refs.length} 个位号
-                      </Typography.Paragraph>
-                      <Segmented
-                        block
-                        size="small"
-                        value={selected}
-                        options={[
-                          { label: "不用", value: "unknown" },
-                          { label: "正面", value: "top" },
-                          { label: "背面", value: "bottom" },
-                        ]}
-                        onChange={(value) => {
-                          const side = value as SmtBoardSide;
-                          setPages((current) => {
-                            const next = { ...current };
-                            if (side === "unknown") {
-                              delete next[page.page_id];
-                            } else {
-                              next[page.page_id] = side;
-                            }
-                            return next;
-                          });
-                        }}
-                      />
-                    </div>
-                  </article>
-                );
+                return {
+                  value: page.page_id,
+                  label: `${source?.relative_path || "位号图"} · 第 ${page.page_number} 页 · ${page.extracted_refs.length} 个位号`,
+                };
               })}
-            </div>
-          ) : (
-            <div className={styles.emptyPanel}>
-              未找到位号图，可继续使用坐标诊断视图
-            </div>
-          )}
+              onChange={setSelectedPageId}
+            />
+            {selectedPage ? (
+              <Segmented
+                size="small"
+                value={pages[selectedPage.page_id] || "unknown"}
+                options={[
+                  { label: "不使用", value: "unknown" },
+                  { label: "正面", value: "top" },
+                  { label: "背面", value: "bottom" },
+                ]}
+                onChange={(value) => {
+                  const nextSide = value as SmtBoardSide;
+                  setPages((current) => {
+                    const next = { ...current };
+                    if (nextSide === "unknown") {
+                      delete next[selectedPage.page_id];
+                    } else {
+                      next[selectedPage.page_id] = nextSide;
+                    }
+                    return next;
+                  });
+                }}
+              />
+            ) : null}
+          </div>
+          <div className={styles.pageAssignmentList}>
+            {previewPages.map((page) => {
+              const source = sourceById.get(page.source_asset_id);
+              return (
+                <div
+                  className={styles.pageAssignment}
+                  data-testid={`smt-page-assignment-${page.page_id}`}
+                  key={page.page_id}
+                >
+                  <Button
+                    type={page.page_id === selectedPage?.page_id ? "link" : "text"}
+                    size="small"
+                    onClick={() => setSelectedPageId(page.page_id)}
+                  >
+                    {source?.relative_path || "位号图"} · 第 {page.page_number} 页
+                  </Button>
+                  <Segmented
+                    size="small"
+                    value={pages[page.page_id] || "unknown"}
+                    options={[
+                      { label: "不用", value: "unknown" },
+                      { label: "正面", value: "top" },
+                      { label: "背面", value: "bottom" },
+                    ]}
+                    onChange={(value) => {
+                      const nextSide = value as SmtBoardSide;
+                      setPages((current) => {
+                        const next = { ...current };
+                        if (nextSide === "unknown") {
+                          delete next[page.page_id];
+                        } else {
+                          next[page.page_id] = nextSide;
+                        }
+                        return next;
+                      });
+                    }}
+                  />
+                </div>
+              );
+            })}
+          </div>
+          <div className={styles.identificationPreviewViewport}>
+            <SmtBoardViewport
+              run={run}
+              pageId={selectedPage?.page_id}
+              side={selectedPageSide}
+              selectedRef={selectedRef}
+              onSelect={selectPlacement}
+            />
+          </div>
         </section>
       </div>
 

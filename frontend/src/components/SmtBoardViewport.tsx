@@ -25,7 +25,6 @@ import {
   pageBounds,
   placementContentBounds,
   screenToImage,
-  visiblePlacements,
 } from "./smtBoardRenderer";
 import type {
   BoardBounds,
@@ -60,6 +59,7 @@ type FitMode = "components" | "page";
 type SmtBoardViewportProps = {
   run: SmtAnalysisRunResponse;
   side?: SmtBoardSide;
+  pageId?: string;
   selectedRef?: string;
   highlightedRefs?: Set<string>;
   visibleStates?: Set<SmtAssemblyState>;
@@ -119,6 +119,7 @@ function PlacementMarker({
       data-ref={placement.ref}
       data-placement-id={placement.placement_id}
       data-state={placement.assembly_state}
+      data-selected={selected ? "true" : "false"}
       transform={`translate(${x} ${y})`}
       opacity={opacity}
     >
@@ -184,6 +185,7 @@ function PlacementMarker({
 export function SmtBoardViewport({
   run,
   side: controlledSide,
+  pageId,
   selectedRef = "",
   highlightedRefs,
   visibleStates,
@@ -194,12 +196,21 @@ export function SmtBoardViewport({
     () =>
       Array.from(
         new Set(
-          run.registrations
-            .filter((item) => item.confidence_state !== "rejected")
-            .map((item) => item.side),
+          [
+            ...run.registrations
+              .filter((item) => item.confidence_state !== "rejected")
+              .map((item) => item.side),
+            ...run.drawing_pages
+              .filter(
+                (item) =>
+                  item.side_candidate === "top" ||
+                  item.side_candidate === "bottom",
+              )
+              .map((item) => item.side_candidate),
+          ],
         ),
       ) as Array<"top" | "bottom">,
-    [run.registrations],
+    [run.drawing_pages, run.registrations],
   );
   const [localSide, setLocalSide] = useState<"top" | "bottom">(
     availableSides[0] || "top",
@@ -211,9 +222,34 @@ export function SmtBoardViewport({
   const registration = run.registrations.find(
     (item) => item.side === side && item.confidence_state !== "rejected",
   );
-  const page = run.drawing_pages.find(
-    (item) => item.page_id === registration?.page_id,
-  );
+  const pagesFromSelectedRef = selectedRef
+    ? run.drawing_pages.filter(
+        (candidate) =>
+          candidate.positioned_refs?.some(
+            (item) => item.ref.toUpperCase() === selectedRef.toUpperCase(),
+          ) ||
+          candidate.extracted_refs.some(
+            (ref) => ref.toUpperCase() === selectedRef.toUpperCase(),
+          ),
+      )
+    : [];
+  const pageFromSelectedRef =
+    pagesFromSelectedRef.find(
+      (candidate) =>
+        candidate.drawing_role.startsWith("board_") &&
+        candidate.side_candidate === side,
+    ) ||
+    pagesFromSelectedRef.find((candidate) =>
+      candidate.drawing_role.startsWith("board_"),
+    ) ||
+    pagesFromSelectedRef.find((candidate) => candidate.side_candidate === side) ||
+    pagesFromSelectedRef[0];
+  const page =
+    run.drawing_pages.find((item) => item.page_id === pageId) ||
+    run.drawing_pages.find((item) => item.page_id === registration?.page_id) ||
+    pageFromSelectedRef ||
+    run.drawing_pages.find((item) => item.side_candidate === side) ||
+    run.drawing_pages.find((item) => item.preview_url);
   const [view, setView] = useState<BoardView>(INITIAL_VIEW);
   const [fitMode, setFitMode] = useState<FitMode>("components");
   const [size, setSize] = useState<ViewportSize>({
@@ -229,10 +265,55 @@ export function SmtBoardViewport({
     () => normalizeSet(highlightedRefs),
     [highlightedRefs],
   );
-  const placements = useMemo(
-    () => visiblePlacements(run.placements, side, visibleStates),
-    [run.placements, side, visibleStates],
-  );
+  const placements = useMemo(() => {
+    const pagePositions = new Map(
+      (page?.positioned_refs || []).map((item) => [item.ref.toUpperCase(), item]),
+    );
+    return run.placements
+      .filter(
+        (item) =>
+          !visibleStates || visibleStates.has(item.assembly_state),
+      )
+      .filter((item) => {
+        if (pageId) {
+          return (
+            pagePositions.has(item.ref.toUpperCase()) ||
+            (page?.page_id === registration?.page_id &&
+              item.side === side &&
+              item.image_x != null &&
+              item.image_y != null)
+          );
+        }
+        return item.side === side || item.side === "unknown";
+      })
+      .map((item) => {
+        if (
+          item.image_x != null &&
+          item.image_y != null &&
+          Number.isFinite(item.image_x) &&
+          Number.isFinite(item.image_y)
+        ) {
+          return item;
+        }
+        const positioned = pagePositions.get(item.ref.toUpperCase());
+        return positioned
+          ? {
+              ...item,
+              image_x: positioned.image_x,
+              image_y: positioned.image_y,
+            }
+          : null;
+      })
+      .filter((item): item is SmtPlacement => item !== null);
+  }, [
+    page?.page_id,
+    page?.positioned_refs,
+    pageId,
+    registration?.page_id,
+    run.placements,
+    side,
+    visibleStates,
+  ]);
   const bounds = useMemo<BoardBounds>(() => {
     if (!page?.pixel_width || !page.pixel_height) {
       return pageBounds(1, 1);

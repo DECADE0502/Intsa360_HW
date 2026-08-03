@@ -25,15 +25,17 @@ function stateColor(placement: SmtPlacement) {
 export function SmtPlacementVirtualList({
   items,
   selectedRef,
-  selectedIds,
+  selectedIds = new Set<string>(),
   onSelect,
   onCheck,
+  showCheckbox = true,
 }: {
   items: SmtPlacement[];
   selectedRef?: string;
-  selectedIds: Set<string>;
+  selectedIds?: Set<string>;
   onSelect: (placement: SmtPlacement) => void;
-  onCheck: (placementId: string, checked: boolean) => void;
+  onCheck?: (placementId: string, checked: boolean) => void;
+  showCheckbox?: boolean;
 }) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -113,6 +115,7 @@ export function SmtPlacementVirtualList({
               aria-selected={placement.ref === selectedRef}
               tabIndex={0}
               className={styles.placementRow}
+              data-checkbox={showCheckbox}
               data-testid={`smt-placement-${placement.ref}`}
               data-selected={placement.ref === selectedRef}
               key={placement.placement_id}
@@ -125,17 +128,19 @@ export function SmtPlacementVirtualList({
                 }
               }}
             >
-              <Checkbox
-                aria-label={`选择 ${placement.ref}`}
-                checked={selectedIds.has(placement.placement_id)}
-                onClick={(event) => event.stopPropagation()}
-                onChange={(event) =>
-                  onCheck(
-                    placement.placement_id,
-                    event.target.checked,
-                  )
-                }
-              />
+              {showCheckbox ? (
+                <Checkbox
+                  aria-label={`选择 ${placement.ref}`}
+                  checked={selectedIds.has(placement.placement_id)}
+                  onClick={(event) => event.stopPropagation()}
+                  onChange={(event) =>
+                    onCheck?.(
+                      placement.placement_id,
+                      event.target.checked,
+                    )
+                  }
+                />
+              ) : null}
               <span className={styles.placementIdentity}>
                 <Typography.Text strong ellipsis>
                   {placement.ref}
