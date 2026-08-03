@@ -28,6 +28,7 @@ class CapabilitiesRegistryTests(unittest.TestCase):
                 "smt_package_check",
                 "single_network_check",
                 "smt_layout",
+                "refdes_viewer",
             ],
         )
 
