@@ -8,6 +8,7 @@ from app.backend.tools.bom_process_adapter import run_bom_process
 from app.backend.tools.bom_risk import run_bom_risk_check, run_generic_bom_import
 from app.backend.tools.common import _parse_net_file, _parse_part_file
 from app.backend.tools.netlist_compare import run_netlist_compare
+from app.backend.tools.refdes_viewer import run_refdes_viewer
 from app.backend.tools.single_network import run_single_network_check
 from app.backend.tools.smt_package import _package_matches, run_smt_package_check
 from app.backend.tools.smt_layout import run_smt_layout
@@ -22,4 +23,5 @@ def create_analysis_tools(root: Path) -> list[Tool]:
         Tool("smt_package_check", "贴片封装检查", "选择 Allegro 目录和已处理后的 PLM/OA 成品 BOM，检查网表封装与 BOM 型号/描述的一致性。", "available", "SMT", lambda params=None: run_smt_package_check(root, params or {})),
         Tool("single_network_check", "单网络检查", "提取 NC 网络和只有单一位号的网络，辅助硬件检查。", "available", "Netlist", lambda params=None: run_single_network_check(root, params or {})),
         Tool("smt_layout", "贴片布局对照", "结合 SMT 资料 XY.txt、板轮廓与处理后 BOM，做 NC、首件和三向一致性可视化。", "available", "SMT", lambda params=None: run_smt_layout(root, params or {})),
+        Tool("refdes_viewer", "位号图查看", "只需一份位号图 PDF：左侧列出图上全部位号，点击即在右侧原图定位高亮。", "available", "SMT", lambda params=None: run_refdes_viewer(root, params or {})),
     ]

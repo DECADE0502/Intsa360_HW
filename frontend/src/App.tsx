@@ -29,6 +29,7 @@ const BomProcessWizard = lazy(() => import("./tools/BomProcessWizard").then((mod
 const BomRiskPane = lazy(() => import("./tools/BomRiskPane").then((module) => ({ default: module.BomRiskPane })));
 const LegacyToolPane = lazy(() => import("./tools/LegacyToolPane").then((module) => ({ default: module.LegacyToolPane })));
 const SmtLayoutPane = lazy(() => import("./tools/SmtLayoutPane").then((module) => ({ default: module.SmtLayoutPane })));
+const RefdesViewerPane = lazy(() => import("./tools/refdesViewer/RefdesViewerPane").then((module) => ({ default: module.RefdesViewerPane })));
 const RECONNECT_PROTOCOL_URL = "insta360-hw://reconnect";
 const WORKSPACE_TRUNCATED_EVENT = "insta360_hw:workspace-truncated";
 
@@ -474,8 +475,11 @@ export default function App() {
             <div style={{ display: active === "smt_layout" ? "block" : "none" }}>
               <SmtLayoutPane />
             </div>
+            <div style={{ display: active === "refdes_viewer" ? "block" : "none" }}>
+              <RefdesViewerPane />
+            </div>
             {tools
-              .filter((t) => !["bom_process", "bom_risk_check", "smt_layout"].includes(t.id))
+              .filter((t) => !["bom_process", "bom_risk_check", "smt_layout", "refdes_viewer"].includes(t.id))
               .map((t) => (
                 <div key={t.id} style={{ display: active === t.id ? "block" : "none" }}>
                   <LegacyToolPane tool={t} />

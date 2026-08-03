@@ -33,7 +33,7 @@ def test_versioned_and_legacy_tool_routes_share_one_fastapi_handler(tmp_path: Pa
     assert canonical.status_code == 200
     assert legacy.status_code == 200
     assert canonical.json() == legacy.json()
-    assert len(canonical.json()["tools"]) == 7
+    assert len(canonical.json()["tools"]) == 8
 
 
 def test_legacy_suite_app_contains_only_server_compatibility_adapter() -> None:

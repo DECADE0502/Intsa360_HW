@@ -11,6 +11,7 @@ from fastapi import Request
 
 from app.backend.paths import AppPaths
 from app.backend.services.jobs import PersistentJobService
+from app.backend.services.refdes_viewer_service import RefdesViewerService
 from app.backend.services.smt_analysis_service import SmtAnalysisService
 from app.backend.tool_registry import ToolRegistry, build_registry
 
@@ -25,6 +26,8 @@ class AppContext:
     _jobs_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     _smt_analysis: SmtAnalysisService | None = None
     _smt_analysis_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    _refdes_viewer: RefdesViewerService | None = None
+    _refdes_viewer_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     started_monotonic: float = field(default_factory=time.monotonic)
 
@@ -51,6 +54,14 @@ class AppContext:
                 if self._smt_analysis is None:
                     self._smt_analysis = SmtAnalysisService(self.root)
         return self._smt_analysis
+
+    @property
+    def refdes_viewer(self) -> RefdesViewerService:
+        if self._refdes_viewer is None:
+            with self._refdes_viewer_lock:
+                if self._refdes_viewer is None:
+                    self._refdes_viewer = RefdesViewerService(self.root)
+        return self._refdes_viewer
 
 
 def build_context(root: Path) -> AppContext:
