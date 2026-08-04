@@ -1,0 +1,36 @@
+{
+  "schema": 2,
+  "product": "Insta360_HW",
+  "version": "0.5.18",
+  "revision": "8b3df796c26baea1ec84eb830e3ed4e73a28c676",
+  "published_at": "2026-08-04T10:56:02Z",
+  "channel": "stable",
+  "minimum_launcher_version": "0.4.4",
+  "assets": {
+    "runtime": {
+      "name": "Insta360_HW_runtime_v0.5.18.zip",
+      "url": "https://raw.githubusercontent.com/DECADE0502/Intsa360_HW/ota/versions/0.5.18/Insta360_HW_runtime_v0.5.18.zip",
+      "sha256": "d0c709834d211423c6c5eaceede02f91f3a5a222021c56e834672ad634f6859f",
+      "size_bytes": 44164559
+    },
+    "setup": {
+      "name": "Insta360_HW_Setup.exe",
+      "url": "https://raw.githubusercontent.com/DECADE0502/Intsa360_HW/ota/versions/0.5.18/Insta360_HW_Setup.exe",
+      "sha256": "9e6f2c9eddc0dfb24f4d321193811f4472f790fc05fb286f9a03de6bfa33d68f",
+      "size_bytes": 29838733
+    }
+  },
+  "notice": {
+    "title": "0.5.18 XY贴片位号视图与更新反馈",
+    "summary": "使用贴片资料中的XY坐标重建位号视图，准确关联成品BOM、NC和非贴片判定，并完善发布验证复用与客户端更新日志。",
+    "highlights": [
+      "贴片位号视图直接读取XY坐标、正反面和旋转信息，不再依赖PDF文字提取或人工页面配准。",
+      "支持正反面镜像、位号搜索定位、缩放平移，以及贴装、NC、非贴片、备料风险和版本差异视图。",
+      "成品BOM与XY坐标按物理位号关联，BOM有但坐标无、坐标有但BOM无的资料差异不再静默忽略。",
+      "历史处理记录可直接带出完整判定；本地PLM/OA BOM也可配合NC汇总生成板面状态。",
+      "删除旧PDF自绘链路和PDFium运行依赖，降低运行包体积、页面等待和高密度板卡渲染负担。",
+      "正式构建可复用与源码和环境绑定的验证凭证；更新窗口扩大日志区域并保留完整阶段日志。"
+    ],
+    "compatibility": "0.5.2及以上版本可通过平台内OTA升级；更早版本请使用本版本Setup完成迁移。"
+  }
+}

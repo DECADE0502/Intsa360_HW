@@ -1,0 +1,37 @@
+{
+  "schema": 2,
+  "product": "Insta360_HW",
+  "version": "0.5.19",
+  "revision": "76a5e770e8fea3b20c290144f453d824c266fcfd",
+  "published_at": "2026-08-04T12:47:54Z",
+  "channel": "stable",
+  "minimum_launcher_version": "0.4.4",
+  "assets": {
+    "runtime": {
+      "name": "Insta360_HW_runtime_v0.5.19.zip",
+      "url": "https://raw.githubusercontent.com/DECADE0502/Intsa360_HW/ota/versions/0.5.19/Insta360_HW_runtime_v0.5.19.zip",
+      "sha256": "916870fff355b4dd35fa0badcb1d56031464cbb2bba166faa386ff9311d2024a",
+      "size_bytes": 47971992
+    },
+    "setup": {
+      "name": "Insta360_HW_Setup.exe",
+      "url": "https://raw.githubusercontent.com/DECADE0502/Intsa360_HW/ota/versions/0.5.19/Insta360_HW_Setup.exe",
+      "sha256": "103afc682df284c0f53418902317c5e065b5ede00686c0cd540715c2175fb55c",
+      "size_bytes": 32573123
+    }
+  },
+  "notice": {
+    "title": "0.5.19 真实位号图贴片视图",
+    "summary": "将贴片视图改为真实SMD/REF位号图与XY坐标自动配准，直接核对贴装、NC、封装一致性和备料风险。",
+    "highlights": [
+      "直接渲染贴片资料中的SMD/REF PDF原图，不再用器件方块自行重画电路板。",
+      "用XY坐标与PDF位号自动完成正反面仿射配准，显示锚点数量和残差，配准不可信时阻止误导性结果。",
+      "左侧按贴装或NC筛选位号，点击位号即可在右侧真实位号图上自动定位并缩放。",
+      "NC统一按XY全部位号减去已处理成品BOM位号计算；BOM有而XY无的项目单独列为资料差异。",
+      "贴片封装检查合并为可选网表输入，在同一视图显示封装结论并提供报告下载。",
+      "选择SMT资料目录时只上传TXT和PDF候选文件，避免传输STP、压缩包等无关大文件。",
+      "修正非零PDF页面原点导致的裁剪偏移，确保完整板面进入位号图视窗。"
+    ],
+    "compatibility": "0.5.2及以上版本可通过平台内OTA升级；更早版本请使用本版本Setup完成迁移。"
+  }
+}
