@@ -1,17 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Empty, Input, Segmented, Tag, Typography } from "antd";
 import { SearchOutlined } from "@ant-design/icons";
-import type { Placement, PlacementStatus } from "./types";
+import type { Placement } from "./types";
 import styles from "./smtView.module.css";
 
 const ROW_HEIGHT = 52;
 const OVERSCAN = 8;
-const statusLabel: Record<PlacementStatus, string> = {
+const statusLabel: Record<Placement["status"], string> = {
   placed: "贴装",
   nc: "NC",
-  non_smt: "非贴片",
-  bom_only: "仅 BOM",
-  xy_only: "仅坐标",
 };
 
 export function parseRefQuery(value: string) {
@@ -32,7 +29,7 @@ export function RefList({
   onQueryRefs: (refs: string[]) => void;
 }) {
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<"all" | PlacementStatus>("all");
+  const [filter, setFilter] = useState<"all" | Placement["status"]>("all");
   const [scrollTop, setScrollTop] = useState(0);
   const viewportRef = useRef<HTMLDivElement>(null);
   const queryRefs = useMemo(() => parseRefQuery(query), [query]);
@@ -84,8 +81,8 @@ export function RefList({
         onChange={(value) => setFilter(value as typeof filter)}
         options={[
           { value: "all", label: `全部 ${counts.all || 0}` },
+          { value: "placed", label: `贴装 ${counts.placed || 0}` },
           { value: "nc", label: `NC ${counts.nc || 0}` },
-          { value: "xy_only", label: `异常 ${counts.xy_only || 0}` },
         ]}
       />
       {filtered.length ? (

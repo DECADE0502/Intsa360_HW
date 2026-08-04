@@ -41,3 +41,12 @@ def open_reference_drawing(board_id: str, context: AppContext = Depends(get_cont
     except Exception as exc:  # noqa: BLE001
         return _error(exc)
     return FileResponse(path, media_type="application/pdf", filename=path.name, headers={"Cache-Control": "private, max-age=3600"})
+
+
+@router.get("/boards/{board_id}/drawing/{side}")
+def open_registered_drawing(board_id: str, side: str, context: AppContext = Depends(get_context)):
+    try:
+        path = context.smt_view.drawing_image(board_id, side)
+    except Exception as exc:  # noqa: BLE001
+        return _error(exc)
+    return FileResponse(path, media_type="image/png", headers={"Cache-Control": "private, max-age=31536000, immutable"})

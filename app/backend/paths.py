@@ -149,6 +149,10 @@ class AppPaths:
         return self.smt_view_dir / "boards"
 
     @property
+    def smt_view_drawings_dir(self) -> Path:
+        return self.smt_view_dir / "drawings"
+
+    @property
     def platform_database_path(self) -> Path:
         return self.data_dir / "platform.db"
 
@@ -216,6 +220,7 @@ class AppPaths:
             self.platform_jobs_dir,
             self.smt_view_dir,
             self.smt_view_boards_dir,
+            self.smt_view_drawings_dir,
             self.config_dir,
             self.user_plugins_dir / "scripts",
             self.lifecycle_jobs_dir,

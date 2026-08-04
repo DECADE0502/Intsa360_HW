@@ -95,15 +95,15 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn("lazy(", legacy)
         self.assertIn('import("./BomComparePane")', legacy)
         self.assertIn('import("./NetlistComparePane")', legacy)
-        self.assertIn('import("./SmtPackageCheckPane")', legacy)
         self.assertIn('import("./SingleNetworkCheckPane")', legacy)
+        self.assertIn('import("./tools/smtView/SmtViewPane")', app)
 
     def test_frontend_exposes_reusable_history_assets_and_persistent_workspaces(self) -> None:
         client = (ROOT / "frontend" / "src" / "api" / "client.ts").read_text(encoding="utf-8")
         asset_picker = ROOT / "frontend" / "src" / "components" / "HistoryBomPicker.tsx"
         workspace_store = ROOT / "frontend" / "src" / "state" / "toolWorkspace.ts"
         bom_compare = (ROOT / "frontend" / "src" / "tools" / "BomComparePane.tsx").read_text(encoding="utf-8")
-        smt = (ROOT / "frontend" / "src" / "tools" / "SmtPackageCheckPane.tsx").read_text(encoding="utf-8")
+        smt = (ROOT / "frontend" / "src" / "tools" / "smtView" / "SmtViewPane.tsx").read_text(encoding="utf-8")
         legacy = (ROOT / "frontend" / "src" / "tools" / "LegacyToolPane.tsx").read_text(encoding="utf-8")
         wizard = (ROOT / "frontend" / "src" / "tools" / "BomProcessWizard.tsx").read_text(encoding="utf-8")
 
@@ -150,7 +150,6 @@ class FrontendBuildTests(unittest.TestCase):
         netlist = (ROOT / "frontend" / "src" / "tools" / "NetlistComparePane.tsx").read_text(encoding="utf-8")
         panes = [
             ROOT / "frontend" / "src" / "tools" / "NetlistComparePane.tsx",
-            ROOT / "frontend" / "src" / "tools" / "SmtPackageCheckPane.tsx",
             ROOT / "frontend" / "src" / "tools" / "SingleNetworkCheckPane.tsx",
         ]
         bom_compare = (ROOT / "frontend" / "src" / "tools" / "BomComparePane.tsx").read_text(
@@ -315,7 +314,7 @@ class FrontendBuildTests(unittest.TestCase):
             "frontend/src/tools/BomProcessWizard.tsx",
             "frontend/src/tools/NetlistComparePane.tsx",
             "frontend/src/tools/SingleNetworkCheckPane.tsx",
-            "frontend/src/tools/SmtPackageCheckPane.tsx",
+            "frontend/src/tools/smtView/SmtViewPane.tsx",
         ]:
             consumer = (ROOT / relative_path).read_text(encoding="utf-8")
             self.assertIn("utils/outputHref", consumer, relative_path)
@@ -721,42 +720,26 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn(".netlist-shell", css)
         self.assertIn(".netlist-inspector", css)
 
-    def test_smt_package_check_uses_dedicated_review_workbench(self) -> None:
+    def test_smt_package_check_is_merged_into_the_smt_view(self) -> None:
         legacy = (ROOT / "frontend" / "src" / "tools" / "LegacyToolPane.tsx").read_text(encoding="utf-8")
-        pane_path = ROOT / "frontend" / "src" / "tools" / "SmtPackageCheckPane.tsx"
+        pane_path = ROOT / "frontend" / "src" / "tools" / "smtView" / "SmtViewPane.tsx"
         self.assertTrue(pane_path.exists())
         pane = pane_path.read_text(encoding="utf-8")
-        css = (ROOT / "frontend" / "src" / "styles.css").read_text(encoding="utf-8")
+        css = (ROOT / "frontend" / "src" / "tools" / "smtView" / "smtView.module.css").read_text(encoding="utf-8")
 
-        self.assertIn('tool.id === "smt_package_check"', legacy)
-        self.assertIn("<SmtPackageCheckPane", legacy)
-        self.assertIn("smt-workbench", pane)
-        self.assertIn("smt_package_review", pane)
-        self.assertIn("focus_items", pane)
-        self.assertIn("BOM 缺位号", pane)
-        self.assertIn("BOM 多余位号", pane)
-        self.assertIn("同料多封装", pane)
-        self.assertIn("高风险封装", pane)
-        self.assertIn("NC 未贴跳过", pane)
-        self.assertIn("非贴片对象跳过", pane)
-        self.assertIn("跳过未贴/工艺", pane)
-        self.assertIn("已跳过", pane)
-        self.assertIn("已处理 PLM/OA 成品 BOM", pane)
-        self.assertIn("不要选择 Capture 原始 BOM", pane)
-        self.assertIn("选择 PLM/OA BOM", pane)
-        self.assertIn("smt-filter-grid", pane)
-        self.assertIn("smt-filter-chip", pane)
-        self.assertIn("smt-focus-package", pane)
-        self.assertNotIn("<Segmented", pane)
-        self.assertIn("directory", pane)
-        self.assertNotIn('directory="true"', pane)
-        self.assertNotIn("webkitdirectory", pane)
+        self.assertNotIn('tool.id === "smt_package_check"', legacy)
+        self.assertNotIn("SmtPackageCheckPane", legacy)
+        self.assertIn("封装一致性", pane)
+        self.assertIn("package_report_outputs", pane)
+        self.assertIn("下载封装报告", pane)
+        self.assertIn("已处理成品 BOM", pane)
+        self.assertIn("XY 有而成品 BOM 没有的位号直接判为 NC", pane)
+        self.assertIn("webkitdirectory", pane)
         self.assertIn("pstxprt.dat", pane)
-        self.assertIn("选择 Allegro 目录", pane)
-        self.assertIn(".smt-shell", css)
-        self.assertIn(".smt-inspector", css)
-        self.assertIn(".smt-filter-grid", css)
-        self.assertIn(".smt-filter-chip", css)
+        self.assertIn("选择网表目录", pane)
+        self.assertIn(".workbench", css)
+        self.assertIn(".detailPane", css)
+        self.assertIn(".drawingImage", css)
 
     def test_single_network_check_uses_dedicated_review_workbench(self) -> None:
         legacy = (ROOT / "frontend" / "src" / "tools" / "LegacyToolPane.tsx").read_text(encoding="utf-8")

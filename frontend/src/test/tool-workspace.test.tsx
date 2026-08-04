@@ -150,7 +150,6 @@ describe("useToolWorkspace v2", () => {
     for (const pane of [
       "BomComparePane.tsx",
       "NetlistComparePane.tsx",
-      "SmtPackageCheckPane.tsx",
       "SingleNetworkCheckPane.tsx",
     ]) {
       const source = readFileSync(resolve(process.cwd(), "src", "tools", pane), "utf-8");

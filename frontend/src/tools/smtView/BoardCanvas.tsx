@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button, Tooltip } from "antd";
+import { Button, Empty, Tooltip } from "antd";
 import { CompressOutlined, MinusOutlined, PlusOutlined } from "@ant-design/icons";
 import { buildStageTransform, cssTransform, screenToStage } from "../../components/drawingViewport";
 import { GridSpatialIndex } from "../../components/spatialIndex";
@@ -8,23 +8,19 @@ import styles from "./smtView.module.css";
 
 const MIN_ZOOM = 0.7;
 const MAX_ZOOM = 24;
+const PACKAGE_PASS = new Set(["通过", "近似通过", "NC 未贴跳过", "非贴片对象跳过"]);
 
 function markerClass(item: Placement, mode: ViewMode) {
   if (mode === "nc") return item.status === "nc" ? styles.markerNc : styles.markerMuted;
+  if (mode === "package") {
+    if (!item.package_status) return styles.markerMuted;
+    return PACKAGE_PASS.has(item.package_status) ? styles.markerPackageOk : styles.markerRisk;
+  }
   if (mode === "supply") {
     const grade = item.grade.trim();
-    return grade && !/(优选|正常)/.test(grade) ? styles.markerRisk : styles.markerPlaced;
+    return grade && !/(优选|正常)/.test(grade) ? styles.markerRisk : styles.markerMuted;
   }
-  if (mode === "version") {
-    if (item.version_change === "added") return styles.markerAdded;
-    if (item.version_change === "removed") return styles.markerRemoved;
-    if (item.version_change === "replaced") return styles.markerReplaced;
-    return styles.markerMuted;
-  }
-  if (item.status === "placed") return styles.markerPlaced;
-  if (item.status === "nc") return styles.markerNc;
-  if (item.status === "non_smt") return styles.markerNonSmt;
-  return styles.markerOnly;
+  return item.status === "placed" ? styles.markerPlaced : styles.markerNc;
 }
 
 export function BoardCanvas({
@@ -42,20 +38,25 @@ export function BoardCanvas({
   highlightedRefs: string[];
   onSelect: (ref: string) => void;
 }) {
+  const drawing = board.drawings[side];
   const frameRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<{ x: number; y: number; centerX: number; centerY: number; moved: boolean } | null>(null);
+  const dragRef = useRef<{ x: number; y: number; centerX: number; centerY: number } | null>(null);
   const [viewport, setViewport] = useState({ width: 900, height: 620 });
   const [view, setView] = useState({ zoom: 1, centerX: null as number | null, centerY: null as number | null });
-  const bounds = useMemo(() => ({ width: board.bbox.width, height: board.bbox.height }), [board]);
-  const points = useMemo(() => board.placements.filter((item) => item.side === side).map((item) => {
-    const rawX = item.x_mm - board.bbox.min_x;
-    return {
-      x: side === "bottom" ? board.bbox.width - rawX : rawX,
-      y: board.bbox.max_y - item.y_mm,
-      value: item,
-    };
-  }), [board, side]);
-  const index = useMemo(() => new GridSpatialIndex(points, Math.max(1, Math.max(bounds.width, bounds.height) / 20)), [bounds, points]);
+  const bounds = useMemo(
+    () => ({ width: drawing?.pixel_width || 1, height: drawing?.pixel_height || 1 }),
+    [drawing?.pixel_height, drawing?.pixel_width],
+  );
+  const points = useMemo(
+    () => board.placements
+      .filter((item) => item.side === side)
+      .map((item) => ({ x: item.drawing_x, y: item.drawing_y, value: item })),
+    [board.placements, side],
+  );
+  const index = useMemo(
+    () => new GridSpatialIndex(points, Math.max(32, Math.max(bounds.width, bounds.height) / 20)),
+    [bounds, points],
+  );
   const transform = useMemo(() => buildStageTransform({
     bounds,
     viewportWidth: viewport.width,
@@ -65,9 +66,9 @@ export function BoardCanvas({
     centerY: view.centerY,
   }), [bounds, view, viewport]);
   const visible = useMemo(() => {
-    const inset = 24 / Math.max(transform.scale, 0.0001);
-    const a = screenToStage(transform, -24, -24);
-    const b = screenToStage(transform, viewport.width + 24, viewport.height + 24);
+    const inset = 28 / Math.max(transform.scale, 0.0001);
+    const a = screenToStage(transform, -28, -28);
+    const b = screenToStage(transform, viewport.width + 28, viewport.height + 28);
     return index.query({
       minX: Math.min(a.x, b.x) - inset,
       minY: Math.min(a.y, b.y) - inset,
@@ -117,7 +118,7 @@ export function BoardCanvas({
 
   function pointerDown(event: React.PointerEvent) {
     if (event.button !== 0) return;
-    dragRef.current = { x: event.clientX, y: event.clientY, centerX: transform.centerX, centerY: transform.centerY, moved: false };
+    dragRef.current = { x: event.clientX, y: event.clientY, centerX: transform.centerX, centerY: transform.centerY };
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
@@ -126,20 +127,20 @@ export function BoardCanvas({
     if (!drag) return;
     const dx = event.clientX - drag.x;
     const dy = event.clientY - drag.y;
-    if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
     setView((current) => ({ ...current, centerX: drag.centerX - dx / transform.scale, centerY: drag.centerY - dy / transform.scale }));
   }
 
   function pointerUp(event: React.PointerEvent) {
     dragRef.current = null;
-    event.currentTarget.releasePointerCapture(event.pointerId);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   }
 
+  if (!drawing) return <section className={styles.canvasPane}><Empty description="当前面没有可用位号图" /></section>;
   const inverseScale = 1 / Math.max(transform.scale, 0.0001);
   return (
     <section className={styles.canvasPane}>
       <div className={styles.canvasToolbar}>
-        <span>{side === "top" ? "正面" : "背面（已镜像）"} · 显示 {points.length} 个位号</span>
+        <span>{side === "top" ? "正面" : "背面"} · 第 {drawing.page_number} 页 · {points.length} 个位号</span>
         <div>
           <Tooltip title="缩小"><Button size="small" icon={<MinusOutlined />} onClick={() => changeZoom(1 / 1.3)} /></Tooltip>
           <Tooltip title="放大"><Button size="small" icon={<PlusOutlined />} onClick={() => changeZoom(1.3)} /></Tooltip>
@@ -156,7 +157,7 @@ export function BoardCanvas({
         onPointerCancel={pointerUp}
       >
         <div className={styles.stage} style={{ width: bounds.width, height: bounds.height, transform: cssTransform(transform) }}>
-          <div className={styles.boardOutline} />
+          <img className={styles.drawingImage} src={drawing.image_url} alt={`${side === "top" ? "正面" : "背面"}位号图`} draggable={false} />
           {visible.map((point) => {
             const item = point.value;
             const selected = item.ref === selectedRef;
@@ -171,19 +172,15 @@ export function BoardCanvas({
                 style={{
                   left: point.x,
                   top: point.y,
-                  width: 10 * inverseScale,
-                  height: 7 * inverseScale,
-                  borderWidth: (selected ? 2.2 : 1.2) * inverseScale,
-                  borderRadius: 2 * inverseScale,
-                  transform: `translate(-50%, -50%) rotate(${side === "bottom" ? -item.rotation : item.rotation}deg)`,
+                  width: 9 * inverseScale,
+                  height: 9 * inverseScale,
+                  borderWidth: (selected ? 2.2 : 1.4) * inverseScale,
                 }}
                 onPointerDown={(event) => event.stopPropagation()}
                 onClick={(event) => { event.stopPropagation(); onSelect(item.ref); }}
               >
                 {view.zoom >= 3.2 || selected ? (
-                  <span style={{ fontSize: 10 * inverseScale, transform: `translate(-50%, -140%) rotate(${side === "bottom" ? item.rotation : -item.rotation}deg)` }}>
-                    {item.ref}
-                  </span>
+                  <span style={{ fontSize: 10 * inverseScale, transform: "translate(-50%, -145%)" }}>{item.ref}</span>
                 ) : null}
               </button>
             );

@@ -1,20 +1,16 @@
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 
 import pytest
 from openpyxl import Workbook
 
-from app.backend.contracts.smt_view import SmtViewBoard, SmtViewBoardRequest
-from app.backend.paths import AppPaths
 from app.backend.smt_view.board import build_board_geometry
 from app.backend.smt_view.discovery import discover_smt_directory
-from app.backend.smt_view.service import SmtViewService
-
-
-ROOT = Path(__file__).resolve().parents[1]
+from app.backend.smt_view.drawing import _locate_refs, crop_for_xy, open_pdf_drawing
+from app.backend.smt_view.registration import RegistrationAnchor, fit_affine_registration
+from app.backend.smt_view.state import load_bom_state
 
 
 def _write_xy(path: Path, count: int = 3) -> None:
@@ -31,15 +27,6 @@ def _write_bom(path: Path, refs: list[str]) -> None:
     worksheet.append(["位号", "子项编码", "描述", "数量", "名称", "型号", "物料优选等级"])
     for index, ref in enumerate(refs, start=1):
         worksheet.append([ref, f"31{index:010d}", "电阻", 1, "电阻", "100K", "优选"])
-    workbook.save(path)
-    workbook.close()
-
-
-def _write_nc(path: Path, ref: str, kind: str) -> None:
-    workbook = Workbook()
-    worksheet = workbook.active
-    worksheet.append(["位号", "子项编码", "描述", "过滤原因", "判定类型"])
-    worksheet.append([ref, "", "", "原理图明确未贴", kind])
     workbook.save(path)
     workbook.close()
 
@@ -67,37 +54,94 @@ def test_board_geometry_preserves_all_refs_and_sides(tmp_path: Path) -> None:
     assert [item.ref for item in board.components] == ["R1", "R2", "R3", "R4"]
     assert sum(item.side == "top" for item in board.components) == 2
     assert sum(item.side == "bottom" for item in board.components) == 2
-    assert board.bbox["width"] > board.source_span["width"]
 
 
-def test_service_joins_bom_nc_and_persists_board(tmp_path: Path) -> None:
-    paths = AppPaths(ROOT, state_root_override=tmp_path)
-    paths.ensure_runtime_dirs()
-    source = paths.uploads_dir / "tree"
-    source.mkdir()
-    _write_xy(source / "XY.txt", 3)
-    (source / "board_SMD.pdf").write_bytes(b"%PDF-1.4\n")
-    bom = paths.uploads_dir / "bom.xlsx"
-    nc = paths.uploads_dir / "nc.xlsx"
-    _write_bom(bom, ["R1"])
-    _write_nc(nc, "R2", "system_nc")
-    service = SmtViewService(paths)
+def test_registration_rejects_an_outlier_and_recovers_affine_transform() -> None:
+    anchors = []
+    for index in range(30):
+        x = float(index % 6)
+        y = float(index // 6)
+        pdf_x = 2.0 * x + 0.25 * y + 40.0
+        pdf_y = -0.1 * x + 1.8 * y + 70.0
+        anchors.append(RegistrationAnchor(f"R{index + 1}", x, y, pdf_x, pdf_y))
+    anchors[-1] = RegistrationAnchor("R30", 5.0, 4.0, 500.0, 500.0)
 
-    created = service.create(SmtViewBoardRequest(source_dir=str(source), bom_path=str(bom), nc_path=str(nc)))
-    validated = SmtViewBoard.model_validate(created)
+    result = fit_affine_registration(anchors)
 
-    assert {item.ref: item.status for item in validated.placements} == {"R1": "placed", "R2": "nc", "R3": "xy_only"}
-    assert validated.reference_drawing_url
-    assert service.get(validated.board_id) == created
-    assert service.reference_drawing(validated.board_id).name == "board_SMD.pdf"
+    assert result.trusted is True
+    assert result.rejected_count == 1
+    assert result.median_mm < 1e-8
+    assert result.transform(3.0, 2.0) == pytest.approx((46.5, 73.3), abs=1e-8)
 
 
-def test_real_sample_xy_contract_when_configured() -> None:
+def test_finished_bom_is_the_only_source_of_placed_refs(tmp_path: Path) -> None:
+    bom = tmp_path / "finished.xlsx"
+    _write_bom(bom, ["R1,R3"])
+
+    state = load_bom_state(bom)
+    xy_refs = {"R1", "R2", "R3", "R4"}
+
+    assert set(state.installed) == {"R1", "R3"}
+    assert xy_refs - set(state.installed) == {"R2", "R4"}
+
+
+def test_crop_uses_registered_xy_envelope_and_stays_inside_page() -> None:
+    anchors = [
+        RegistrationAnchor(f"R{index}", float(index % 5), float(index // 5), 10 + 2 * (index % 5), 20 + 2 * (index // 5))
+        for index in range(20)
+    ]
+    registration = fit_affine_registration(anchors)
+
+    left, bottom, right, top = crop_for_xy(
+        registration,
+        [(0, 0), (4, 3)],
+        page_width=100,
+        page_height=100,
+    )
+
+    assert 0 <= left < right <= 100
+    assert 0 <= bottom < top <= 100
+    assert left < 10 < right
+    assert bottom < 20 < top
+
+
+def test_pdf_refs_are_normalized_to_the_zero_based_render_canvas() -> None:
+    class Searcher:
+        remaining = [(0, 2)]
+
+        def get_next(self):
+            return self.remaining.pop(0) if self.remaining else None
+
+        def close(self):
+            return None
+
+    class TextPage:
+        boxes = [(-20.0, -10.0, -19.0, -9.0), (-18.0, -10.0, -17.0, -9.0)]
+
+        def search(self, *_args, **_kwargs):
+            return Searcher()
+
+        def get_charbox(self, position, **_kwargs):
+            return self.boxes[position]
+
+    refs = _locate_refs(TextPage(), "R1", page_origin_x=-31.0, page_origin_y=-30.0)
+
+    assert len(refs) == 1
+    assert refs[0].x == pytest.approx(12.5)
+    assert refs[0].y == pytest.approx(20.5)
+
+
+def test_real_sample_pdf_and_xy_contract_when_configured() -> None:
     configured = os.environ.get("SMT_REAL_SAMPLE_DIR", "").strip()
     if not configured:
         pytest.skip("SMT_REAL_SAMPLE_DIR is not configured")
     discovered = discover_smt_directory(Path(configured))
+    assert discovered.reference_pdf is not None
     board = build_board_geometry(discovered.xy_file)
+    drawing = open_pdf_drawing(discovered.reference_pdf)
+
     assert len(board.components) == 1037
     assert sum(item.side == "top" for item in board.components) == 450
     assert sum(item.side == "bottom" for item in board.components) == 587
+    assert len(drawing.pages) == 2
+    assert sorted(len(page.refs) for page in drawing.pages) == [359, 444]

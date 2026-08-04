@@ -45,16 +45,6 @@
       "show_in_cadence": false
     },
     {
-      "id": "smt_package_check",
-      "type": "web_tool",
-      "name": "贴片封装检查",
-      "description": "检查网表封装与 BOM 描述、名称、型号、封装字段的一致性。",
-      "category": "SMT",
-      "status": "available",
-      "show_in_platform": true,
-      "show_in_cadence": false
-    },
-    {
       "id": "single_network_check",
       "type": "web_tool",
       "name": "单网络检查",
@@ -67,8 +57,8 @@
     {
       "id": "smt_view",
       "type": "web_tool",
-      "name": "贴片位号视图",
-      "description": "用 XY 坐标叠加成品 BOM 的贴装、NC、非贴片和资料差异状态。",
+      "name": "贴片视图",
+      "description": "在真实位号图上查看贴装、NC、封装一致性和备料风险。",
       "category": "SMT",
       "status": "available",
       "show_in_platform": true,

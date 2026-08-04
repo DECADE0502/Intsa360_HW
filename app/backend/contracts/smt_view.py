@@ -7,38 +7,45 @@ from pydantic import Field
 from app.backend.contracts.api import ContractModel
 
 
-PlacementStatus = Literal["placed", "nc", "non_smt", "bom_only", "xy_only"]
+PlacementStatus = Literal["placed", "nc", "bom_only"]
 PlacementSide = Literal["top", "bottom"]
-VersionChange = Literal["none", "added", "removed", "replaced"]
 
 
 class SmtViewBoardRequest(ContractModel):
     source_dir: str = Field(min_length=1, max_length=1200)
     bom_path: str = Field(min_length=1, max_length=1200)
-    nc_path: Optional[str] = Field(default=None, max_length=1200)
     semantic_manifest_path: Optional[str] = Field(default=None, max_length=1200)
-    decision_manifest_path: Optional[str] = Field(default=None, max_length=1200)
-    baseline_bom_path: Optional[str] = Field(default=None, max_length=1200)
+    netlist_dir: Optional[str] = Field(default=None, max_length=1200)
     label: Optional[str] = Field(default=None, max_length=300)
 
 
-class SmtViewBounds(ContractModel):
-    min_x: float
-    min_y: float
-    max_x: float
-    max_y: float
-    width: float = Field(gt=0)
-    height: float = Field(gt=0)
+class SmtViewRegistration(ContractModel):
+    anchor_count: int = Field(ge=0)
+    rejected_count: int = Field(ge=0)
+    median_mm: float = Field(ge=0)
+    p90_mm: float = Field(ge=0)
+    max_mm: float = Field(ge=0)
+    trusted: bool
+
+
+class SmtViewDrawing(ContractModel):
+    page_number: int = Field(ge=1)
+    image_url: str = Field(min_length=1)
+    pixel_width: int = Field(gt=0)
+    pixel_height: int = Field(gt=0)
+    registration: SmtViewRegistration
 
 
 class SmtViewPlacement(ContractModel):
     ref: str = Field(min_length=1, max_length=80)
     x_mm: float
     y_mm: float
+    drawing_x: float
+    drawing_y: float
     rotation: int = Field(ge=0, lt=360)
     side: PlacementSide
     footprint: str = ""
-    status: PlacementStatus
+    status: Literal["placed", "nc"]
     material_code: str = ""
     name: str = ""
     model: str = ""
@@ -46,9 +53,10 @@ class SmtViewPlacement(ContractModel):
     grade: str = ""
     package: str = ""
     reason: str = ""
-    decision_kind: str = ""
-    version_change: VersionChange = "none"
-    baseline_material_code: str = ""
+    package_status: str = ""
+    package_kind: str = ""
+    net_package: str = ""
+    package_note: str = ""
 
 
 class SmtViewUnmappedItem(ContractModel):
@@ -59,22 +67,20 @@ class SmtViewUnmappedItem(ContractModel):
     model: str = ""
     description: str = ""
     reason: str = ""
-    version_change: VersionChange = "none"
 
 
 class SmtViewBoard(ContractModel):
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     board_id: str = Field(min_length=12, max_length=80)
     label: str = Field(min_length=1, max_length=300)
     xy_file_name: str = Field(min_length=1, max_length=400)
     xy_version: str = ""
     xy_units: Literal["mils", "mm"]
-    bbox: SmtViewBounds
-    source_span: dict[str, float]
     placements: list[SmtViewPlacement]
     bom_only: list[SmtViewUnmappedItem]
-    xy_only: list[str]
     summary: dict[str, int]
-    reference_drawing_name: Optional[str] = None
-    reference_drawing_url: Optional[str] = None
+    drawings: dict[PlacementSide, SmtViewDrawing]
+    reference_drawing_name: str
+    reference_drawing_url: str
+    package_report_outputs: list[str] = Field(default_factory=list)
     notices: list[str] = Field(default_factory=list)

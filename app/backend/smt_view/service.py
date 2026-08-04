@@ -7,13 +7,19 @@ from pathlib import Path
 from app.backend.contracts.smt_view import SmtViewBoardRequest
 from app.backend.parsers.refs import natural_key
 from app.backend.paths import AppPaths
-from app.backend.smt_view.board import build_board_geometry
+from app.backend.smt_view.board import BoardGeometry, build_board_geometry
 from app.backend.smt_view.discovery import discover_smt_directory
-from app.backend.smt_view.state import baseline_by_ref, load_bom_state
+from app.backend.smt_view.drawing import DrawingRenderer, PdfDrawing, PdfDrawingPage, crop_for_xy, open_pdf_drawing
+from app.backend.smt_view.registration import AffineRegistration, RegistrationAnchor, fit_affine_registration
+from app.backend.smt_view.state import load_bom_state
+from app.backend.tools.smt_package import run_smt_package_check
+
+
+SCHEMA_VERSION = 2
 
 
 def _fingerprint(paths: list[Path], label: str) -> str:
-    digest = hashlib.sha256(label.encode("utf-8"))
+    digest = hashlib.sha256(f"smt-view:{SCHEMA_VERSION}:{label}".encode("utf-8"))
     for path in paths:
         digest.update(path.name.encode("utf-8", errors="replace"))
         with path.open("rb") as handle:
@@ -22,11 +28,144 @@ def _fingerprint(paths: list[Path], label: str) -> str:
     return digest.hexdigest()[:24]
 
 
+def _anchors_for_page(
+    page: PdfDrawingPage,
+    components: list[object],
+) -> list[RegistrationAnchor]:
+    pdf_by_ref: dict[str, object] = {}
+    for item in page.refs:
+        pdf_by_ref.setdefault(item.ref, item)
+    anchors: list[RegistrationAnchor] = []
+    for component in components:
+        ref = str(getattr(component, "ref"))
+        pdf_ref = pdf_by_ref.get(ref)
+        if pdf_ref is None:
+            continue
+        anchors.append(
+            RegistrationAnchor(
+                ref=ref,
+                xy_x=float(getattr(component, "x_mm")),
+                xy_y=float(getattr(component, "y_mm")),
+                pdf_x=float(getattr(pdf_ref, "x")),
+                pdf_y=float(getattr(pdf_ref, "y")),
+            )
+        )
+    return anchors
+
+
+def _match_pages(
+    drawing: PdfDrawing,
+    geometry: BoardGeometry,
+) -> dict[str, tuple[PdfDrawingPage, AffineRegistration]]:
+    by_side = {
+        side: [component for component in geometry.components if component.side == side]
+        for side in ("top", "bottom")
+    }
+    candidates: dict[str, list[tuple[PdfDrawingPage, AffineRegistration]]] = {"top": [], "bottom": []}
+    failures: list[str] = []
+    for side, components in by_side.items():
+        if not components:
+            continue
+        for page in drawing.pages:
+            anchors = _anchors_for_page(page, components)
+            if len(anchors) < 20:
+                continue
+            try:
+                registration = fit_affine_registration(anchors)
+            except ValueError as exc:
+                failures.append(f"第 {page.page_number} 页/{side}: {exc}")
+                continue
+            candidates[side].append((page, registration))
+
+    top_candidates = candidates["top"] or [(None, None)]
+    bottom_candidates = candidates["bottom"] or [(None, None)]
+    combinations: list[tuple[tuple[int, int, float], object, object]] = []
+    for top in top_candidates:
+        for bottom in bottom_candidates:
+            top_page, top_registration = top
+            bottom_page, bottom_registration = bottom
+            if top_page is not None and bottom_page is not None and top_page.page_number == bottom_page.page_number:
+                continue
+            registrations = [value for value in (top_registration, bottom_registration) if value is not None]
+            score = (
+                sum(bool(value.trusted) for value in registrations),
+                sum(int(value.anchor_count) for value in registrations),
+                -sum(float(value.median_mm) for value in registrations),
+            )
+            combinations.append((score, top, bottom))
+    if not combinations:
+        raise ValueError("SMD/REF PDF 页面无法与 XY 正反面自动配对。")
+    _, selected_top, selected_bottom = max(combinations, key=lambda item: item[0])
+    selected = {"top": selected_top, "bottom": selected_bottom}
+
+    result: dict[str, tuple[PdfDrawingPage, AffineRegistration]] = {}
+    for side, components in by_side.items():
+        if not components:
+            continue
+        page, registration = selected[side]
+        if page is None or registration is None:
+            detail = "；".join(failures[:3])
+            raise ValueError(f"{side} 面没有找到至少 20 个共有位号，无法可靠配准。{detail}")
+        if not registration.trusted:
+            raise ValueError(
+                f"{side} 面位号图配准不可信：{registration.anchor_count} 个锚点，"
+                f"中位残差 {registration.median_mm:.3f} mm，超过 0.500 mm 阈值。"
+            )
+        result[side] = (page, registration)
+    return result
+
+
+def _registration_payload(registration: AffineRegistration) -> dict[str, object]:
+    return {
+        "anchor_count": registration.anchor_count,
+        "rejected_count": registration.rejected_count,
+        "median_mm": round(registration.median_mm, 4),
+        "p90_mm": round(registration.p90_mm, 4),
+        "max_mm": round(registration.max_mm, 4),
+        "trusted": registration.trusted,
+    }
+
+
+_PACKAGE_PRIORITY = {
+    "同料多封装": 0,
+    "BOM 缺位号": 1,
+    "需要确认": 2,
+    "BOM 多余位号": 3,
+    "近似通过": 4,
+    "通过": 5,
+    "高风险封装": 6,
+    "NC 未贴跳过": 7,
+    "非贴片对象跳过": 8,
+}
+
+
+def _package_review_by_ref(result: dict[str, object] | None) -> dict[str, dict[str, object]]:
+    if not result:
+        return {}
+    review = result.get("smt_package_review")
+    if not isinstance(review, dict):
+        return {}
+    output: dict[str, dict[str, object]] = {}
+    for raw in review.get("items") or []:
+        if not isinstance(raw, dict):
+            continue
+        refs = raw.get("refs") or str(raw.get("ref") or "").split(",")
+        for value in refs:
+            ref = str(value or "").strip().upper()
+            if not ref:
+                continue
+            current = output.get(ref)
+            if current is None or _PACKAGE_PRIORITY.get(str(raw.get("status")), 99) < _PACKAGE_PRIORITY.get(str(current.get("status")), 99):
+                output[ref] = raw
+    return output
+
+
 class SmtViewService:
     def __init__(self, paths: AppPaths):
         self.paths = paths
         self.boards_dir = paths.smt_view_boards_dir
         self.boards_dir.mkdir(parents=True, exist_ok=True)
+        self.renderer = DrawingRenderer(paths.smt_view_drawings_dir)
 
     def _resolve_data_path(self, value: str, *, directory: bool = False) -> Path:
         path = Path(value).expanduser().resolve()
@@ -43,72 +182,105 @@ class SmtViewService:
     def create(self, request: SmtViewBoardRequest) -> dict[str, object]:
         source_dir = self._resolve_data_path(request.source_dir, directory=True)
         bom_path = self._resolve_data_path(request.bom_path)
-        optional_values = (
-            request.nc_path,
-            request.semantic_manifest_path,
-            request.decision_manifest_path,
-            request.baseline_bom_path,
-        )
-        optional_paths = [self._resolve_data_path(value) if value else None for value in optional_values]
-        nc_path, semantic_path, decision_path, baseline_path = optional_paths
+        semantic_path = self._resolve_data_path(request.semantic_manifest_path) if request.semantic_manifest_path else None
+        netlist_dir = self._resolve_data_path(request.netlist_dir, directory=True) if request.netlist_dir else None
 
         discovered = discover_smt_directory(source_dir)
-        geometry = build_board_geometry(discovered.xy_file)
-        state = load_bom_state(
-            bom_path,
-            semantic_manifest_path=semantic_path,
-            decision_manifest_path=decision_path,
-            nc_path=nc_path,
-        )
-        baseline = baseline_by_ref(baseline_path)
-        all_state_refs = set(state.installed) | set(state.excluded)
-        xy_refs = {component.ref for component in geometry.components}
-        notices = list(state.notices)
+        if discovered.reference_pdf is None:
+            raise ValueError("所选 SMT 资料目录中没有识别到 SMD/REF 位号图 PDF。")
+        identity_files = [discovered.xy_file, discovered.reference_pdf, bom_path]
+        if semantic_path is not None:
+            identity_files.append(semantic_path)
+        if netlist_dir is not None:
+            identity_files.extend(sorted(path for path in netlist_dir.rglob("*.dat") if path.is_file()))
+        board_id = _fingerprint(identity_files, request.label or source_dir.name)
+        cached = self.boards_dir / f"{board_id}.json"
+        if cached.is_file():
+            return self.get(board_id)
 
+        geometry = build_board_geometry(discovered.xy_file)
+        state = load_bom_state(bom_path)
+        drawing = open_pdf_drawing(discovered.reference_pdf)
+        matched = _match_pages(drawing, geometry)
+
+        drawing_payload: dict[str, dict[str, object]] = {}
+        drawing_internal: dict[str, str] = {}
+        side_resources: dict[str, tuple[PdfDrawingPage, AffineRegistration, tuple[float, float, float, float]]] = {}
+        for side, (page, registration) in matched.items():
+            side_components = [component for component in geometry.components if component.side == side]
+            crop = crop_for_xy(
+                registration,
+                [(component.x_mm, component.y_mm) for component in side_components],
+                page_width=page.width,
+                page_height=page.height,
+            )
+            rendered = self.renderer.render(drawing, page_number=page.page_number, crop=crop)
+            drawing_payload[side] = {
+                "page_number": page.page_number,
+                "image_url": f"/api/v1/smt-view/boards/{board_id}/drawing/{side}",
+                "pixel_width": rendered.pixel_width,
+                "pixel_height": rendered.pixel_height,
+                "registration": _registration_payload(registration),
+            }
+            drawing_internal[side] = rendered.cache_key
+            side_resources[side] = (page, registration, crop)
+
+        package_result: dict[str, object] | None = None
+        if netlist_dir is not None:
+            params: dict[str, object] = {
+                "netlist": str(netlist_dir),
+                "bom": str(bom_path),
+                "output_dir": str(self.paths.outputs_dir / "smt"),
+            }
+            if semantic_path is not None:
+                params["semantic_manifest"] = str(semantic_path)
+            package_result = run_smt_package_check(self.paths.root, params)
+            if package_result.get("status") != "ok":
+                raise ValueError(str(package_result.get("error") or "封装一致性检查失败。"))
+        package_by_ref = _package_review_by_ref(package_result)
+
+        xy_refs = {component.ref for component in geometry.components}
+        bom_refs = set(state.installed)
         placements: list[dict[str, object]] = []
         for component in geometry.components:
-            material = state.excluded.get(component.ref) or state.installed.get(component.ref) or {}
-            if component.ref in state.excluded:
-                status = str(material.get("status") or "nc")
-            elif component.ref in state.installed:
-                status = "placed"
-            else:
-                status = "xy_only"
-            current_code = str(material.get("material_code") or "")
-            baseline_code = str(baseline.get(component.ref, {}).get("material_code") or "")
-            version_change = "none"
-            if baseline_path is not None:
-                if component.ref not in baseline and component.ref in all_state_refs:
-                    version_change = "added"
-                elif component.ref in baseline and component.ref not in all_state_refs:
-                    version_change = "removed"
-                elif baseline_code != current_code and component.ref in all_state_refs:
-                    version_change = "replaced"
+            material = state.installed.get(component.ref) or {}
+            status = "placed" if component.ref in bom_refs else "nc"
+            page, registration, crop = side_resources[component.side]
+            side_drawing = drawing_payload[component.side]
+            left, bottom, right, top = crop
+            pdf_x, pdf_y = registration.transform(component.x_mm, component.y_mm)
+            drawing_x = (pdf_x - left) / (right - left) * int(side_drawing["pixel_width"])
+            drawing_y = (top - pdf_y) / (top - bottom) * int(side_drawing["pixel_height"])
+            package = package_by_ref.get(component.ref) or {}
+            package_status = str(package.get("status") or "")
             placements.append(
                 {
                     "ref": component.ref,
                     "x_mm": round(component.x_mm, 6),
                     "y_mm": round(component.y_mm, 6),
+                    "drawing_x": round(drawing_x, 3),
+                    "drawing_y": round(drawing_y, 3),
                     "rotation": component.rotation,
                     "side": component.side,
                     "footprint": component.footprint,
                     "status": status,
-                    "material_code": current_code,
+                    "material_code": str(material.get("material_code") or ""),
                     "name": str(material.get("name") or ""),
                     "model": str(material.get("model") or ""),
                     "description": str(material.get("description") or ""),
                     "grade": str(material.get("grade") or ""),
                     "package": str(material.get("package") or ""),
-                    "reason": str(material.get("reason") or ""),
-                    "decision_kind": str(material.get("decision_kind") or ""),
-                    "version_change": version_change,
-                    "baseline_material_code": baseline_code,
+                    "reason": "成品 BOM 中存在" if status == "placed" else "XY 坐标存在、成品 BOM 中不存在",
+                    "package_status": package_status,
+                    "package_kind": str(package.get("kind") or ""),
+                    "net_package": str(package.get("net_package") or ""),
+                    "package_note": str(package.get("note") or ""),
                 }
             )
 
-        bom_only: list[dict[str, object]] = []
-        for ref in sorted(all_state_refs - xy_refs, key=natural_key):
-            material = state.excluded.get(ref) or state.installed.get(ref) or {}
+        bom_only = []
+        for ref in sorted(bom_refs - xy_refs, key=natural_key):
+            material = state.installed[ref]
             bom_only.append(
                 {
                     "ref": ref,
@@ -117,58 +289,41 @@ class SmtViewService:
                     "name": str(material.get("name") or ""),
                     "model": str(material.get("model") or ""),
                     "description": str(material.get("description") or ""),
-                    "reason": str(material.get("reason") or "坐标文件中没有该位号"),
-                    "version_change": "added" if baseline_path is not None and ref not in baseline else "none",
+                    "reason": "成品 BOM 中存在，但 XY 坐标文件中没有该位号",
                 }
             )
-        if baseline_path is not None:
-            for ref in sorted(set(baseline) - all_state_refs - xy_refs, key=natural_key):
-                material = baseline[ref]
-                bom_only.append(
-                    {
-                        "ref": ref,
-                        "status": "bom_only",
-                        "material_code": "",
-                        "name": str(material.get("name") or ""),
-                        "model": str(material.get("model") or ""),
-                        "description": str(material.get("description") or ""),
-                        "reason": "仅旧版 BOM 存在",
-                        "version_change": "removed",
-                    }
-                )
 
-        files_for_id = [discovered.xy_file, bom_path]
-        files_for_id.extend(path for path in optional_paths if path is not None)
-        board_id = _fingerprint(files_for_id, request.label or source_dir.name)
-        reference_url = f"/api/v1/smt-view/boards/{board_id}/reference-drawing" if discovered.reference_pdf else None
+        outputs = [str(value) for value in (package_result or {}).get("outputs", [])]
         summary = {
             "total": len(placements),
             "top": sum(item["side"] == "top" for item in placements),
             "bottom": sum(item["side"] == "bottom" for item in placements),
             "placed": sum(item["status"] == "placed" for item in placements),
             "nc": sum(item["status"] == "nc" for item in placements),
-            "non_smt": sum(item["status"] == "non_smt" for item in placements),
-            "xy_only": sum(item["status"] == "xy_only" for item in placements),
             "bom_only": len(bom_only),
-            "version_changes": sum(item["version_change"] != "none" for item in placements) + sum(item["version_change"] != "none" for item in bom_only),
+            "package_checked": int(package_result is not None),
+            "package_issues": sum(
+                bool(item["package_status"]) and item["package_status"] not in {"通过", "近似通过", "NC 未贴跳过", "非贴片对象跳过"}
+                for item in placements
+            ),
         }
         payload: dict[str, object] = {
-            "schema_version": 1,
+            "schema_version": SCHEMA_VERSION,
             "board_id": board_id,
             "label": (request.label or source_dir.name).strip() or source_dir.name,
             "xy_file_name": discovered.xy_file.relative_to(source_dir).as_posix(),
             "xy_version": geometry.units.version,
             "xy_units": geometry.units.units,
-            "bbox": geometry.bbox,
-            "source_span": geometry.source_span,
             "placements": placements,
             "bom_only": bom_only,
-            "xy_only": [item["ref"] for item in placements if item["status"] == "xy_only"],
             "summary": summary,
-            "reference_drawing_name": discovered.reference_pdf.name if discovered.reference_pdf else None,
-            "reference_drawing_url": reference_url,
-            "notices": notices,
-            "_reference_drawing_path": str(discovered.reference_pdf) if discovered.reference_pdf else "",
+            "drawings": drawing_payload,
+            "reference_drawing_name": discovered.reference_pdf.name,
+            "reference_drawing_url": f"/api/v1/smt-view/boards/{board_id}/reference-drawing",
+            "package_report_outputs": outputs,
+            "notices": list(state.notices),
+            "_reference_drawing_path": str(discovered.reference_pdf),
+            "_drawing_cache_keys": drawing_internal,
         }
         self._write(board_id, payload)
         return self._public(payload)
@@ -204,3 +359,10 @@ class SmtViewService:
         except ValueError as exc:
             raise KeyError("原始位号图路径无效。") from exc
         return path
+
+    def drawing_image(self, board_id: str, side: str) -> Path:
+        payload = self._load(board_id)
+        keys = payload.get("_drawing_cache_keys")
+        if side not in {"top", "bottom"} or not isinstance(keys, dict) or side not in keys:
+            raise KeyError("当前面没有可用的配准位号图。")
+        return self.renderer.resolve(str(keys[side]))

@@ -25,7 +25,6 @@ class CapabilitiesRegistryTests(unittest.TestCase):
                 "bom_compare",
                 "bom_risk_check",
                 "netlist_compare",
-                "smt_package_check",
                 "single_network_check",
                 "smt_view",
             ],

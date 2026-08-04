@@ -8,9 +8,5 @@ export const toolInputs: Record<string, Array<{ key: string; label: string; mult
     { key: "netlist1", label: "网表1文件夹文件", multiple: true, accept: ".dat" },
     { key: "netlist2", label: "网表2文件夹文件", multiple: true, accept: ".dat" },
   ],
-  smt_package_check: [
-    { key: "netlist", label: "网表文件夹文件", multiple: true, accept: ".dat" },
-    { key: "bom", label: "BOM 文件", accept: ".xlsx,.xls" },
-  ],
   single_network_check: [{ key: "netlist", label: "网表文件夹文件", multiple: true, accept: ".dat" }],
 };
