@@ -138,7 +138,7 @@ try {
   $runtimePyDir = Join-Path $Staging "runtime\python"
   Download-EmbeddedPython -OutDir $runtimePyDir
   Install-HwAgentRuntimeWheels -PythonDir $runtimePyDir
-  & (Join-Path $runtimePyDir "python.exe") -c "import cryptography, fastapi, multipart, openpyxl, PIL, pydantic, pypdfium2, starlette, uvicorn"
+  & (Join-Path $runtimePyDir "python.exe") -c "import cryptography, fastapi, multipart, openpyxl, PIL, pydantic, starlette, uvicorn"
   if ($LASTEXITCODE -ne 0) { throw "Embedded Python dependency verification failed." }
   & (Join-Path $runtimePyDir "python.exe") -B -I (Join-Path $Staging "app\backend\suite_app.py") --help | Out-Null
   if ($LASTEXITCODE -ne 0) { throw "Embedded Python entrypoint verification failed." }

@@ -571,7 +571,9 @@ function Set-HwV3JobPhase {
   if (-not $value.Contains("started_at") -or [string]::IsNullOrWhiteSpace([string]$value["started_at"])) {
     $value["started_at"] = $now
   }
-  $value["log_tail"] = @($logs.ToArray() | Select-Object -Last 20)
+  # Preserve every milestone for the current update job. The web UI owns the
+  # scroll viewport, so early download and verification messages stay visible.
+  $value["log_tail"] = @($logs.ToArray())
   $value["running"] = $Phase -notin @("completed", "failed", "cancelled")
   $value["done"] = $Phase -eq "completed"
   $value["failed"] = $Phase -eq "failed"

@@ -137,7 +137,7 @@ html, body, #root { margin: 0; height: 100%; }
 .update-log {
   margin: 0;
   padding: 12px;
-  max-height: 240px;
+  max-height: 46vh;
   overflow: auto;
   border-radius: 7px;
   background: #1e242e;
@@ -165,7 +165,24 @@ html, body, #root { margin: 0; height: 100%; }
 }
 
 .update-activity .update-log {
-  max-height: 154px;
+  min-height: 260px;
+  max-height: 46vh;
+}
+
+.update-progress-modal .ant-modal-body {
+  max-height: calc(100vh - 150px);
+  overflow-y: auto;
+}
+
+@media (max-width: 720px) {
+  .update-progress-modal {
+    max-width: calc(100vw - 24px);
+  }
+
+  .update-activity .update-log {
+    min-height: 200px;
+    max-height: 38vh;
+  }
 }
 
 .capture-export-config {

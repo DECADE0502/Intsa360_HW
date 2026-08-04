@@ -1,6 +1,8 @@
 param(
   [string[]]$PythonCandidates = @(),
-  [switch]$ProbeOnly
+  [switch]$ProbeOnly,
+  [string]$VerificationReceiptDir = "",
+  [string]$ExpectedRevision = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -47,6 +49,9 @@ $OriginalTemp = $env:TEMP
 $OriginalTmp = $env:TMP
 $LocalAppData = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)
 if (-not $LocalAppData) { throw "Local application data directory not found" }
+if ([string]::IsNullOrWhiteSpace($VerificationReceiptDir)) {
+  $VerificationReceiptDir = Join-Path $LocalAppData "Insta360_HW\release-verification"
+}
 $VerifyTempRoot = Join-Path $LocalAppData ("Temp\ihv\" + [Guid]::NewGuid().ToString("N").Substring(0, 12))
 New-Item -ItemType Directory -Force -Path $VerifyTempRoot | Out-Null
 $VerifyTempRoot = (Resolve-Path -LiteralPath $VerifyTempRoot).Path
@@ -152,7 +157,14 @@ try {
     $text = Get-Content -LiteralPath $file.FullName -Raw -Encoding UTF8
     if ($text -match $englishUiPattern) { throw "English UI text found in $($file.FullName)" }
   }
-  Write-Host "Verification passed."
+  Write-Host "Verification passed." -ForegroundColor Green
+  $ReceiptTool = Join-Path $Root "scripts\release\verification_receipt.py"
+  $receiptArgs = @("create", "--root", $Root, "--receipt-dir", $VerificationReceiptDir)
+  if (-not [string]::IsNullOrWhiteSpace($ExpectedRevision)) {
+    $receiptArgs += @("--revision", $ExpectedRevision)
+  }
+  & $Python -B $ReceiptTool @receiptArgs
+  if ($LASTEXITCODE -ne 0) { throw "Unable to record source verification receipt" }
 } finally {
   $env:TEMP = $OriginalTemp
   $env:TMP = $OriginalTmp

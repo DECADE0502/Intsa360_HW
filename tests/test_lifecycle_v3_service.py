@@ -79,6 +79,29 @@ def test_v3_job_status_keeps_timestamps_and_distinct_recent_activity(tmp_path: P
     assert job["log_tail"] == ["更新任务已创建。", "正在下载运行包。"]
 
 
+def test_v3_job_status_preserves_complete_update_log(tmp_path: Path) -> None:
+    _, runtime, state_root = _installed_layout(tmp_path)
+    job_id = "f" * 32
+
+    with patch.dict(os.environ, {"INSTA360_HW_STATE_ROOT": str(state_root)}):
+        for index in range(35):
+            lifecycle_v3_jobs.write_job(
+                runtime,
+                job_id,
+                phase="downloading",
+                progress=index,
+                message=f"更新明细 {index + 1}",
+            )
+        job = lifecycle_v3_jobs.read_job(runtime, job_id)
+
+    assert job is not None
+    assert job["log_tail"] == [f"更新明细 {index + 1}" for index in range(35)]
+    contract = (Path(__file__).resolve().parents[1] / "scripts" / "lifecycle_v3" / "Contract.ps1").read_text(
+        encoding="utf-8"
+    )
+    assert "Select-Object -Last 20" not in contract
+
+
 def test_v3_payload_contract_includes_actual_service_launcher_dependencies() -> None:
     assert "scripts/lifecycle/Contract.ps1" in REQUIRED_RUNTIME_FILES
     assert "scripts/lifecycle/Runtime.ps1" in REQUIRED_RUNTIME_FILES

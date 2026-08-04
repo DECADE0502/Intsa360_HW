@@ -11,7 +11,7 @@ from fastapi import Request
 
 from app.backend.paths import AppPaths
 from app.backend.services.jobs import PersistentJobService
-from app.backend.services.refdes_service import RefdesService
+from app.backend.smt_view import SmtViewService
 from app.backend.tool_registry import ToolRegistry, build_registry
 
 
@@ -23,8 +23,8 @@ class AppContext:
     _registry_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     _jobs: PersistentJobService | None = None
     _jobs_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
-    _refdes: RefdesService | None = None
-    _refdes_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    _smt_view: SmtViewService | None = None
+    _smt_view_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     started_monotonic: float = field(default_factory=time.monotonic)
 
@@ -45,12 +45,12 @@ class AppContext:
         return self._jobs
 
     @property
-    def refdes(self) -> RefdesService:
-        if self._refdes is None:
-            with self._refdes_lock:
-                if self._refdes is None:
-                    self._refdes = RefdesService(self.root)
-        return self._refdes
+    def smt_view(self) -> SmtViewService:
+        if self._smt_view is None:
+            with self._smt_view_lock:
+                if self._smt_view is None:
+                    self._smt_view = SmtViewService(self.paths)
+        return self._smt_view
 
 
 def build_context(root: Path) -> AppContext:

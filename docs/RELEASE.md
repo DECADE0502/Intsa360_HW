@@ -30,7 +30,13 @@
 .\scripts\build_release_bundle.ps1
 ```
 
-命令会先执行完整测试，再构建前端、启动器、嵌入式 Python、`runtime-v3`、Setup、V3 根目录 ZIP、同字节的 0.3.3 文件名别名、V3 签名清单、0.3.3 过渡清单和 `SHA256SUMS.txt`，共六个发布文件。默认输出到仓库同级的 `Insta360_HW_release_<版本>`，同时把完全相同的 Setup 放到 `D:\desktop\工具集\Insta360_HW_Setup.exe`。
+完整验证通过后，`verify_all.ps1` 会在 `%LOCALAPPDATA%\Insta360_HW\release-verification` 写入与源码内容和本机测试环境绑定的验证凭证。正式构建发现凭证完全匹配时直接复用，不再重复执行整套 Python 和前端单元测试；任何代码、测试、依赖或构建脚本变化都会使凭证自动失效。仅修改 `VERSION`、`REVISION`、`UPDATE_NOTICE.json`、文档或重新生成的生产前端资源不会重复触发全量测试。需要强制重测时使用：
+
+```powershell
+.\scripts\build_release_bundle.ps1 -ForceVerification
+```
+
+没有可复用凭证时，构建会先完整验证一次并自动生成凭证，然后构建前端、启动器、嵌入式 Python、`runtime-v3`、Setup、V3 根目录 ZIP、同字节的 0.3.3 文件名别名、V3 签名清单、0.3.3 过渡清单和 `SHA256SUMS.txt`，共六个发布文件。默认输出到仓库同级的 `Insta360_HW_release_<版本>`，同时把完全相同的 Setup 放到 `D:\desktop\工具集\Insta360_HW_Setup.exe`。
 
 构建不会安装、更新、卸载或启动本机平台。
 

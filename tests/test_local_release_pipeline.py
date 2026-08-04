@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 import zipfile
@@ -18,10 +19,19 @@ from app.backend.release_manifest import ReleaseManifest
 
 ROOT = Path(__file__).resolve().parents[1]
 RELEASE_TOOL_PATH = ROOT / "scripts" / "release" / "release_bundle.py"
+VERIFICATION_RECEIPT_PATH = ROOT / "scripts" / "release" / "verification_receipt.py"
 
 
 def _load_release_tool():
     spec = importlib.util.spec_from_file_location("release_bundle", RELEASE_TOOL_PATH)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_verification_receipt_tool():
+    spec = importlib.util.spec_from_file_location("verification_receipt", VERIFICATION_RECEIPT_PATH)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -255,6 +265,74 @@ def test_release_entrypoint_treats_key_generation_as_bootstrap_only() -> None:
     assert "secure backup" in script
     assert '[string]$MinUpdaterVersion = "0.4.4"' in script
     assert "--min-updater-version $MinUpdaterVersion" in script
+
+
+def test_release_entrypoint_reuses_matching_source_verification_evidence() -> None:
+    bundle = (ROOT / "scripts" / "build_release_bundle.ps1").read_text(encoding="utf-8")
+    verifier = (ROOT / "scripts" / "verify_all.ps1").read_text(encoding="utf-8")
+
+    assert "verification_receipt.py" in bundle
+    assert "[switch]$ForceVerification" in bundle
+    assert "Source and environment are unchanged" in bundle
+    assert "-ExpectedRevision $Revision" in bundle
+    assert "verification_receipt.py" in verifier
+    assert '"create"' in verifier
+
+
+def test_verification_receipt_tracks_source_but_ignores_release_only_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tool = _load_verification_receipt_tool()
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    subprocess.run(["git", "init"], cwd=repository, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repository, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repository, check=True)
+    (repository / "app" / "frontend").mkdir(parents=True)
+    (repository / "app" / "frontend" / "index.html").write_text("generated-a", encoding="utf-8")
+    (repository / "app" / "frontend" / "waiting.html").write_text("waiting-a", encoding="utf-8")
+    (repository / "docs").mkdir()
+    (repository / "docs" / "guide.md").write_text("guide-a", encoding="utf-8")
+    (repository / "VERSION").write_text("1.0.0\n", encoding="utf-8")
+    (repository / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=repository, check=True)
+    subprocess.run(["git", "commit", "-m", "fixture"], cwd=repository, check=True, capture_output=True)
+    environment = {"python": "fixture"}
+    monkeypatch.setattr(tool, "environment_fingerprint", lambda: environment)
+    receipts = tmp_path / "receipts"
+
+    tool.create_receipt(repository, receipts)
+    assert tool.verify_receipt(repository, receipts)[0] is True
+
+    (repository / "VERSION").write_text("1.0.1\n", encoding="utf-8")
+    (repository / "docs" / "guide.md").write_text("guide-b", encoding="utf-8")
+    (repository / "app" / "frontend" / "index.html").write_text("generated-b", encoding="utf-8")
+    assert tool.verify_receipt(repository, receipts)[0] is True
+
+    (repository / "source.py").write_text("VALUE = 2\n", encoding="utf-8")
+    valid, reason = tool.verify_receipt(repository, receipts)
+    assert valid is False
+    assert "no verification receipt" in reason
+
+
+def test_verification_receipt_is_environment_bound(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    tool = _load_verification_receipt_tool()
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    subprocess.run(["git", "init"], cwd=repository, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repository, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repository, check=True)
+    (repository / "source.py").write_text("VALUE = 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=repository, check=True)
+    subprocess.run(["git", "commit", "-m", "fixture"], cwd=repository, check=True, capture_output=True)
+    receipts = tmp_path / "receipts"
+    monkeypatch.setattr(tool, "environment_fingerprint", lambda: {"python": "3.11"})
+    tool.create_receipt(repository, receipts)
+
+    monkeypatch.setattr(tool, "environment_fingerprint", lambda: {"python": "3.12"})
+    valid, reason = tool.verify_receipt(repository, receipts)
+    assert valid is False
+    assert "environment" in reason
 
 
 def test_release_verifier_retries_transient_windows_temp_cleanup(

@@ -13,6 +13,19 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class FrontendBuildTests(unittest.TestCase):
+    def test_update_progress_modal_shows_the_complete_scrollable_log(self) -> None:
+        component = (ROOT / "frontend" / "src" / "components" / "UpdateStatus.tsx").read_text(encoding="utf-8")
+        styles = (ROOT / "frontend" / "src" / "styles.css").read_text(encoding="utf-8")
+
+        self.assertIn('className="update-progress-modal"', component)
+        self.assertIn("width={900}", component)
+        self.assertIn("updateLogRef", component)
+        self.assertIn("updateLogAutoFollowRef", component)
+        self.assertIn("scrollHeight", component)
+        self.assertIn("min-height: 260px", styles)
+        self.assertIn("max-height: 46vh", styles)
+        self.assertIn("overflow: auto", styles)
+
     def test_bom_review_can_return_to_source_and_clear_the_current_workflow(self) -> None:
         wizard = (ROOT / "frontend" / "src" / "tools" / "BomProcessWizard.tsx").read_text(encoding="utf-8")
 

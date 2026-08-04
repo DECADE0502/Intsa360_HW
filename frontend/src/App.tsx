@@ -28,7 +28,7 @@ type PluginGroups = { system: PluginInfo[]; platform: PluginInfo[]; user: Plugin
 const BomProcessWizard = lazy(() => import("./tools/BomProcessWizard").then((module) => ({ default: module.BomProcessWizard })));
 const BomRiskPane = lazy(() => import("./tools/BomRiskPane").then((module) => ({ default: module.BomRiskPane })));
 const LegacyToolPane = lazy(() => import("./tools/LegacyToolPane").then((module) => ({ default: module.LegacyToolPane })));
-const RefdesViewerPane = lazy(() => import("./tools/refdes/RefdesViewerPane").then((module) => ({ default: module.RefdesViewerPane })));
+const SmtViewPane = lazy(() => import("./tools/smtView/SmtViewPane").then((module) => ({ default: module.SmtViewPane })));
 const RECONNECT_PROTOCOL_URL = "insta360-hw://reconnect";
 const WORKSPACE_TRUNCATED_EVENT = "insta360_hw:workspace-truncated";
 
@@ -337,12 +337,15 @@ export default function App() {
   }, []);
 
   const bom = tools.filter((t) => ["bom_process", "bom_compare", "bom_risk_check"].includes(t.id));
-  const netlist = tools.filter((t) => !["bom_process", "bom_compare", "bom_risk_check"].includes(t.id));
+  const smt = tools.filter((t) => t.category === "SMT");
+  const netlist = tools.filter((t) => !["bom_process", "bom_compare", "bom_risk_check"].includes(t.id) && t.category !== "SMT");
 
   const menu = [
     { key: "__home", label: "工作台" },
     { type: "group" as const, label: "BOM 工具" },
     ...bom.map((t) => ({ key: t.id, label: t.name })),
+    { type: "group" as const, label: "SMT 工具" },
+    ...smt.map((t) => ({ key: t.id, label: t.name })),
     { type: "group" as const, label: "网表工具" },
     ...netlist.map((t) => ({ key: t.id, label: t.name })),
     { type: "divider" as const },
@@ -471,11 +474,11 @@ export default function App() {
                   <BomRiskPane tool={tool} />
                 </div>
               ))}
-            <div style={{ display: active === "refdes_viewer" ? "block" : "none" }}>
-              <RefdesViewerPane />
+            <div style={{ display: active === "smt_view" ? "block" : "none" }}>
+              <SmtViewPane />
             </div>
             {tools
-              .filter((t) => !["bom_process", "bom_risk_check", "refdes_viewer"].includes(t.id))
+              .filter((t) => !["bom_process", "bom_risk_check", "smt_view"].includes(t.id))
               .map((t) => (
                 <div key={t.id} style={{ display: active === t.id ? "block" : "none" }}>
                   <LegacyToolPane tool={t} />

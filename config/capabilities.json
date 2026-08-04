@@ -65,10 +65,10 @@
       "show_in_cadence": false
     },
     {
-      "id": "refdes_viewer",
+      "id": "smt_view",
       "type": "web_tool",
-      "name": "位号图查看",
-      "description": "只需一份位号图 PDF：左侧列出图上全部位号，点击即在右侧原图定位高亮。",
+      "name": "贴片位号视图",
+      "description": "用 XY 坐标叠加成品 BOM 的贴装、NC、非贴片和资料差异状态。",
       "category": "SMT",
       "status": "available",
       "show_in_platform": true,

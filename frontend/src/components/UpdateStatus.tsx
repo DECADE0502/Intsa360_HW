@@ -89,6 +89,8 @@ export function UpdateStatus({ version }: { version: string }) {
   const [updateStatus, setUpdateStatus] = useState<UpdateStatusInfo | null>(null);
   const [statusClock, setStatusClock] = useState(() => Date.now());
   const updatePollRef = useRef<number | null>(null);
+  const updateLogRef = useRef<HTMLPreElement | null>(null);
+  const updateLogAutoFollowRef = useRef(true);
 
   function applyCheckResult(info: UpdateCheck, openNotice: boolean) {
     const notice = info.update_notice && Object.keys(info.update_notice).length ? info.update_notice : null;
@@ -282,6 +284,18 @@ export function UpdateStatus({ version }: { version: string }) {
     ? Math.ceil((updateStatus.bytes_total - updateStatus.bytes_downloaded) / updateStatus.bytes_per_second)
     : 0;
 
+  useEffect(() => {
+    if (!progressOpen) return;
+    updateLogAutoFollowRef.current = true;
+    if (!updateLogRef.current) return;
+    updateLogRef.current.scrollTop = updateLogRef.current.scrollHeight;
+  }, [progressOpen]);
+
+  useEffect(() => {
+    if (!progressOpen || !updateLogRef.current || !updateLogAutoFollowRef.current) return;
+    updateLogRef.current.scrollTop = updateLogRef.current.scrollHeight;
+  }, [progressOpen, recentActivity.length]);
+
   async function onDetach() {
     setDetaching(true);
     try {
@@ -386,10 +400,11 @@ export function UpdateStatus({ version }: { version: string }) {
       />
 
       <Modal
+        className="update-progress-modal"
         open={progressOpen}
         title={updateStatus?.done ? "更新完成" : updateStatus?.failed ? "更新失败" : updateStatus?.phase === "cancelled" ? "更新已取消" : "正在更新平台"}
         footer={null}
-        width={620}
+        width={900}
         closable={Boolean(updateFinished)}
         maskClosable={false}
         onCancel={() => {
@@ -455,7 +470,16 @@ export function UpdateStatus({ version }: { version: string }) {
         {recentActivity.length ? (
           <div className="update-activity">
             <Text strong>执行明细</Text>
-            <pre className="update-log">{recentActivity.join("\n")}</pre>
+            <pre
+              ref={updateLogRef}
+              className="update-log"
+              onScroll={(event) => {
+                const target = event.currentTarget;
+                updateLogAutoFollowRef.current = target.scrollHeight - target.scrollTop - target.clientHeight < 24;
+              }}
+            >
+              {recentActivity.join("\n")}
+            </pre>
           </div>
         ) : null}
         {updateStatus?.failed && updateStatus.rolled_back ? (

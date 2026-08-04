@@ -375,6 +375,19 @@ export async function uploadFiles(files: File[]): Promise<{
   return payload;
 }
 
+export async function uploadFileTree(files: File[]): Promise<{
+  folder: string;
+  root_name?: string;
+  files: Array<{ path: string; name: string }>;
+}> {
+  const form = new FormData();
+  files.forEach((file) => form.append("files", file, file.webkitRelativePath || file.name));
+  const payload = await requestJson<any>("/api/upload/tree", { method: "POST", body: form }, { timeoutMs: 300_000 });
+  if (payload.status !== "ok") throw apiPayloadError(payload, "目录上传失败");
+  const relative = files.find((file) => file.webkitRelativePath)?.webkitRelativePath || "";
+  return { ...payload, root_name: relative.split("/")[0] || undefined };
+}
+
 export async function runTool(tool: string, params: Record<string, unknown>, opts?: ApiOpts) {
   // 5 minutes for long tool runs; caller can override
   const result = await apiCall<any>(

@@ -16,7 +16,6 @@ TERMINAL_PHASES = {"completed", "failed", "cancelled"}
 PRECOMMIT_PHASES = {"queued", "downloading", "verifying", "staging"}
 _JOB_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 _JOB_LOCK = threading.Lock()
-_LOG_TAIL_LIMIT = 20
 
 
 def atomic_json(path: Path, value: Mapping[str, Any]) -> None:
@@ -81,7 +80,10 @@ def write_job(root: Path, job_id: str, **updates: object) -> dict[str, object]:
                 "schema": 3,
                 "job_id": job_id,
                 "updated_at": now,
-                "log_tail": logs[-_LOG_TAIL_LIMIT:],
+                # Keep the complete per-job history. Update jobs emit a bounded
+                # number of milestone messages, and the UI provides its own
+                # scroll viewport instead of silently dropping early stages.
+                "log_tail": logs,
             }
         )
         current.setdefault("started_at", now)

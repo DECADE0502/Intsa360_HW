@@ -5,7 +5,9 @@ param(
   [string]$InnoCompiler = "",
   # Raise this compatibility floor only when the updater protocol changes.
   [string]$MinUpdaterVersion = "0.4.4",
-  [switch]$InitializeSigningKey
+  [switch]$InitializeSigningKey,
+  [switch]$ForceVerification,
+  [string]$VerificationReceiptDir = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -26,6 +28,10 @@ $BundleDir = [System.IO.Path]::GetFullPath($BundleDir)
 $PrivateKeyPath = [System.IO.Path]::GetFullPath($PrivateKeyPath)
 $PublicKeyPath = Join-Path $Root "config\update_public_key.pem"
 $ReleaseTool = Join-Path $Root "scripts\release\release_bundle.py"
+$VerificationReceiptTool = Join-Path $Root "scripts\release\verification_receipt.py"
+if ([string]::IsNullOrWhiteSpace($VerificationReceiptDir)) {
+  $VerificationReceiptDir = Join-Path $env:LOCALAPPDATA "Insta360_HW\release-verification"
+}
 
 function Assert-NoRuntimeCacheArtifacts {
   param([Parameter(Mandatory=$true)][string]$RuntimeRoot)
@@ -66,9 +72,26 @@ if ($dirty.Count -gt 0) { throw "Release builds require a clean git worktree." }
 $tags = @(& git -C $Root tag --list ("v" + $Version))
 if ($tags.Count -gt 0) { throw "Version $Version already has a release tag; bump VERSION first." }
 
-Write-Host "[1/5] Running the complete source verification suite..." -ForegroundColor Cyan
-& (Join-Path $Root "scripts\verify_all.ps1")
-if ($LASTEXITCODE -ne 0) { throw "Source verification failed." }
+$VerificationPython = (& (Join-Path $Root "scripts\verify_all.ps1") -ProbeOnly).Trim()
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $VerificationPython -PathType Leaf)) {
+  throw "Unable to select the source verification Python runtime."
+}
+$ReceiptValid = $false
+if (-not $ForceVerification) {
+  Write-Host "[1/5] Checking reusable source verification evidence..." -ForegroundColor Cyan
+  & $VerificationPython -B $VerificationReceiptTool verify --root $Root --receipt-dir $VerificationReceiptDir
+  $ReceiptValid = $LASTEXITCODE -eq 0
+}
+if ($ReceiptValid) {
+  Write-Host "Source and environment are unchanged; reusing the completed verification suite." -ForegroundColor Green
+} else {
+  Write-Host "[1/5] Running the complete source verification suite once..." -ForegroundColor Cyan
+  & (Join-Path $Root "scripts\verify_all.ps1") -PythonCandidates @($VerificationPython) `
+    -VerificationReceiptDir $VerificationReceiptDir -ExpectedRevision $Revision
+  if ($LASTEXITCODE -ne 0) { throw "Source verification failed." }
+  & $VerificationPython -B $VerificationReceiptTool verify --root $Root --receipt-dir $VerificationReceiptDir
+  if ($LASTEXITCODE -ne 0) { throw "Source verification passed but its receipt could not be validated." }
+}
 
 $BuildRoot = Join-Path $Workspace ("HWAgent_build\" + $Version + "+" + $Revision)
 $RuntimeRoot = Join-Path $BuildRoot "runtime"

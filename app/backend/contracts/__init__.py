@@ -2,8 +2,8 @@ from app.backend.contracts.api import ApiError
 from app.backend.contracts.assets import Asset, AssetKind, ToolRun, ToolRunStatus
 from app.backend.contracts.jobs import Job, JobPhase, JobStatus
 from app.backend.contracts.plugins import ActivationMode, PluginSource, PluginState
-from app.backend.contracts.refdes import RefdesDrawing
 from app.backend.contracts.releases import BuildKind, ReleaseAsset, ReleaseManifestV3
+from app.backend.contracts.smt_view import SmtViewBoard
 
 __all__ = [
     "ActivationMode",
@@ -16,9 +16,9 @@ __all__ = [
     "JobStatus",
     "PluginSource",
     "PluginState",
-    "RefdesDrawing",
     "ReleaseAsset",
     "ReleaseManifestV3",
+    "SmtViewBoard",
     "ToolRun",
     "ToolRunStatus",
 ]
