@@ -29,14 +29,21 @@ $ServiceStatePath = Get-HwLifecycleServiceStatePath -StateRoot $StateRoot
 $LauncherLogFile = Join-Path $LogDir "launcher_latest.log"
 $Version = Get-HwLifecycleRuntimeVersion -RuntimeRoot $Root
 $PortRange = 8765..8775
+# Read the expected tool set from the same manifest the backend registers from.
+# A second copy of this list here would silently outlive every tool rename.
+$CapabilitiesPath = Join-Path $Root "config\capabilities.json"
+if (-not (Test-Path -LiteralPath $CapabilitiesPath -PathType Leaf)) {
+  throw "Runtime capability manifest is missing: $CapabilitiesPath"
+}
 $RequiredTools = @(
-  "bom_process",
-  "bom_compare",
-  "bom_risk_check",
-  "netlist_compare",
-  "smt_package_check",
-  "single_network_check"
+  (Get-Content -LiteralPath $CapabilitiesPath -Raw -Encoding UTF8 |
+    ConvertFrom-Json).capabilities |
+    Where-Object { $_.type -eq "web_tool" } |
+    ForEach-Object { $_.id }
 )
+if ($RequiredTools.Count -eq 0) {
+  throw "Runtime capability manifest declares no web tools: $CapabilitiesPath"
+}
 
 if ([string]::IsNullOrWhiteSpace($Version)) { throw "Runtime VERSION is missing or empty." }
 New-Item -ItemType Directory -Force -Path $RuntimeStateDir, $LogDir | Out-Null
