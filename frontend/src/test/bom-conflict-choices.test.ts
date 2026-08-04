@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildFirstVariantConflictChoices,
   buildRecommendedConflictChoices,
   conflictChoiceComplete,
   normalizeConflictChoice,
@@ -19,6 +20,17 @@ describe("BOM conflict choices v2", () => {
     expect(choices).toEqual({
       P1: { action: "select_variant", variant_index: 1 },
       P2: { action: "select_variant", variant_index: 2 },
+    });
+  });
+
+  it("selects the first candidate for every conflict as an explicit bulk policy", () => {
+    expect(buildFirstVariantConflictChoices([
+      { code: "P1", variants: [{}, {}], high_confidence: false },
+      { code: "P2", variants: [{}, {}, {}], recommended_index: 2 },
+      { code: "", variants: [{}, {}] },
+    ])).toEqual({
+      P1: { action: "select_variant", variant_index: 0 },
+      P2: { action: "select_variant", variant_index: 0 },
     });
   });
 

@@ -329,6 +329,29 @@ def test_multi_unit_references_merge_only_with_matching_identity_and_package(tmp
     assert parsed.quality_report.payload()["code_counts"]["multi_unit_merged"] == 1
 
 
+def test_logical_units_do_not_create_physical_package_conflicts(tmp_path: Path) -> None:
+    path = tmp_path / "logical-units.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append([
+        "Item", "Quantity", "Reference", "Part Number", "Value",
+        "PCB Footprint", "PCB封装", "Source Package", "Source Part",
+    ])
+    sheet.append([1, 1, "U9", "MAT-9001", "SOC", "BGA256", "FCBGA", "SOC_A", "U9A"])
+    sheet.append([2, 1, "U9", "MAT-9001", "SOC", "BGA256", "FCBGA", "SOC_B", "U9B"])
+    sheet.append([3, 1, "U10", "MAT-9002", "SOC", "BGA256", "FCBGA", "SOC_A", "U10A"])
+    sheet.append([4, 1, "U10", "MAT-9002", "SOC", "BGA324", "FCBGA", "SOC_B", "U10B"])
+    workbook.save(path)
+    workbook.close()
+
+    parsed = bom_process.parse_source(path)
+    parts = {part.reference: part for part in parsed.physical_parts}
+
+    assert parts["U9"].merge_kind == "duplicate"
+    assert parts["U9"].conflicts == ()
+    assert parts["U10"].conflicts == ("same_physical_ref_multiple_packages",)
+
+
 def test_multi_unit_suffix_is_not_removed_without_matching_formal_identity(tmp_path: Path) -> None:
     path = tmp_path / "multi-unit-weak.xlsx"
     workbook = Workbook()

@@ -6,6 +6,7 @@ import stat
 import threading
 import zipfile
 from pathlib import Path
+from typing import Callable
 
 from app.backend.contracts.releases import ReleaseManifestV3
 from app.backend.lifecycle_v3_contract import PRODUCT, RUNTIME_LAYOUT, read_json_object
@@ -54,7 +55,16 @@ def _read_text(root: Path, name: str) -> str:
         return ""
 
 
-def safe_extract(archive: Path, destination: Path, cancel: threading.Event | None = None) -> None:
+ExtractionProgress = Callable[[int, int, int, int], None]
+
+
+def safe_extract(
+    archive: Path,
+    destination: Path,
+    cancel: threading.Event | None = None,
+    progress: ExtractionProgress | None = None,
+) -> str:
+    """Extract a runtime and return its canonical tree hash in one pass."""
     destination.mkdir(parents=True, exist_ok=True)
     root = destination.resolve()
     with zipfile.ZipFile(archive) as bundle:
@@ -63,7 +73,8 @@ def safe_extract(archive: Path, destination: Path, cancel: threading.Event | Non
             raise ValueError("runtime archive is empty")
         if len(infos) > MAX_ARCHIVE_ENTRIES:
             raise ValueError("runtime archive contains too many entries")
-        expanded_bytes = sum(info.file_size for info in infos)
+        file_infos = [info for info in infos if not info.is_dir()]
+        expanded_bytes = sum(info.file_size for info in file_infos)
         if expanded_bytes > MAX_UNCOMPRESSED_BYTES:
             raise ValueError("runtime archive expands beyond the 3 GiB limit")
         if shutil.disk_usage(destination).free < expanded_bytes + EXTRACTION_FREE_SPACE_RESERVE:
@@ -89,6 +100,11 @@ def safe_extract(archive: Path, destination: Path, cancel: threading.Event | Non
             targets.add(key)
             planned.append((info, target))
 
+        completed_files = 0
+        completed_bytes = 0
+        records: list[str] = []
+        if progress is not None:
+            progress(0, len(file_infos), 0, expanded_bytes)
         for info, target in planned:
             if cancel is not None and cancel.is_set():
                 raise InterruptedError("更新已在提交前取消")
@@ -96,6 +112,7 @@ def safe_extract(archive: Path, destination: Path, cancel: threading.Event | Non
                 target.mkdir(parents=True, exist_ok=True)
                 continue
             target.parent.mkdir(parents=True, exist_ok=True)
+            digest = hashlib.sha256()
             with bundle.open(info) as source, target.open("xb") as output:
                 while True:
                     if cancel is not None and cancel.is_set():
@@ -104,6 +121,16 @@ def safe_extract(archive: Path, destination: Path, cancel: threading.Event | Non
                     if not chunk:
                         break
                     output.write(chunk)
+                    digest.update(chunk)
+                    completed_bytes += len(chunk)
+                    if progress is not None:
+                        progress(completed_files, len(file_infos), completed_bytes, expanded_bytes)
+            completed_files += 1
+            relative = target.relative_to(root).as_posix()
+            records.append(f"{relative}\t{info.file_size}\t{digest.hexdigest()}\n")
+            if progress is not None:
+                progress(completed_files, len(file_infos), completed_bytes, expanded_bytes)
+        return hashlib.sha256("".join(sorted(records)).encode("utf-8")).hexdigest()
 
 
 def validate_payload(path: Path, manifest: ReleaseManifestV3) -> None:

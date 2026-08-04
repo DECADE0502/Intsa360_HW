@@ -18,7 +18,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from app.backend import lifecycle_v3, lifecycle_v3_jobs, lifecycle_v3_process, update_api
-from app.backend.lifecycle_v3_archive import REQUIRED_RUNTIME_FILES
+from app.backend.lifecycle_v3_archive import REQUIRED_RUNTIME_FILES, runtime_tree_sha256
 
 
 OLD_VERSION = "0.3.3"
@@ -341,6 +341,25 @@ def test_v3_archive_rejects_path_traversal(tmp_path: Path) -> None:
         lifecycle_v3._safe_extract(archive, tmp_path / "stage")
 
     assert not (tmp_path / "outside.txt").exists()
+
+
+def test_v3_archive_reports_progress_and_hashes_while_extracting(tmp_path: Path) -> None:
+    archive = tmp_path / "runtime.zip"
+    with zipfile.ZipFile(archive, "w") as bundle:
+        bundle.writestr("one.txt", b"one")
+        bundle.writestr("nested/two.bin", b"two-two")
+    reports: list[tuple[int, int, int, int]] = []
+    stage = tmp_path / "stage"
+
+    extracted_hash = lifecycle_v3._safe_extract(
+        archive,
+        stage,
+        progress=lambda *values: reports.append(values),
+    )
+
+    assert extracted_hash == runtime_tree_sha256(stage)
+    assert reports[0] == (0, 2, 0, 10)
+    assert reports[-1] == (2, 2, 10, 10)
 
 
 def test_same_size_download_tampering_fails_before_worker(tmp_path: Path) -> None:

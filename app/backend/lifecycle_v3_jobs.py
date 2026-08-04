@@ -57,6 +57,7 @@ def latest_path(root: Path) -> Path:
 def write_job(root: Path, job_id: str, **updates: object) -> dict[str, object]:
     path = job_path(root, job_id)
     with _JOB_LOCK:
+        log_message = str(updates.pop("log_message", "") or "").strip()
         try:
             current = json.loads(path.read_text(encoding="utf-8-sig")) if path.exists() else {}
         except (OSError, json.JSONDecodeError):
@@ -71,6 +72,8 @@ def write_job(root: Path, job_id: str, **updates: object) -> dict[str, object]:
         next_message = str(updates.get("message") or "").strip()
         if next_message and (not logs or logs[-1] != next_message):
             logs.append(next_message)
+        if log_message and (not logs or logs[-1] != log_message):
+            logs.append(log_message)
         current.update(updates)
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         current.update(

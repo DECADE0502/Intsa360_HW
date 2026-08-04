@@ -30,6 +30,7 @@ if (-not [string]::IsNullOrWhiteSpace($RemoteUrl)) {
 }
 
 Write-Host "Publishing signed OTA snapshot through Git send-pack..." -ForegroundColor Cyan
+Write-Host "Progress will be printed for bundle verification, snapshot staging, transfer, ref verification, and public availability." -ForegroundColor DarkGray
 & python @Arguments
 if ($LASTEXITCODE -ne 0) { throw "Git-only OTA publication failed." }
 Write-Host "Git-only OTA publication completed and public manifest bytes were verified." -ForegroundColor Green

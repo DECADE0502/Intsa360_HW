@@ -90,4 +90,62 @@ describe("BOM conflict workbench", () => {
       });
     });
   });
+
+  it("submits the first candidate for every conflict after one explicit confirmation", async () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      __v: 2,
+      saved_at: Date.now(),
+      data: {
+        stage: "process",
+        sp: "C:/uploads/board.xlsx",
+        name: "BOARD",
+        pcode: "203010100819",
+        pdesc: "",
+        fmts: ["plm"],
+        extras: [],
+        pres: {
+          status: "needs_confirmation",
+          reason: "part_property_conflicts",
+          conflicts: [
+            { code: "MAT-1", high_confidence: false, variants: [{ name: "候选一" }, { name: "候选二" }] },
+            { code: "MAT-2", high_confidence: false, variants: [{ name: "候选甲" }, { name: "候选乙" }] },
+          ],
+          summary: {},
+        },
+        rres: null,
+        conflictChoices: {},
+        placementResolutions: {},
+      },
+    }));
+    let submitted: Record<string, any> | null = null;
+    server.use(
+      http.get("/api/session", () => HttpResponse.json({ token: "test-session" })),
+      http.post("/api/tools/bom_process/run", async ({ request }) => {
+        submitted = await request.json() as Record<string, any>;
+        return HttpResponse.json({
+          status: "ok",
+          process_file: "C:/outputs/board.xlsx",
+          outputs: ["C:/outputs/board.xlsx"],
+          summary: {},
+          preview: { headers: [], rows: [] },
+        });
+      }),
+      http.post("/api/tools/bom_risk_check/run", () => HttpResponse.json({
+        status: "ok",
+        source_file: "C:/outputs/board.xlsx",
+        risk_report: { findings: [], grade_flags: [], type_flags: [] },
+        outputs: [],
+      })),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<BomProcessWizard />);
+
+    await user.click(await screen.findByRole("button", { name: "一键合并为第一候选" }));
+    await user.click(await screen.findByRole("button", { name: "确认合并" }));
+
+    await waitFor(() => expect((submitted as Record<string, any> | null)?.conflict_choices).toEqual({
+      "MAT-1": { action: "select_variant", variant_index: 0 },
+      "MAT-2": { action: "select_variant", variant_index: 0 },
+    }));
+  });
 });

@@ -140,6 +140,29 @@ function Get-WorkerTreeSha256 {
   return Get-HwV3TreeSha256 -Path $Path -ProgressCallback $callback
 }
 
+function Test-StageCanMoveAtomically {
+  $stageVolume = [System.IO.Path]::GetPathRoot($StageRoot)
+  $runtimeVolume = [System.IO.Path]::GetPathRoot($runtimeParent)
+  return -not [string]::IsNullOrWhiteSpace($stageVolume) -and
+    [string]::Equals($stageVolume, $runtimeVolume, [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+function Move-StageToRuntime {
+  foreach ($attempt in 0..7) {
+    try {
+      [System.IO.Directory]::Move($StageRoot, $newRuntime)
+      $script:runtimeCreatedByThisWorker = $true
+      return
+    } catch [System.IO.IOException] {
+      if ($attempt -eq 7) { throw }
+      Start-Sleep -Milliseconds (50 * ($attempt + 1))
+    } catch [System.UnauthorizedAccessException] {
+      if ($attempt -eq 7) { throw }
+      Start-Sleep -Milliseconds (50 * ($attempt + 1))
+    }
+  }
+}
+
 function Copy-StagedRuntime {
   Set-WorkerProgress -Progress 70 -Message "Verifying staged runtime files."
   Assert-HwV3RuntimeTree -Path $StageRoot -ExpectedVersion $ExpectedVersion -ExpectedRevision $ExpectedRevision `
@@ -148,7 +171,25 @@ function Copy-StagedRuntime {
         -Message "Verifying staged runtime files.") -cne $ExpectedTreeSha256) {
     throw "Staged runtime tree SHA256 does not match the verified release."
   }
-  Set-WorkerProgress -Progress 74 -Message "Copying the candidate runtime into the installation."
+  if (Test-Path -LiteralPath $newRuntime -PathType Container) {
+    Set-WorkerProgress -Progress 76 -Message "Existing runtime found; verifying identical content."
+    Assert-HwV3RuntimeTree -Path $newRuntime -ExpectedVersion $ExpectedVersion -ExpectedRevision $ExpectedRevision `
+      -RequireCadence:(-not $SkipCadence) | Out-Null
+    if ((Get-WorkerTreeSha256 -Path $newRuntime -StartProgress 76 -EndProgress 79 `
+          -Message "Existing runtime found; verifying identical content.") -cne $ExpectedTreeSha256) {
+      throw "An existing runtime directory has the requested identity but different content."
+    }
+    Set-WorkerProgress -Progress 80 -Message "Existing verified runtime will be reused."
+    return
+  }
+  if (Test-StageCanMoveAtomically) {
+    Set-WorkerProgress -Progress 76 -Message "Moving the verified runtime into the installation atomically."
+    Move-StageToRuntime
+    Set-WorkerProgress -Progress 80 -Message "Candidate runtime installed by atomic directory move."
+    return
+  }
+
+  Set-WorkerProgress -Progress 74 -Message "Staging and installation are on different volumes; copying the verified runtime."
   Remove-IncomingTree
   New-Item -ItemType Directory -Force -Path $incoming | Out-Null
   $robocopy = Get-HwV3RobocopyPath
@@ -162,28 +203,17 @@ function Copy-StagedRuntime {
         -Message "Verifying copied runtime files.") -cne $ExpectedTreeSha256) {
     throw "Copied runtime tree SHA256 does not match the staged runtime."
   }
-  if (Test-Path -LiteralPath $newRuntime -PathType Container) {
-    Set-WorkerProgress -Progress 79 -Message "Existing runtime found; verifying identical content."
-    Assert-HwV3RuntimeTree -Path $newRuntime -ExpectedVersion $ExpectedVersion -ExpectedRevision $ExpectedRevision `
-      -RequireCadence:(-not $SkipCadence) | Out-Null
-    if ((Get-WorkerTreeSha256 -Path $newRuntime -StartProgress 79 -EndProgress 80 `
-          -Message "Existing runtime found; verifying identical content.") -cne $ExpectedTreeSha256) {
-      throw "An existing runtime directory has the requested identity but different content."
-    }
-    Remove-IncomingTree
-  } else {
-    foreach ($attempt in 0..7) {
-      try {
-        [System.IO.Directory]::Move($incoming, $newRuntime)
-        $script:runtimeCreatedByThisWorker = $true
-        break
-      } catch [System.IO.IOException] {
-        if ($attempt -eq 7) { throw }
-        Start-Sleep -Milliseconds (50 * ($attempt + 1))
-      } catch [System.UnauthorizedAccessException] {
-        if ($attempt -eq 7) { throw }
-        Start-Sleep -Milliseconds (50 * ($attempt + 1))
-      }
+  foreach ($attempt in 0..7) {
+    try {
+      [System.IO.Directory]::Move($incoming, $newRuntime)
+      $script:runtimeCreatedByThisWorker = $true
+      break
+    } catch [System.IO.IOException] {
+      if ($attempt -eq 7) { throw }
+      Start-Sleep -Milliseconds (50 * ($attempt + 1))
+    } catch [System.UnauthorizedAccessException] {
+      if ($attempt -eq 7) { throw }
+      Start-Sleep -Milliseconds (50 * ($attempt + 1))
     }
   }
   Set-WorkerProgress -Progress 80 -Message "Candidate runtime files copied and verified."

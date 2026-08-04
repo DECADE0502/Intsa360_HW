@@ -538,7 +538,8 @@ class FrontendBuildTests(unittest.TestCase):
 
         self.assertIn("applyRecommendedMerge", wizard)
         self.assertIn("onRecommendedMerge", wizard)
-        self.assertIn("采纳高置信推荐", wizard)
+        self.assertIn("一键采用安全推荐", wizard)
+        self.assertIn("一键合并为第一候选", wizard)
         self.assertIn("buildRecommendedConflictChoices", wizard)
         self.assertIn("conflict_choices: choices", wizard)
         self.assertIn("剩余 ${unresolved.length} 项需要人工处理", wizard)

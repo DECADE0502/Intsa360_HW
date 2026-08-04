@@ -39,6 +39,13 @@ function phaseIndex(phase?: string) {
   return Math.max(index, 0);
 }
 
+function phaseTitle(phase?: string) {
+  if (phase === "completed") return "完成";
+  if (phase === "failed") return "失败";
+  if (phase === "cancelled") return "已取消";
+  return UPDATE_PHASES.find(([value]) => value === phase)?.[1] || "准备";
+}
+
 function formatBytes(value?: number) {
   if (!value || value <= 0) return "0 MB";
   return `${(value / 1024 / 1024).toFixed(value >= 100 * 1024 * 1024 ? 0 : 1)} MB`;
@@ -226,6 +233,8 @@ export function UpdateStatus({ version }: { version: string }) {
         detail_current: 0,
         detail_total: 0,
         detail_unit: "",
+        detail_bytes_current: 0,
+        detail_bytes_total: 0,
         cancellable: true,
         bytes_total: 0,
         bytes_downloaded: 0,
@@ -268,7 +277,10 @@ export function UpdateStatus({ version }: { version: string }) {
 
   const elapsedSeconds = secondsSince(updateStatus?.started_at, statusClock);
   const statusAgeSeconds = secondsSince(updateStatus?.updated_at, statusClock);
-  const recentActivity = (updateStatus?.log_tail || []).slice(-8);
+  const recentActivity = updateStatus?.log_tail || [];
+  const downloadRemainingSeconds = updateStatus?.bytes_per_second && updateStatus.bytes_total > updateStatus.bytes_downloaded
+    ? Math.ceil((updateStatus.bytes_total - updateStatus.bytes_downloaded) / updateStatus.bytes_per_second)
+    : 0;
 
   async function onDetach() {
     setDetaching(true);
@@ -414,6 +426,7 @@ export function UpdateStatus({ version }: { version: string }) {
           )}
         </Paragraph>
         <div className="update-progress-meta">
+          <Text strong>当前阶段：{phaseTitle(updateStatus?.phase)}</Text>
           {updateStatus?.started_at ? <Text type="secondary">已用时 {formatDuration(elapsedSeconds)}</Text> : null}
           {updateStatus?.updated_at ? (
             <Text type={statusAgeSeconds >= 20 ? "warning" : "secondary"}>
@@ -422,13 +435,20 @@ export function UpdateStatus({ version }: { version: string }) {
           ) : null}
           {updateStatus?.detail_total ? (
             <Text type="secondary">
-              {updateStatus.detail_unit === "files" ? "文件校验" : "当前进度"} {updateStatus.detail_current} / {updateStatus.detail_total}
+              {updateStatus.phase === "staging" ? "已展开文件" : updateStatus.detail_unit === "files" ? "已校验文件" : "当前进度"} {updateStatus.detail_current} / {updateStatus.detail_total}
             </Text>
           ) : null}
         </div>
         {updateStatus?.phase === "downloading" ? (
           <Paragraph type="secondary" style={{ marginBottom: 8 }}>
             {formatBytes(updateStatus.bytes_downloaded)} / {formatBytes(updateStatus.bytes_total)}
+            {updateStatus.bytes_per_second ? ` · ${formatBytes(updateStatus.bytes_per_second)}/s` : ""}
+            {downloadRemainingSeconds ? ` · 预计剩余 ${formatDuration(downloadRemainingSeconds)}` : ""}
+          </Paragraph>
+        ) : null}
+        {updateStatus?.phase === "staging" && updateStatus.detail_bytes_total ? (
+          <Paragraph type="secondary" style={{ marginBottom: 8 }}>
+            已展开 {formatBytes(updateStatus.detail_bytes_current)} / {formatBytes(updateStatus.detail_bytes_total)}
             {updateStatus.bytes_per_second ? ` · ${formatBytes(updateStatus.bytes_per_second)}/s` : ""}
           </Paragraph>
         ) : null}

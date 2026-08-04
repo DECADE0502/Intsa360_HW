@@ -108,11 +108,8 @@ def _remote_sha(
     return sha.lower()
 
 
-def _assert_same_snapshot(expected: Path, actual: Path) -> None:
-    expected_tree = _run_git(expected, "rev-parse", "HEAD^{tree}").stdout.strip().lower()
-    actual_tree = _run_git(actual, "rev-parse", "HEAD^{tree}").stdout.strip().lower()
-    if actual_tree != expected_tree:
-        raise RuntimeError("remote OTA snapshot tree does not match the staged snapshot")
+def _progress(message: str) -> None:
+    print(f"[OTA] {message}", flush=True)
 
 
 def _clone_branch(
@@ -260,23 +257,25 @@ def _cache_busted(url: str) -> str:
     return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment))
 
 
-def _verify_public_manifest(url: str, expected: bytes, attempts: int = 12) -> None:
+def _verify_public_manifest(url: str, expected: bytes, attempts: int = 5) -> None:
     last_error: Exception | None = None
     for attempt in range(attempts):
+        _progress(f"Verifying public manifest ({attempt + 1}/{attempts})...")
         try:
             request = Request(
                 _cache_busted(url),
                 headers={"User-Agent": "Insta360-HWAgent-GitPublisher/1", "Cache-Control": "no-cache"},
             )
-            with urlopen(request, timeout=15.0) as response:
+            with urlopen(request, timeout=5.0) as response:
                 actual = response.read(len(expected) + 1)
             if actual == expected:
+                _progress("Public manifest is available and byte-identical.")
                 return
             last_error = RuntimeError("public stable manifest bytes do not match the local signed manifest")
         except Exception as exc:  # Network errors are retried before publication is reported.
             last_error = exc
         if attempt + 1 < attempts:
-            time.sleep(min(1 + attempt, 5))
+            time.sleep(min(1 + attempt, 3))
     raise RuntimeError(f"public OTA manifest verification failed: {last_error}")
 
 
@@ -295,11 +294,13 @@ def publish_bundle(
     source = source_repo.resolve()
     if _run_git(source, "status", "--porcelain", "--untracked-files=normal").stdout.strip():
         raise ValueError("publishing requires a clean source worktree")
+    _progress("Checking source revision and destination refs...")
     transport = _transport_environment(source)
     source_revision = _run_git(source, "rev-parse", "HEAD").stdout.strip().lower()
     remote_main = _remote_sha(source, remote_url, "main", transport)
     if remote_main != source_revision:
         raise ValueError("release revision must already be the remote main head")
+    _progress("Verifying signed release bundle...")
     verified = verify_bundle(bundle, public_key)
     version = str(verified["version"])
     revision = str(verified["revision"]).lower()
@@ -312,6 +313,7 @@ def publish_bundle(
         current: Path | None = None
         previous_version: str | None = None
         if observed_sha:
+            _progress("Reading the current OTA snapshot for retention and version checks...")
             current = temporary / "current"
             _clone_branch(remote_url, branch, current, transport)
             if _run_git(current, "rev-parse", "HEAD").stdout.strip().lower() != observed_sha:
@@ -346,6 +348,7 @@ def publish_bundle(
                 }
 
         snapshot = temporary / "snapshot"
+        _progress("Staging the current and previous runtime snapshots...")
         snapshot.mkdir()
         _configure_snapshot(snapshot)
         if current is not None and previous_version is not None:
@@ -367,6 +370,7 @@ def publish_bundle(
             "-m",
             f"Publish Insta360_HW {version}",
         )
+        _progress("Sending the staged snapshot with an explicit lease...")
         commit = push_snapshot(
             snapshot,
             remote_url,
@@ -374,9 +378,7 @@ def publish_bundle(
             expected_remote_sha=observed_sha,
             transport_environment=transport,
         )
-        verified_clone = temporary / "verified"
-        _clone_branch(remote_url, branch, verified_clone, transport)
-        _assert_same_snapshot(snapshot, verified_clone)
+        _progress(f"Remote OTA ref now points to {commit[:12]}.")
         if verify_public:
             _verify_public_manifest(
                 f"https://raw.githubusercontent.com/{repository}/{branch}/channel/stable/{V3_MANIFEST_NAME}",

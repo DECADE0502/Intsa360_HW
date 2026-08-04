@@ -356,6 +356,54 @@ function defaultExclusion(group: PlacementGroup, role: PlacementRole): Placement
   return "user_excluded";
 }
 
+export function placementResolutionForDestination(
+  group: PlacementGroup,
+  current: PlacementResolution,
+  destination: "smt" | "non_smt",
+  decisionSource: "rule" | "user",
+): PlacementResolution {
+  let subtype = current.subtype;
+  if (current.role === "shield" && subtype !== "other") {
+    subtype = destination === "smt" ? "bracket" : "cover";
+  }
+  return {
+    ...current,
+    destination,
+    exclusion_kind: destination === "smt"
+      ? ""
+      : subtype === "cover"
+        ? "scope_excluded"
+        : defaultExclusion(group, current.role),
+    subtype,
+    decision_source: decisionSource,
+  };
+}
+
+export function buildRecommendedPlacementResolutions(
+  groups: PlacementGroup[],
+  current: Record<string, PlacementResolution>,
+) {
+  const resolutions = { ...current };
+  let applied = 0;
+  let smt = 0;
+  let nonSmt = 0;
+  groups.forEach((group) => {
+    const existing = resolutions[group.key] || blankResolution(group);
+    if (existing.destination || !group.suggested_destination) return;
+    resolutions[group.key] = placementResolutionForDestination(
+      group,
+      existing,
+      group.suggested_destination,
+      "rule",
+    );
+    applied += 1;
+    if (group.suggested_destination === "smt") smt += 1;
+    else nonSmt += 1;
+  });
+  const unresolved = groups.filter((group) => !placementResolutionComplete(group, resolutions[group.key])).length;
+  return { resolutions, applied, smt, nonSmt, unresolved };
+}
+
 function PlacementInput({
   label,
   value,
@@ -676,13 +724,9 @@ export function PlacementReview({
     ...nonSmtGroups.slice((pages.non_smt - 1) * PAGE_SIZE, pages.non_smt * PAGE_SIZE),
   ];
   const activeGroup = groups.find((group) => group.key === activeKey) || visibleGroups[0] || groups[0];
-  const safeRecommendations = visibleGroups.filter((group) => {
+  const pendingRecommendations = groups.filter((group) => {
     const resolution = resolutions[group.key] || blankResolution(group);
-    return !resolution.destination
-      && Boolean(group.suggested_destination)
-      && group.confidence === "strong"
-      && group.state !== "conflicting"
-      && group.role !== "shield";
+    return !resolution.destination && Boolean(group.suggested_destination);
   });
 
   useEffect(() => {
@@ -700,53 +744,22 @@ export function PlacementReview({
 
   function moveGroup(group: PlacementGroup, destination: "smt" | "non_smt", source: "rule" | "user" = "user") {
     const current = resolutions[group.key] || blankResolution(group);
-    let subtype = current.subtype;
-    // Zone and shield type are two views of one fact: a bracket is placed, a cover
-    // is not. Follow the zone the operator picked instead of clearing the type and
-    // leaving the group unanswerable. An explicit "other" is preserved.
-    if (current.role === "shield" && subtype !== "other") {
-      subtype = destination === "smt" ? "bracket" : "cover";
-    }
-    const exclusion_kind = destination === "smt"
-      ? ""
-      : subtype === "cover"
-        ? "scope_excluded"
-        : defaultExclusion(group, current.role);
     onResolutionsChange({
       ...resolutions,
-      [group.key]: {
-        ...current,
-        destination,
-        exclusion_kind,
-        subtype,
-        decision_source: source,
-      },
+      [group.key]: placementResolutionForDestination(group, current, destination, source),
     });
     setActiveKey(group.key);
   }
 
-  function applyVisibleRecommendations() {
-    if (!safeRecommendations.length) return;
-    const smtCount = safeRecommendations.filter((group) => group.suggested_destination === "smt").length;
+  function applyAllRecommendations() {
+    const result = buildRecommendedPlacementResolutions(groups, resolutions);
+    if (!result.applied) return;
     modal.confirm({
-      title: "采纳当前页安全建议",
-      content: `将确认 ${smtCount} 组进入贴片区、${safeRecommendations.length - smtCount} 组进入非贴片区。冲突项、SH 和弱证据项不会被批量处理。`,
-      okText: "确认采纳",
+      title: "一键采用全部推荐",
+      content: `将按系统建议确认全部页面：${result.smt} 组进入贴片区，${result.nonSmt} 组进入非贴片区。执行后仍有 ${result.unresolved} 组缺少建议或必要物料字段，需要人工补充。`,
+      okText: "采用全部推荐",
       cancelText: "继续核对",
-      onOk: () => {
-        const next = { ...resolutions };
-        safeRecommendations.forEach((group) => {
-          const current = next[group.key] || blankResolution(group);
-          const destination = group.suggested_destination as "smt" | "non_smt";
-          next[group.key] = {
-            ...current,
-            destination,
-            exclusion_kind: destination === "smt" ? "" : defaultExclusion(group, current.role),
-            decision_source: "rule",
-          };
-        });
-        onResolutionsChange(next);
-      },
+      onOk: () => onResolutionsChange(result.resolutions),
     });
   }
 
@@ -809,8 +822,8 @@ export function PlacementReview({
           onChange={(value) => setFilter(String(value))}
         />
         <Space>
-          <Button onClick={applyVisibleRecommendations} disabled={!safeRecommendations.length}>采纳当前页安全建议</Button>
-          <Tooltip title="仅处理当前两区可见页中，强证据、非冲突、非 SH 且尚未确认的建议。"><InfoCircleOutlined /></Tooltip>
+          <Button type="primary" onClick={applyAllRecommendations} disabled={!pendingRecommendations.length}>一键采用全部推荐</Button>
+          <Tooltip title="覆盖全部分页和筛选类别；没有系统建议或缺少必要物料字段的项目仍保留待确认。"><InfoCircleOutlined /></Tooltip>
         </Space>
       </div>
 

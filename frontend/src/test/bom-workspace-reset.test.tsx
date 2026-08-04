@@ -219,7 +219,7 @@ describe("BOM workspace reset", () => {
     const user = userEvent.setup();
 
     renderWithProviders(<BomProcessWizard />);
-    await user.click(await screen.findByRole("button", { name: "采纳高置信推荐" }));
+    await user.click(await screen.findByRole("button", { name: "一键采用安全推荐" }));
 
     await waitFor(() => {
       const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) || "{}");

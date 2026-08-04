@@ -229,7 +229,7 @@ describe("BOM placement review v2", () => {
     expect(screen.getByRole("button", { name: "确认 X1 保留在贴片区" })).toBeInTheDocument();
   });
 
-  it("batch applies only strong non-conflicting non-SH recommendations on the visible page", async () => {
+  it("batch applies every available recommendation across categories", async () => {
     const user = userEvent.setup();
     const safe = group();
     const shield = group({ key: "shield", refs: ["SH1"], role: "shield", sh_review: true });
@@ -249,11 +249,11 @@ describe("BOM placement review v2", () => {
     }
     renderWithProviders(<Harness />);
 
-    await user.click(screen.getByRole("button", { name: "采纳当前页安全建议" }));
-    expect(screen.getByText(/冲突项、SH 和弱证据项不会被批量处理/)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "确认采纳" }));
-    await waitFor(() => expect(screen.getByText("已确认 1/2")).toBeInTheDocument());
-    expect(screen.getByText("还有 1 组未完成")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "一键采用全部推荐" }));
+    expect(screen.getByText(/确认全部页面/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "采用全部推荐" }));
+    await waitFor(() => expect(screen.getByText("已确认 2/2")).toBeInTheDocument());
+    expect(screen.queryByText(/还有 .* 组未完成/)).not.toBeInTheDocument();
   });
 
   it("renders the coded-process verification list without blocking continuation", async () => {

@@ -513,6 +513,8 @@ export type UpdateStatusInfo = {
     detail_current: number;
     detail_total: number;
     detail_unit: string;
+    detail_bytes_current: number;
+    detail_bytes_total: number;
     cancellable: boolean;
   bytes_total: number;
   bytes_downloaded: number;

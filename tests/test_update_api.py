@@ -167,6 +167,8 @@ class UpdateApiV2Tests(unittest.TestCase):
             "detail_current": 42,
             "detail_total": 100,
             "detail_unit": "files",
+            "detail_bytes_current": 1024,
+            "detail_bytes_total": 4096,
         })
 
         self.assertEqual(payload["message"], "正在校验复制后的完整版本。")
@@ -176,6 +178,8 @@ class UpdateApiV2Tests(unittest.TestCase):
         self.assertEqual(payload["detail_current"], 42)
         self.assertEqual(payload["detail_total"], 100)
         self.assertEqual(payload["detail_unit"], "files")
+        self.assertEqual(payload["detail_bytes_current"], 1024)
+        self.assertEqual(payload["detail_bytes_total"], 4096)
 
     def test_atomic_json_retries_transient_replace_access_denial(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

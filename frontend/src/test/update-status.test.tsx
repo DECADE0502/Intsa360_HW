@@ -28,6 +28,8 @@ function idleStatus() {
     detail_current: 0,
     detail_total: 0,
     detail_unit: "",
+    detail_bytes_current: 0,
+    detail_bytes_total: 0,
     message: "",
     phase: "idle",
     progress: 0,
@@ -160,10 +162,13 @@ describe("UpdateStatus", () => {
       detail_current: 42,
       detail_total: 100,
       detail_unit: "files",
-      log_tail: ["正在复核候选版本文件。", "正在校验复制后的完整版本。"],
-      message: "正在校验复制后的完整版本。",
-      phase: "committing",
-      progress: 77,
+      detail_bytes_current: 1024 * 1024,
+      detail_bytes_total: 4 * 1024 * 1024,
+      bytes_per_second: 512 * 1024,
+      log_tail: ["下载与 SHA256 校验完成，开始展开运行包。", "运行包展开 20%。"],
+      message: "正在安全展开候选运行时并同步计算完整性指纹。",
+      phase: "staging",
+      progress: 63,
       started_at: started,
       updated_at: new Date().toISOString(),
     };
@@ -200,7 +205,9 @@ describe("UpdateStatus", () => {
 
     expect(await screen.findByText("执行明细")).toBeInTheDocument();
     expect(screen.getByText(/已用时 1 分/)).toBeInTheDocument();
-    expect(screen.getByText("文件校验 42 / 100")).toBeInTheDocument();
-    expect(screen.getAllByText("正在校验复制后的完整版本。").length).toBeGreaterThan(0);
+    expect(screen.getByText("已展开文件 42 / 100")).toBeInTheDocument();
+    expect(screen.getByText("当前阶段：暂存")).toBeInTheDocument();
+    expect(screen.getByText(/已展开 1.0 MB \/ 4.0 MB/)).toBeInTheDocument();
+    expect(screen.getAllByText("正在安全展开候选运行时并同步计算完整性指纹。").length).toBeGreaterThan(0);
   });
 });

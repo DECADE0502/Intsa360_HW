@@ -407,10 +407,16 @@ def _reference_tokens(
     return expanded, issues
 
 
-def _package_signature(row: dict[str, str]) -> str:
+def _physical_package_signature(row: dict[str, str]) -> str:
+    """Return only evidence that identifies the PCB-mounted package.
+
+    Capture's Source Package and Source Part describe schematic-library units.
+    Multi-unit ICs legitimately use different values there while representing one
+    physical package, so those fields must never create a physical identity conflict.
+    """
     return "\x1f".join(
         str(row.get(field) or "").strip().casefold()
-        for field in ("pcb_footprint", "pcb_package", "source_package", "source_part")
+        for field in ("pcb_footprint", "pcb_package")
     )
 
 
@@ -426,7 +432,7 @@ def _physical_reference_model(
     candidates: list[dict[str, object]] = []
     for row_number, row, refs in row_payloads:
         part_number = str(row.get("part_number") or "").strip()
-        package_signature = _package_signature(row)
+        package_signature = _physical_package_signature(row)
         for ref in refs:
             unit_match = _MULTI_UNIT_REF_RE.fullmatch(ref)
             candidates.append({

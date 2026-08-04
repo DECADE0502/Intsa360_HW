@@ -36,6 +36,7 @@ import { packageDownloadName } from "../utils/downloadName";
 import { outputHref } from "../utils/outputHref";
 import { RiskFindings } from "./bomRisk/RiskFindings";
 import {
+  buildFirstVariantConflictChoices,
   buildRecommendedConflictChoices,
   conflictChoiceComplete,
   normalizeConflictChoice,
@@ -87,7 +88,7 @@ function renderFullRefs(refs: string[] = []) {
 }
 
 export function BomProcessWizard() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const presetSource = params.get("source") || "";
   const presetName = params.get("name") || "";
@@ -223,49 +224,8 @@ export function BomProcessWizard() {
       .finally(() => setRrun(false));
   }, [stage, riskSource, rres?.source_file, rrun]);
 
-  async function applyMerge(merge: boolean) {
-    const conflicts = Array.isArray(pres?.conflicts) ? pres.conflicts : [];
-    if (merge && !conflicts.every((conflict: any) => conflictChoiceComplete(conflict, conflictChoices[conflict.code]))) {
-      message.warning("仍有编码冲突未完成决议，请逐项确认后继续。");
-      return;
-    }
-    setRres(null);
-    setRrun(false);
-    setRunning(true);
-    try {
-      const r = await runTool("bom_process", {
-        source_bom: sp,
-        formats: fmts,
-        name,
-        parent_code: pcode,
-        parent_desc: pdesc,
-        extras: extras.filter((e) => e.code),
-        merge_conflicts: merge,
-        conflict_choices: merge ? conflictChoices : {},
-        placement_resolutions: placementResolutions,
-      });
-      setPres(r);
-      if (r.status === "ok") notifyAssetsUpdated();
-      if (r.status === "ok" && !hasBomConflicts(r)) {
-        setStage("risk");
-      }
-    } catch (e: any) {
-      setPres({ status: "error", error: toUserMessage(e) });
-    } finally {
-      setRunning(false);
-    }
-  }
-
-  async function applyRecommendedMerge() {
-    const conflicts = Array.isArray(pres?.conflicts) ? pres.conflicts : [];
-    const choices = buildRecommendedConflictChoices(conflicts, conflictChoices);
-    const unresolved = conflicts.filter((conflict: any) => !conflictChoiceComplete(conflict, choices[conflict.code]));
+  async function submitConflictChoices(choices: Record<string, ConflictChoice | number>) {
     setConflictChoices(choices);
-    if (unresolved.length) {
-      const adopted = conflicts.length - unresolved.length;
-      message.info(`已采纳 ${adopted} 项高置信决议，剩余 ${unresolved.length} 项需要人工处理。`);
-      return;
-    }
     setRres(null);
     setRrun(false);
     setRunning(true);
@@ -283,14 +243,51 @@ export function BomProcessWizard() {
       });
       setPres(r);
       if (r.status === "ok") notifyAssetsUpdated();
-      if (r.status === "ok" && !hasBomConflicts(r)) {
-        setStage("risk");
-      }
+      if (r.status === "ok" && !hasBomConflicts(r)) setStage("risk");
     } catch (e: any) {
       setPres({ status: "error", error: toUserMessage(e) });
     } finally {
       setRunning(false);
     }
+  }
+
+  async function applyMerge() {
+    const conflicts = Array.isArray(pres?.conflicts) ? pres.conflicts : [];
+    if (!conflicts.every((conflict: any) => conflictChoiceComplete(conflict, conflictChoices[conflict.code]))) {
+      message.warning("仍有编码冲突未完成决议，请逐项确认后继续。");
+      return;
+    }
+    await submitConflictChoices(conflictChoices);
+  }
+
+  async function applyRecommendedMerge() {
+    const conflicts = Array.isArray(pres?.conflicts) ? pres.conflicts : [];
+    const choices = buildRecommendedConflictChoices(conflicts, conflictChoices);
+    const unresolved = conflicts.filter((conflict: any) => !conflictChoiceComplete(conflict, choices[conflict.code]));
+    if (unresolved.length) {
+      setConflictChoices(choices);
+      const adopted = conflicts.length - unresolved.length;
+      message.info(`已采纳 ${adopted} 项高置信决议，剩余 ${unresolved.length} 项需要人工处理。`);
+      return;
+    }
+    await submitConflictChoices(choices);
+  }
+
+  function applyFirstVariantMerge() {
+    const conflicts = Array.isArray(pres?.conflicts) ? pres.conflicts : [];
+    const choices = buildFirstVariantConflictChoices(conflicts);
+    const resolvable = conflicts.filter((conflict: any) => conflictChoiceComplete(conflict, choices[conflict.code]));
+    if (resolvable.length !== conflicts.length) {
+      message.warning("存在没有候选项的冲突，无法批量合并。");
+      return;
+    }
+    modal.confirm({
+      title: "一键合并为第一候选",
+      content: `将处理 ${conflicts.length} 个冲突编码，每组均保留候选 1 的名称、型号、描述、封装和等级，其他候选字段不再进入成品 BOM。`,
+      okText: "确认合并",
+      cancelText: "继续核对",
+      onOk: () => submitConflictChoices(choices),
+    });
   }
 
   async function applyPlacementReview() {
@@ -415,7 +412,8 @@ export function BomProcessWizard() {
           conflictChoices={conflictChoices}
           setConflictChoices={setConflictChoices}
           onRecommendedMerge={applyRecommendedMerge}
-          onApply={() => applyMerge(true)}
+          onFirstVariantMerge={applyFirstVariantMerge}
+          onApply={applyMerge}
           placementResolutions={placementResolutions}
           setPlacementResolutions={setPlacementResolutions}
           onApplyPlacementReview={applyPlacementReview}
@@ -571,6 +569,7 @@ function ProcessView({
   conflictChoices,
   setConflictChoices,
   onRecommendedMerge,
+  onFirstVariantMerge,
   onApply,
   placementResolutions,
   setPlacementResolutions,
@@ -633,10 +632,13 @@ function ProcessView({
           {hasC ? (
             <Space direction="vertical" style={{ width: "100%" }}>
               <Typography.Text type="secondary">
-                仅有 {highConfidenceCount} 项满足安全合并条件，可批量采纳；其余 {lowConfidenceCount} 项必须逐项处理。
+                {highConfidenceCount} 项有安全推荐；{lowConfidenceCount} 项可继续逐项核对，或明确选择统一保留每组第一候选。
               </Typography.Text>
               <Button block disabled={!highConfidenceCount} onClick={onRecommendedMerge}>
-                采纳高置信推荐
+                一键采用安全推荐
+              </Button>
+              <Button danger block disabled={!conflicts.length} onClick={onFirstVariantMerge}>
+                一键合并为第一候选
               </Button>
               <Button type="primary" block disabled={!allDone} onClick={onApply}>
                 按全部决议继续处理

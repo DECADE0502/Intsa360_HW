@@ -19,7 +19,6 @@ from app.backend.config import load_config
 from app.backend.contracts.releases import ReleaseManifestV3
 from app.backend.lifecycle_v3_archive import (
     CHUNK_SIZE,
-    runtime_tree_sha256 as _runtime_tree_sha256,
     safe_extract as _safe_extract,
     validate_payload as _validate_payload,
 )
@@ -210,6 +209,7 @@ def _prepare_update(root: Path, job_id: str, manifest: ReleaseManifestV3) -> Non
         downloaded = 0
         started = time.monotonic()
         last_report = 0.0
+        download_milestone = -1
         with urlopen(request, timeout=30.0) as response, download.open("wb") as output:
             content_length = response.headers.get("Content-Length")
             if content_length and int(content_length) != asset.size:
@@ -228,16 +228,28 @@ def _prepare_update(root: Path, job_id: str, manifest: ReleaseManifestV3) -> Non
                 now = time.monotonic()
                 if now - last_report >= 0.2:
                     elapsed = max(now - started, 0.001)
+                    ratio = min(downloaded / asset.size, 1.0)
+                    milestone = min(10, int(ratio * 10))
+                    log_message = ""
+                    if milestone > download_milestone:
+                        log_message = (
+                            f"运行包下载 {milestone * 10}%："
+                            f"{downloaded / (1024 * 1024):.1f}/"
+                            f"{asset.size / (1024 * 1024):.1f} MB，"
+                            f"平均 {downloaded / elapsed / (1024 * 1024):.1f} MB/s。"
+                        )
+                        download_milestone = milestone
                     _write_job(
                         root,
                         job_id,
                         phase="downloading",
-                        progress=2 + int(min(downloaded / asset.size, 1.0) * 52),
+                        progress=2 + int(ratio * 52),
                         message="正在下载已签名发布清单指定的运行包。",
                         bytes_total=asset.size,
                         bytes_downloaded=downloaded,
                         bytes_per_second=int(downloaded / elapsed),
                         cancellable=True,
+                        log_message=log_message,
                     )
                     last_report = now
         if downloaded != asset.size:
@@ -260,16 +272,81 @@ def _prepare_update(root: Path, job_id: str, manifest: ReleaseManifestV3) -> Non
         if cancel.is_set():
             raise InterruptedError("更新已在提交前取消")
 
-        _write_job(root, job_id, phase="staging", progress=62, message="正在安全展开并验证候选运行时。", cancellable=True)
+        _write_job(
+            root,
+            job_id,
+            phase="staging",
+            progress=62,
+            message="正在安全展开候选运行时并同步计算完整性指纹。",
+            detail_current=0,
+            detail_total=0,
+            detail_unit="files",
+            detail_bytes_current=0,
+            detail_bytes_total=0,
+            cancellable=True,
+            log_message="下载与 SHA256 校验完成，开始展开运行包。",
+        )
         if stage.exists():
             shutil.rmtree(stage)
-        _safe_extract(download, stage, cancel)
+        extraction_started = time.monotonic()
+        extraction_last_report = 0.0
+        extraction_milestone = -1
+
+        def report_extraction(
+            completed_files: int,
+            total_files: int,
+            completed_bytes: int,
+            total_bytes: int,
+        ) -> None:
+            nonlocal extraction_last_report, extraction_milestone
+            now = time.monotonic()
+            ratio = min(completed_bytes / total_bytes, 1.0) if total_bytes else 1.0
+            milestone = min(10, int(ratio * 10))
+            complete = completed_files == total_files and completed_bytes == total_bytes
+            if now - extraction_last_report < 0.25 and milestone == extraction_milestone and not complete:
+                return
+            elapsed = max(now - extraction_started, 0.001)
+            log_message = ""
+            if milestone > extraction_milestone:
+                log_message = (
+                    f"运行包展开 {milestone * 10}%："
+                    f"{completed_files}/{total_files} 个文件，"
+                    f"{completed_bytes / (1024 * 1024):.1f}/"
+                    f"{total_bytes / (1024 * 1024):.1f} MB。"
+                )
+                extraction_milestone = milestone
+            _write_job(
+                root,
+                job_id,
+                phase="staging",
+                progress=62 + int(ratio * 5),
+                message="正在安全展开候选运行时并同步计算完整性指纹。",
+                detail_current=completed_files,
+                detail_total=total_files,
+                detail_unit="files",
+                detail_bytes_current=completed_bytes,
+                detail_bytes_total=total_bytes,
+                bytes_per_second=int(completed_bytes / elapsed),
+                cancellable=True,
+                log_message=log_message,
+            )
+            extraction_last_report = now
+
+        tree_sha256 = _safe_extract(download, stage, cancel, report_extraction)
+        _write_job(
+            root,
+            job_id,
+            phase="staging",
+            progress=67,
+            message="运行包已展开，正在校验运行时身份与信任锚。",
+            cancellable=True,
+            log_message="运行包已完整展开，目录完整性指纹已生成。",
+        )
         _validate_payload(stage, manifest)
         current_key = _public_key_path(root)
         candidate_key = stage / "config" / "update_public_key.pem"
         if not _trust_anchors_match(candidate_key, current_key):
             raise ValueError("candidate runtime attempts to replace the update trust anchor")
-        tree_sha256 = _runtime_tree_sha256(stage)
         with _ACTIVE_LOCK:
             if cancel.is_set():
                 raise InterruptedError("更新已在提交前取消")

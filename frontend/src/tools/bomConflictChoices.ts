@@ -106,3 +106,16 @@ export function buildRecommendedConflictChoices(
   }
   return choices;
 }
+
+export function buildFirstVariantConflictChoices(
+  conflicts: BomConflict[],
+): Record<string, ConflictChoice> {
+  const choices: Record<string, ConflictChoice> = {};
+  for (const conflict of conflicts) {
+    const code = typeof conflict.code === "string" ? conflict.code.trim() : "";
+    const variants = Array.isArray(conflict.variants) ? conflict.variants : [];
+    if (!code || variants.length === 0) continue;
+    choices[code] = { action: "select_variant", variant_index: 0 };
+  }
+  return choices;
+}
