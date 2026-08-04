@@ -139,20 +139,6 @@ _PROCESS_MATERIAL_PHRASES = (
 )
 
 DEFAULT_FORCED_REVIEW_ROLES = (("SH", "shield"),)
-DEFAULT_WEAK_PART_NUMBER_VALUES = (
-    "TP",
-    "TESTPOINT",
-    "TEST POINT",
-    "SHORT",
-    "JUMPER",
-    "GND",
-    "MOUNTINGHOLE",
-    "MOUNTING HOLE",
-    "FIDUCIAL",
-    "NO_CONNECT",
-    "RES_NP",
-    "CAP_NP",
-)
 DEFAULT_ROLE_REFERENCE_PREFIXES = {
     "test_point": ("TP", "Z_TP"),
     "short_symbol": ("JP",),
@@ -213,7 +199,6 @@ class ClassificationConfig:
     forced_review_roles: tuple[tuple[str, str], ...] = DEFAULT_FORCED_REVIEW_ROLES
     role_reference_prefixes: Mapping[str, tuple[str, ...]] = None  # type: ignore[assignment]
     role_library_keywords: Mapping[str, tuple[str, ...]] = None  # type: ignore[assignment]
-    weak_part_number_values: tuple[str, ...] = DEFAULT_WEAK_PART_NUMBER_VALUES
 
     def __post_init__(self) -> None:
         if self.role_reference_prefixes is None:
@@ -293,9 +278,12 @@ class ClassificationResult:
     blocking_reasons: tuple[str, ...] = ()
     suggested_mpn: str = ""
     decision_fingerprint: str = ""
+    shield_subtype: str = ""
 
     @property
     def requires_review(self) -> bool:
+        if self.state == "confirmed_nc":
+            return False
         return self.sh_review or self.state in {
             "suspected_material",
             "suspected_process",
@@ -352,6 +340,7 @@ class ReviewGroup:
             "role_confidence": classification.role_confidence,
             "suggested_destination": classification.suggested_destination,
             "exclusion_kind": classification.exclusion_kind,
+            "shield_subtype": classification.shield_subtype,
             "blocking_reasons": list(classification.blocking_reasons),
             "suggested_mpn": classification.suggested_mpn,
             "decision_fingerprint": classification.decision_fingerprint,
@@ -369,6 +358,7 @@ class PlacementAnalysis:
     readonly_groups: tuple[dict[str, object], ...] = ()
     source_fingerprint: str = ""
     quality_report: SourceQualityReport = SourceQualityReport()
+    code_verification: tuple[dict[str, object], ...] = ()
 
     def payload(self) -> dict[str, object]:
         state_counts: dict[str, int] = {}
@@ -389,10 +379,12 @@ class PlacementAnalysis:
                 "count": len(self.readonly_nc),
                 "items": list(self.readonly_nc[:50]),
             },
+            "code_verification": list(self.code_verification),
             "summary": {
                 "review_groups": len(self.review_groups),
                 "review_positions": sum(len(group.refs) for group in self.review_groups),
                 "readonly_nc": len(self.readonly_nc),
+                "code_verification": len(self.code_verification),
                 "state_counts": state_counts,
                 "category_counts": category_counts,
             },
@@ -471,12 +463,6 @@ def classification_config(mapping: Mapping[str, object] | None = None) -> Classi
             if str(value).strip()
         ) if isinstance(raw_library, list) else DEFAULT_ROLE_LIBRARY_KEYWORDS.get(str(role), ())
 
-    raw_weak = mapping.get("weak_part_number_values")
-    weak_values = tuple(
-        str(value).strip().upper()
-        for value in raw_weak
-        if str(value).strip()
-    ) if isinstance(raw_weak, list) else DEFAULT_WEAK_PART_NUMBER_VALUES
 
     return ClassificationConfig(
         code_shapes=_compiled_shapes(mapping.get("material_code_shapes")),
@@ -487,7 +473,6 @@ def classification_config(mapping: Mapping[str, object] | None = None) -> Classi
         forced_review_roles=tuple(forced_roles) or DEFAULT_FORCED_REVIEW_ROLES,
         role_reference_prefixes=reference_prefixes or DEFAULT_ROLE_REFERENCE_PREFIXES,
         role_library_keywords=library_keywords or DEFAULT_ROLE_LIBRARY_KEYWORDS,
-        weak_part_number_values=weak_values or DEFAULT_WEAK_PART_NUMBER_VALUES,
     )
 
 
@@ -813,8 +798,15 @@ def collect_evidence(
             ))
     library_blob = " ".join(
         row.value(field)
-        for field in ("pcb_footprint", "pcb_package", "source_package", "source_part", "source_library")
+        for field in (
+            "pcb_footprint",
+            "pcb_package",
+            "source_package",
+            "source_part",
+            "source_library",
+        )
     )
+    descriptive_blob = " ".join(row.value(field) for field in ("desc", "name", "model"))
     for role, role_prefixes in config.role_reference_prefixes.items():
         matched_prefix = next((prefix for prefix in role_prefixes if prefix.upper() in prefixes), "")
         if matched_prefix:
@@ -836,6 +828,17 @@ def collect_evidence(
                 "role",
                 "strong",
                 f"封装或库信息提示器件角色：{role}",
+                role,
+            ))
+        matched_text = _contains_configured_keyword(descriptive_blob, config.role_library_keywords.get(role, ()))
+        if matched_text:
+            evidence.append(MaterialEvidence(
+                "role_text",
+                "desc/name/model",
+                matched_text,
+                "role",
+                "medium",
+                f"名称、型号或描述提示器件角色：{role}",
                 role,
             ))
 
@@ -930,14 +933,9 @@ def identify_material(
                 strength="strong",
                 reasons=tuple(invalid_reasons),
             )
-        weak_values = {value.casefold() for value in config.weak_part_number_values}
-        if raw_part_number.casefold() in weak_values:
-            return MaterialIdentity(
-                "identity_weak",
-                raw_part_number,
-                strength="weak",
-                reasons=("library_or_process_placeholder",),
-            )
+        # A non-empty code column means this row is a material. Code schemes change
+        # between projects, so the tool never judges a code by its shape; codes
+        # that look wrong are surfaced for human verification instead.
         return MaterialIdentity(
             "identity_confirmed",
             raw_part_number,
@@ -983,6 +981,7 @@ def infer_role(
     protected_material = bool(_contains_configured_keyword(material_blob, config.process_material_whitelist))
     reference_roles = {item.shape_id for item in evidence if item.kind == "role_reference"}
     library_roles = {item.shape_id for item in evidence if item.kind == "role_library"}
+    text_roles = {item.shape_id for item in evidence if item.kind == "role_text"}
     for role in ("test_point", "short_symbol", "fiducial", "smt_mechanical", "mounting_hole"):
         if role == "short_symbol" and protected_material:
             continue
@@ -1014,6 +1013,23 @@ def infer_role(
     )
     if ambiguous is not None:
         return RoleDecision("smt_mechanical", "medium", False, (ambiguous.display,))
+    # Type is read from what the row says about itself, but naming a type and
+    # dropping a material are different acts. Only a reference prefix and the
+    # package/library agreeing is strong enough to drive automatic exclusion; text
+    # on its own names a candidate type and nothing more.
+    for role in ("test_point", "short_symbol", "fiducial", "mounting_hole", "smt_mechanical"):
+        if role == "short_symbol" and protected_material:
+            continue
+        if role in library_roles or role in reference_roles or role in text_roles:
+            corroborated = role in library_roles and role in reference_roles
+            return RoleDecision(
+                role,
+                "strong" if corroborated else "medium",
+                False,
+                ("reference_and_package_corroborate",)
+                if corroborated
+                else ("role_named_by_single_source",),
+            )
     if identity.status == "identity_confirmed":
         return RoleDecision("electronic", "strong", False, ("formal_part_number_without_role_conflict",))
     return RoleDecision("unknown", "weak", False, ("role_not_corroborated",))
@@ -1073,6 +1089,7 @@ def _result(
     rule_id: str,
     *,
     blocking_reasons: Sequence[str] = (),
+    shield_subtype: str = "",
 ) -> ClassificationResult:
     ordered = tuple(sorted((*evidence, _identity_evidence(identity)), key=lambda item: (_evidence_priority(item), item.kind, item.field)))
     return ClassificationResult(
@@ -1091,6 +1108,7 @@ def _result(
         tuple(blocking_reasons),
         identity.mpn_candidate,
         _decision_fingerprint(row, identity, role),
+        shield_subtype,
     )
 
 
@@ -1126,12 +1144,8 @@ def classify(
     if identity.status == "identity_conflict" or misplaced_path:
         return _result(row, identity, role, evidence, "conflicting", "strong", None, None, "", "R7", blocking_reasons=identity.reasons or ("field_misplacement",))
 
-    if role.forced_review and role.role == "shield":
-        if nc_signal or strong_process_signal:
-            return _result(row, identity, role, evidence, "conflicting", "strong", None, None, "", "R3C", blocking_reasons=("shield_type_and_destination_required", "conflicting_lower_priority_metadata"))
-        state = "confirmed_material" if valid_part_number else "suspected_material"
-        return _result(row, identity, role, evidence, state, identity.strength, None, None, "", "R3", blocking_reasons=("shield_type_and_destination_required",))
-
+    # Order is fixed: identity, then whether it is installed, then what kind of
+    # thing it is. Nothing later may reopen an earlier answer.
     if nc_signal:
         if pure_nc:
             return _result(
@@ -1148,12 +1162,23 @@ def classify(
             )
         return _result(row, identity, role, evidence, "conflicting", "strong", None, None, "", "R7", blocking_reasons=("embedded_nc_marker",))
 
+    if role.role == "shield":
+        # Type decides where a shield goes, and a shield defaults to a cover:
+        # covers are purchased materials that never enter the placement BOM, so
+        # scope exclusion is the answer for the operator to accept or change.
+        state = "confirmed_material" if valid_part_number else "suspected_material"
+        return _result(
+            row, identity, role, evidence,
+            state, identity.strength, "exclude", "non_smt", "scope_excluded",
+            "R3", blocking_reasons=("shield_type_and_destination_required",),
+            shield_subtype="cover",
+        )
+
+    # A coded row is a material. Process-sounding text never demotes it into an
+    # adjudication queue; the contradiction is reported in the verification list
+    # instead. Type may still steer where it goes, which is handled per type.
     if valid_part_number and corroborated_process_role:
-        return _result(row, identity, role, evidence, "suspected_process", "strong", "exclude", "non_smt", "process_only", "R4")
-    if valid_part_number and strong_process_signal:
-        return _result(row, identity, role, evidence, "conflicting", "medium", None, None, "", "R4D", blocking_reasons=("process_text_without_reference_and_package_corroboration",))
-    if valid_part_number and (ambiguous_process_signal or role.role == "smt_mechanical"):
-        return _result(row, identity, role, evidence, "suspected_material", "medium", None, None, "", "R4A")
+        return _result(row, identity, role, evidence, "confirmed_material", "strong", "exclude", "non_smt", "process_only", "R4")
     if valid_part_number:
         return _result(row, identity, role, evidence, "confirmed_material", "strong", "keep", "smt", "", "R1")
 
@@ -1168,6 +1193,49 @@ def classify(
     if substantive or identity.status == "identity_weak":
         return _result(row, identity, role, evidence, "suspected_material", "weak", None, None, "", "R6M")
     return _result(row, identity, role, evidence, "insufficient_data", "weak", None, None, "", "R8", blocking_reasons=("insufficient_material_data",))
+
+
+def _code_verification(classified: Sequence[ClassifiedRow]) -> tuple[dict[str, object], ...]:
+    """List coded rows whose own text describes a process item.
+
+    The code column is trusted, so these rows are materials and stay in the BOM.
+    A code that turns out to be a library placeholder can only be recognised by a
+    person, so the contradiction is reported rather than decided. This never gates
+    the flow.
+    """
+    grouped: "OrderedDict[tuple[str, str], dict[str, object]]" = OrderedDict()
+    for item in classified:
+        result = item.classification
+        if result.identity_status != "identity_confirmed":
+            continue
+        code = item.row.value("part_number")
+        if not code:
+            continue
+        keyword = next(
+            (
+                evidence.value
+                for evidence in result.evidence
+                if evidence.kind == "process_keyword"
+            ),
+            "",
+        )
+        if not keyword:
+            continue
+        key = (code.casefold(), keyword)
+        entry = grouped.get(key)
+        if entry is None:
+            entry = {
+                "part_number": code,
+                "keyword": keyword,
+                "reason": f"编码 {code} 已按物料纳入，但描述含工艺词「{keyword}」，请查验该编码是否为库占位名",
+                "description": item.row.value("desc"),
+                "refs": [],
+                "row_numbers": [],
+            }
+            grouped[key] = entry
+        entry["refs"].extend(item.row.refs)  # type: ignore[union-attr]
+        entry["row_numbers"].append(item.row.row_number)  # type: ignore[union-attr]
+    return tuple(grouped.values())
 
 
 def _group_signature(item: ClassifiedRow) -> tuple[object, ...]:
@@ -1287,6 +1355,7 @@ def analyze_placement(
             occurrence_count=sum(len(row.refs) for row in rows),
             physical_part_count=len({ref for row in rows for ref in row.refs}),
         ),
+        _code_verification(classified),
     )
 
 
@@ -1347,12 +1416,10 @@ def _normalize_resolution(
         )
     role = str(raw.get("role") or result.role or "unknown").strip()
     subtype = str(raw.get("subtype") or "").strip().lower()
-    if role == "shield" and not subtype and legacy_action:
-        # One-release migration only: the old confirm_shields=true path meant a
-        # soldered shield bracket. New UI/API decisions must always send subtype.
-        subtype = "bracket" if destination == "smt" else "cover"
-        if subtype == "cover":
-            exclusion_kind = "scope_excluded"
+    if role == "shield" and exclusion_kind != "nc" and not subtype:
+        subtype = "bracket" if destination == "smt" else result.shield_subtype or "cover"
+    if role == "shield" and subtype == "cover":
+        exclusion_kind = "scope_excluded"
     source = str(raw.get("decision_source") or "user").strip().lower()
     if source in {"manual", "recommendation", "default"}:
         source = "user" if source == "manual" else "rule"

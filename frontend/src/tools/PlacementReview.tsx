@@ -84,6 +84,7 @@ export type PlacementGroup = {
   recommended_action: "keep" | "exclude" | null;
   suggested_destination?: "smt" | "non_smt" | null;
   exclusion_kind?: PlacementExclusion;
+  shield_subtype?: ShieldSubtype;
   suggested_code: string;
   suggested_mpn?: string;
   sh_review: boolean;
@@ -128,6 +129,15 @@ type QualityReport = {
   issue_count?: number;
   severity_counts?: Record<string, number>;
   issues?: Array<{ code: string; severity: string; message: string; refs?: string[] }>;
+};
+
+export type CodeVerification = {
+  part_number: string;
+  keyword: string;
+  reason: string;
+  description: string;
+  refs: string[];
+  row_numbers: number[];
 };
 
 const PAGE_SIZE = 10;
@@ -210,7 +220,9 @@ function blankResolution(group: PlacementGroup): PlacementResolution {
     destination: "",
     exclusion_kind: "",
     role: group.role || "unknown",
-    subtype: "",
+    // The backend supplies the default shield type, so a shield never arrives as
+    // a form the operator cannot answer.
+    subtype: group.role === "shield" ? group.shield_subtype || "" : "",
     part_number_override: usableText(group.inferred_fields.part_number) || usableText(group.suggested_code),
     field_patch: patch,
     decision_source: "user",
@@ -226,7 +238,9 @@ function normalizeResolution(group: PlacementGroup, raw: Partial<PlacementResolu
     : "";
   const rawRole = String(raw.role || "");
   const role = Object.prototype.hasOwnProperty.call(ROLE_LABELS, rawRole) ? rawRole as PlacementRole : fallback.role;
-  const subtype = ["bracket", "cover", "other"].includes(String(raw.subtype)) ? raw.subtype as ShieldSubtype : "";
+  const subtype = ["bracket", "cover", "other"].includes(String(raw.subtype))
+    ? raw.subtype as ShieldSubtype
+    : fallback.subtype;
   const patch = { ...fallback.field_patch };
   FIELD_KEYS.forEach((field) => {
     const value = raw.field_patch?.[field];
@@ -270,20 +284,25 @@ function effectiveField(group: PlacementGroup, resolution: PlacementResolution, 
 
 export function placementResolutionComplete(group: PlacementGroup, resolution?: PlacementResolution) {
   if (!resolution?.destination) return false;
-  if (resolution.destination === "non_smt" && !resolution.exclusion_kind) return false;
-  if (resolution.role === "shield") {
-    if (!resolution.subtype) return false;
-    if (resolution.subtype === "bracket" && resolution.destination !== "smt") return false;
-    if (resolution.subtype === "cover" && (
-      resolution.destination !== "non_smt" || resolution.exclusion_kind !== "scope_excluded"
-    )) return false;
-  }
   if (resolution.destination === "non_smt") return true;
   const code = usableText(resolution.part_number_override)
     || usableText(group.inferred_fields.part_number)
     || usableText(group.original_fields.part_number);
   if (!code.trim()) return false;
   return (["name", "model", "desc"] as const).some((field) => effectiveField(group, resolution, field).trim());
+}
+
+export function placementResolutionIssue(group: PlacementGroup, resolution?: PlacementResolution) {
+  if (!resolution?.destination) return "请选择纳入贴片 BOM 或移到非贴片区。";
+  if (resolution.destination === "non_smt") return "";
+  const code = usableText(resolution.part_number_override)
+    || usableText(group.inferred_fields.part_number)
+    || usableText(group.original_fields.part_number);
+  if (!code.trim()) return "纳入贴片 BOM 时必须填写内部子项编码。";
+  if (!(["name", "model", "desc"] as const).some((field) => effectiveField(group, resolution, field).trim())) {
+    return "纳入贴片 BOM 时至少需要保留物料名称、型号或描述之一。";
+  }
+  return "";
 }
 
 export function placementResolutionsComplete(
@@ -369,6 +388,7 @@ function PlacementDetail({
   };
   const sortedEvidence = [...group.evidence].sort((left, right) => (left.priority ?? 99) - (right.priority ?? 99));
   const blocking = group.blocking_reasons || [];
+  const resolutionIssue = placementResolutionIssue(group, resolution);
 
   function chooseShieldSubtype(subtype: ShieldSubtype) {
     if (subtype === "bracket") {
@@ -400,6 +420,7 @@ function PlacementDetail({
 
       {group.history_hint?.message ? <Alert type="info" showIcon message={group.history_hint.message} /> : null}
       {resolution.decision_source === "history_exact" ? <Alert type="success" showIcon message="已精确复用历史决议，可继续修改。" /> : null}
+      {resolutionIssue ? <Alert type="warning" showIcon message={resolutionIssue} /> : null}
       {blocking.length ? (
         <Alert
           type="warning"
@@ -496,9 +517,6 @@ function PlacementDetail({
           <PlacementInput label="优选等级" value={resolution.field_patch.grade} onChange={(value) => updateField("grade", value)} />
           <PlacementInput label="单位" value={resolution.field_patch.unit} onChange={(value) => updateField("unit", value)} />
         </div>
-        {resolution.destination === "smt" && !placementResolutionComplete(group, resolution) ? (
-          <Alert type="warning" showIcon message="进入贴片区时必须填写内部子项编码，并至少保留名称、型号或描述之一。" />
-        ) : null}
       </section>
     </div>
   );
@@ -566,9 +584,9 @@ function ZoneList({
                 </div>
               </div>
               <div className="placement-zone-row-actions">
-                {!resolution.destination ? <Tag color="orange">待确认</Tag> : null}
+                {!complete ? <Tag color="orange">待确认</Tag> : null}
                 <Tag>{suggestedText(group)}</Tag>
-                {!resolution.destination ? (
+                {!complete ? (
                   <Tooltip title={`确认保留在${destination === "smt" ? "贴片区" : "非贴片区"}`}>
                     <Button
                       size="small"
@@ -617,6 +635,7 @@ export function PlacementReview({
   groups,
   readonlyNc,
   readonlyGroups = [],
+  codeVerification = [],
   qualityReport,
   resolutions,
   onResolutionsChange,
@@ -627,6 +646,7 @@ export function PlacementReview({
   groups: PlacementGroup[];
   readonlyNc: ReadonlyNc;
   readonlyGroups?: ReadonlyGroup[];
+  codeVerification?: CodeVerification[];
   qualityReport?: QualityReport;
   resolutions: Record<string, PlacementResolution>;
   onResolutionsChange: (value: Record<string, PlacementResolution>) => void;
@@ -681,8 +701,12 @@ export function PlacementReview({
   function moveGroup(group: PlacementGroup, destination: "smt" | "non_smt", source: "rule" | "user" = "user") {
     const current = resolutions[group.key] || blankResolution(group);
     let subtype = current.subtype;
-    if (current.role === "shield" && subtype === "bracket" && destination === "non_smt") subtype = "";
-    if (current.role === "shield" && subtype === "cover" && destination === "smt") subtype = "";
+    // Zone and shield type are two views of one fact: a bracket is placed, a cover
+    // is not. Follow the zone the operator picked instead of clearing the type and
+    // leaving the group unanswerable. An explicit "other" is preserved.
+    if (current.role === "shield" && subtype !== "other") {
+      subtype = destination === "smt" ? "bracket" : "cover";
+    }
     const exclusion_kind = destination === "smt"
       ? ""
       : subtype === "cover"
@@ -746,6 +770,13 @@ export function PlacementReview({
     { title: "Value", dataIndex: "value", width: 150, ellipsis: true },
     { title: "描述", dataIndex: "description", ellipsis: true },
     { title: "规则", dataIndex: "rule_id", width: 80 },
+  ];
+  const verificationColumns = [
+    { title: "编码", dataIndex: "part_number", width: 170, ellipsis: true },
+    { title: "工艺词", dataIndex: "keyword", width: 120, ellipsis: true },
+    { title: "位号", dataIndex: "refs", width: 180, render: (refs: string[]) => compactRefs(refs || []) },
+    { title: "描述", dataIndex: "description", ellipsis: true },
+    { title: "查验原因", dataIndex: "reason", ellipsis: true },
   ];
 
   return (
@@ -821,6 +852,27 @@ export function PlacementReview({
             key: "nc",
             label: `明确 NC ${readonlyNc.count} 组（只读）`,
             children: <Table size="small" rowKey={(row) => `${row.row_number}-${row.refs.join(",")}`} dataSource={readonlyNc.items} columns={ncColumns} pagination={{ pageSize: 8 }} scroll={{ x: 620 }} />,
+          },
+          {
+            key: "verification",
+            label: `编码与描述查验 ${codeVerification.length} 项（只读，不阻断）`,
+            children: (
+              <>
+                <Alert
+                  type="info"
+                  showIcon
+                  message="这些行已按有编码物料纳入。若编码实际是库占位名，请返回 Capture 修正；本清单不会阻止继续处理。"
+                />
+                <Table
+                  size="small"
+                  rowKey={(row) => `${row.part_number}-${row.keyword}`}
+                  dataSource={codeVerification}
+                  columns={verificationColumns}
+                  pagination={{ pageSize: 8 }}
+                  scroll={{ x: 780 }}
+                />
+              </>
+            ),
           },
         ]}
       />

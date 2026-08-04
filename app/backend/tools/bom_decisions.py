@@ -62,7 +62,7 @@ def _validated_placement(raw: object, index: int) -> dict[str, object]:
         raise ValueError(f"BOM 决策清单第 {index + 1} 项缺少有效排除类型。")
     if role not in MATERIAL_ROLES:
         raise ValueError(f"BOM 决策清单第 {index + 1} 项器件角色无效。")
-    if role == "shield":
+    if role == "shield" and exclusion_kind != "nc":
         if subtype not in SHIELD_SUBTYPES:
             raise ValueError(f"BOM 决策清单第 {index + 1} 项屏蔽类型无效。")
         if subtype == "bracket" and destination != "smt":

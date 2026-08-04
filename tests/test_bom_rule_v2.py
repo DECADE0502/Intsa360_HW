@@ -45,10 +45,10 @@ def test_formal_identity_outranks_description_only_process_text() -> None:
     classified = result(part_number="MAT-1001", desc="镀金测试点")
 
     assert classified.identity_status == "identity_confirmed"
-    assert classified.state == "conflicting"
-    assert classified.rule_id == "R4D"
-    assert classified.recommended_action is None
-    assert classified.suggested_destination is None
+    assert classified.state == "confirmed_material"
+    assert classified.rule_id == "R1"
+    assert classified.recommended_action == "keep"
+    assert classified.suggested_destination == "smt"
 
 
 def test_reference_and_package_together_can_recommend_process_zone() -> None:
@@ -60,7 +60,7 @@ def test_reference_and_package_together_can_recommend_process_zone() -> None:
         source_part="TESTPOINT.Normal",
     )
 
-    assert classified.state == "suspected_process"
+    assert classified.state == "confirmed_material"
     assert classified.role == "test_point"
     assert classified.role_confidence == "strong"
     assert classified.rule_id == "R4"
@@ -76,7 +76,7 @@ def test_reference_prefix_alone_never_overrides_formal_identity() -> None:
     assert classified.suggested_destination == "smt"
 
 
-def test_shield_is_forced_review_and_conflicting_metadata_has_no_recommendation() -> None:
+def test_shield_is_forced_review_and_always_has_a_default_recommendation() -> None:
     classified = result(
         "SH1",
         part_number="MAT-1001",
@@ -87,25 +87,29 @@ def test_shield_is_forced_review_and_conflicting_metadata_has_no_recommendation(
 
     assert classified.role == "shield"
     assert classified.sh_review is True
-    assert classified.rule_id == "R3C"
-    assert classified.recommended_action is None
+    assert classified.rule_id == "R3"
+    assert classified.recommended_action == "exclude"
+    assert classified.suggested_destination == "non_smt"
+    assert classified.shield_subtype == "cover"
     assert "shield_type_and_destination_required" in classified.blocking_reasons
 
 
-def test_shield_with_pure_nc_still_requires_type_and_destination() -> None:
+def test_shield_with_pure_nc_is_resolved_before_type() -> None:
     classified = result("SH1", part_number="MAT-1001", value="NC")
 
-    assert classified.state == "conflicting"
+    assert classified.state == "confirmed_nc"
     assert classified.role == "shield"
-    assert classified.suggested_destination is None
+    assert classified.suggested_destination == "non_smt"
+    assert classified.exclusion_kind == "nc"
+    assert not classified.requires_review
 
 
 def test_ambiguous_mechanical_text_never_auto_excludes_coded_material() -> None:
     classified = result("H1", part_number="MAT-1001", desc="焊接铜柱结构件")
 
-    assert classified.state == "suspected_material"
-    assert classified.rule_id == "R4A"
-    assert classified.recommended_action is None
+    assert classified.state == "confirmed_material"
+    assert classified.rule_id == "R1"
+    assert classified.recommended_action == "keep"
 
 
 def test_vendor_mpn_is_not_promoted_to_internal_part_number() -> None:
@@ -142,7 +146,7 @@ def test_path_in_material_business_field_is_blocking(field: str) -> None:
     assert classified.rule_id == "R7"
 
 
-def test_weak_process_symbol_part_number_cannot_take_r1_shortcut() -> None:
+def test_non_empty_process_symbol_part_number_is_still_a_material_identity() -> None:
     classified = result(
         "TP1",
         part_number="TESTPOINT",
@@ -150,9 +154,10 @@ def test_weak_process_symbol_part_number_cannot_take_r1_shortcut() -> None:
         pcb_footprint="TESTPOINT_TP0P4",
     )
 
-    assert classified.identity_status == "identity_weak"
-    assert classified.state == "suspected_process"
-    assert classified.rule_id == "R6P"
+    assert classified.identity_status == "identity_confirmed"
+    assert classified.state == "confirmed_material"
+    assert classified.rule_id == "R4"
+    assert classified.recommended_action == "exclude"
 
 
 def test_jumper_resistor_whitelist_cancels_short_symbol_role() -> None:
@@ -199,7 +204,7 @@ def test_hole_role_requires_reference_and_library_corroboration() -> None:
     assert classified.suggested_destination == "non_smt"
 
 
-def test_coded_h_reference_with_smt_mechanical_package_is_material_review() -> None:
+def test_coded_h_reference_with_smt_mechanical_package_is_confirmed_material() -> None:
     classified = result(
         "H1",
         part_number="MAT-1001",
@@ -207,9 +212,9 @@ def test_coded_h_reference_with_smt_mechanical_package_is_material_review() -> N
         pcb_footprint="SMTSO_M3_STANDOFF",
     )
 
-    assert classified.state == "suspected_material"
+    assert classified.state == "confirmed_material"
     assert classified.role == "smt_mechanical"
-    assert classified.recommended_action is None
+    assert classified.recommended_action == "keep"
 
 
 def test_fiducial_requires_process_review_when_evidence_is_corroborated() -> None:
@@ -308,7 +313,7 @@ def test_new_resolution_contract_writes_zone_role_and_decision_manifest() -> Non
     assert summary["decision_records"][0]["decision_source"] == "user"
 
 
-def test_shield_cannot_continue_without_subtype() -> None:
+def test_shield_subtype_defaults_from_the_selected_destination() -> None:
     source_row = row("SH1", part_number="MAT-1001", desc="屏蔽件")
     raw = {field: source_row.value(field) for field in BASE}
     raw["reference"] = "SH1"
@@ -316,14 +321,16 @@ def test_shield_cannot_continue_without_subtype() -> None:
     analysis = analyze_placement([source_row], classification_config())
     group = analysis.review_groups[0]
 
-    with pytest.raises(ValueError, match="requires bracket, cover or other"):
-        apply_resolutions(parsed, analysis, {
-            group.key: {
-                "destination": "smt",
-                "role": "shield",
-                "decision_source": "user",
-            },
-        })
+    resolved, summary = apply_resolutions(parsed, analysis, {
+        group.key: {
+            "destination": "smt",
+            "role": "shield",
+            "decision_source": "user",
+        },
+    })
+
+    assert resolved.raw_rows[0]["part_number"] == "MAT-1001"
+    assert summary["destination_counts"] == {"smt": 1}
 
 
 def test_decision_fingerprint_changes_when_any_key_attribute_changes() -> None:

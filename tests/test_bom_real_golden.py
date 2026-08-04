@@ -65,8 +65,10 @@ def test_iac4_v05_golden_classification() -> None:
 
     shield = _only_classification(analysis, "SH1")
     assert shield.role == "shield"
-    assert shield.rule_id == "R3C"
-    assert shield.suggested_destination is None
+    assert shield.rule_id == "R3"
+    assert shield.recommended_action == "exclude"
+    assert shield.suggested_destination == "non_smt"
+    assert shield.shield_subtype == "cover"
 
     u400 = next(part for part in parsed.physical_parts if part.reference == "U400")
     assert u400.occurrence_count == 13
@@ -226,7 +228,7 @@ def test_real_bom_full_output_partition_and_manifest(tmp_path: Path, source: Pat
         processed = run_bom_process(root, params)
 
     assert processed["status"] == "ok", processed
-    assert len(processed["outputs"]) == 6
+    assert len(processed["outputs"]) == 7
     assert all(Path(path).is_file() for path in processed["outputs"])
 
     manifest = load_decision_manifest(Path(processed["decision_manifest"]))

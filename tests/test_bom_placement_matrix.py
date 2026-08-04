@@ -90,28 +90,28 @@ def test_process_description_without_role_corroboration_cannot_exclude() -> None
 
 
 @pytest.mark.parametrize("description", ["镀金测试点", "PCB安装孔"])
-def test_valid_code_with_description_only_process_text_is_a_conflict(description: str) -> None:
+def test_valid_code_with_description_only_process_text_stays_material(description: str) -> None:
     result = classify(
-        make_row(part_number="P-ALPHA-01", desc=description),
+        make_row(refs=("TP17",), part_number="P-ALPHA-01", desc=description),
         classification_config(),
     )
 
-    assert result.state == "conflicting"
-    assert result.recommended_action is None
-    assert result.rule_id == "R4D"
-    assert result.requires_review is True
+    assert result.state == "confirmed_material"
+    assert result.recommended_action == "keep"
+    assert result.rule_id == "R1"
+    assert result.requires_review is False
 
 
 @pytest.mark.parametrize("description", ["焊接铜柱", "M3螺母柱结构件"])
-def test_valid_code_with_ambiguous_mechanical_text_is_material_review(description: str) -> None:
+def test_valid_code_with_ambiguous_mechanical_text_is_confirmed_material(description: str) -> None:
     result = classify(
         make_row(part_number="P-ALPHA-01", desc=description),
         classification_config(),
     )
 
-    assert result.state == "suspected_material"
-    assert result.recommended_action is None
-    assert result.rule_id == "R4A"
+    assert result.state == "confirmed_material"
+    assert result.recommended_action == "keep"
+    assert result.rule_id == "R1"
 
 
 def test_jumper_resistor_phrase_remains_a_confirmed_material() -> None:
@@ -242,12 +242,12 @@ def test_valid_code_with_embedded_nc_text_requires_conflict_review() -> None:
     assert result.recommended_action is None
 
 
-def test_shield_ref_with_pure_nc_value_still_requires_review() -> None:
-    # SH 位号即使 Value 整格为 NC，也必须经人工审查确认，不允许静默排除。
+def test_shield_ref_with_pure_nc_value_stays_confirmed_nc() -> None:
     result = classify(make_row(refs=("SH1",), part_number="P-ALPHA-02", value="NC"), classification_config())
 
-    assert result.state == "conflicting"
-    assert result.requires_review
+    assert result.state == "confirmed_nc"
+    assert result.recommended_action == "exclude"
+    assert not result.requires_review
 
 
 def test_description_text_in_part_number_column_requires_conflict_review() -> None:
@@ -287,7 +287,9 @@ def test_blank_code_shield_is_reviewed_once_in_shield_category() -> None:
     assert len(analysis.review_groups) == 1
     group = analysis.review_groups[0]
     assert group.category == "shield"
-    assert group.classification.recommended_action is None
+    assert group.classification.recommended_action == "exclude"
+    assert group.classification.suggested_destination == "non_smt"
+    assert group.classification.shield_subtype == "cover"
 
 
 def test_coded_sh_material_outweighs_lower_priority_process_metadata() -> None:
@@ -303,9 +305,10 @@ def test_coded_sh_material_outweighs_lower_priority_process_metadata() -> None:
     assert len(analysis.review_groups) == 1
     group = analysis.review_groups[0]
     assert group.category == "shield"
-    assert group.classification.state == "conflicting"
-    assert group.classification.recommended_action is None
-    assert group.classification.rule_id == "R3C"
+    assert group.classification.state == "confirmed_material"
+    assert group.classification.recommended_action == "exclude"
+    assert group.classification.suggested_destination == "non_smt"
+    assert group.classification.rule_id == "R3"
     assert any(item.kind == "process_keyword" for item in group.classification.evidence)
 
 

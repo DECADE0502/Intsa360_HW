@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   PlacementReview,
   placementResolutionComplete,
+  placementResolutionIssue,
   placementResolutionsComplete,
   seedPlacementResolutions,
   type PlacementGroup,
@@ -128,39 +129,29 @@ describe("BOM placement review v2", () => {
     expect(placementResolutionComplete(item, selected)).toBe(true);
   });
 
-  it("requires a concrete exclusion kind for the non-SMT zone", () => {
+  it("completes a non-SMT decision from the destination alone", () => {
     const item = group();
     const selected = resolution({ destination: "non_smt" });
 
-    expect(placementResolutionComplete(item, selected)).toBe(false);
-    selected.exclusion_kind = "process_only";
     expect(placementResolutionComplete(item, selected)).toBe(true);
+    expect(placementResolutionIssue(item, selected)).toBe("");
   });
 
-  it("forces SH to choose a shield subtype and keeps bracket and cover semantics distinct", () => {
+  it("uses shield subtype as an editable default instead of another completion gate", () => {
     const shield = group({
       refs: ["SH1"],
       physical_refs: ["SH1"],
       sh_review: true,
       role: "shield",
       state: "material@shield",
-      suggested_destination: null,
+      suggested_destination: "non_smt",
+      shield_subtype: "cover",
     });
 
-    expect(placementResolutionComplete(shield, resolution({ destination: "smt", role: "shield" }))).toBe(false);
-    expect(placementResolutionComplete(shield, resolution({ destination: "smt", role: "shield", subtype: "bracket" }))).toBe(true);
-    expect(placementResolutionComplete(shield, resolution({
-      destination: "non_smt",
-      exclusion_kind: "scope_excluded",
-      role: "shield",
-      subtype: "cover",
-    }))).toBe(true);
-    expect(placementResolutionComplete(shield, resolution({
-      destination: "non_smt",
-      exclusion_kind: "scope_excluded",
-      role: "shield",
-      subtype: "bracket",
-    }))).toBe(false);
+    const seeded = seedPlacementResolutions([shield], {});
+    expect(seeded[shield.key].subtype).toBe("cover");
+    expect(placementResolutionComplete(shield, resolution({ destination: "smt", role: "shield" }))).toBe(true);
+    expect(placementResolutionComplete(shield, resolution({ destination: "non_smt", role: "shield" }))).toBe(true);
   });
 
   it("leaves R8 unresolved instead of silently excluding it", () => {
@@ -215,6 +206,29 @@ describe("BOM placement review v2", () => {
     expect(onApply).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps the confirmation entry visible and explains missing SMT fields", () => {
+    const item = group({ inferred_fields: { part_number: "", name: "", model: "", desc: "" } });
+    const selected = resolution({
+      destination: "smt",
+      part_number_override: "",
+      field_patch: patch({ name: "", model: "", desc: "" }),
+    });
+    renderWithProviders(
+      <PlacementReview
+        groups={[item]}
+        readonlyNc={{ count: 0, items: [] }}
+        resolutions={{ [item.key]: selected }}
+        onResolutionsChange={vi.fn()}
+        onApply={vi.fn()}
+        onBack={vi.fn()}
+        running={false}
+      />,
+    );
+
+    expect(placementResolutionIssue(item, selected)).toBe("纳入贴片 BOM 时必须填写内部子项编码。");
+    expect(screen.getByRole("button", { name: "确认 X1 保留在贴片区" })).toBeInTheDocument();
+  });
+
   it("batch applies only strong non-conflicting non-SH recommendations on the visible page", async () => {
     const user = userEvent.setup();
     const safe = group();
@@ -240,6 +254,38 @@ describe("BOM placement review v2", () => {
     await user.click(screen.getByRole("button", { name: "确认采纳" }));
     await waitFor(() => expect(screen.getByText("已确认 1/2")).toBeInTheDocument());
     expect(screen.getByText("还有 1 组未完成")).toBeInTheDocument();
+  });
+
+  it("renders the coded-process verification list without blocking continuation", async () => {
+    const item = group();
+    function Harness() {
+      const [resolutions, setResolutions] = useState(() => ({
+        [item.key]: resolution({ destination: "smt" }),
+      }));
+      return (
+        <PlacementReview
+          groups={[item]}
+          readonlyNc={{ count: 0, items: [] }}
+          codeVerification={[{
+            part_number: "TP-PN",
+            keyword: "测试点",
+            reason: "编码已按物料纳入，请查验是否为库占位名",
+            description: "镀金测试点",
+            refs: ["TP5"],
+            row_numbers: [12],
+          }]}
+          resolutions={resolutions}
+          onResolutionsChange={setResolutions}
+          onApply={vi.fn()}
+          onBack={vi.fn()}
+          running={false}
+        />
+      );
+    }
+    renderWithProviders(<Harness />);
+
+    expect(screen.getByRole("button", { name: /按审查结果继续/ })).toBeEnabled();
+    expect(screen.getByText(/编码与描述查验 1 项/)).toBeInTheDocument();
   });
 
   it("persists only the unified v2 placement state in the workspace", () => {

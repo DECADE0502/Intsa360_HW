@@ -588,6 +588,7 @@ function ProcessView({
         groups={pres.groups || []}
         readonlyNc={pres.readonly_nc || { count: 0, items: [] }}
         readonlyGroups={pres.readonly_groups || []}
+        codeVerification={pres.code_verification || []}
         qualityReport={pres.quality_report}
         resolutions={placementResolutions}
         onResolutionsChange={setPlacementResolutions}

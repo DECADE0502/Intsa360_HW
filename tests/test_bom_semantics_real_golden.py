@@ -87,8 +87,9 @@ def test_iac4_mechanical_and_shield_rows_are_never_silently_removed() -> None:
         assert item.role == "smt_mechanical"
         assert item.recommended_action == "keep"
     assert classifications["SH1"].role == "shield"
-    assert classifications["SH1"].state == "conflicting"
-    assert classifications["SH1"].recommended_action is None
+    assert classifications["SH1"].state == "confirmed_material"
+    assert classifications["SH1"].recommended_action == "exclude"
+    assert classifications["SH1"].suggested_destination == "non_smt"
 
 
 def test_power_board_process_symbols_and_mechanical_parts_keep_distinct_roles() -> None:

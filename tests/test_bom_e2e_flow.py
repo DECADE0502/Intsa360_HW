@@ -213,7 +213,7 @@ def test_e2e_rejected_shield_stays_out_of_plm_and_keeps_raw_nc_name(tmp_path: Pa
         assert shield_nc[3] == "Shield bracket"
 
 
-def test_e2e_partnumber_tp_kept_by_user_choice(tmp_path: Path) -> None:
+def test_e2e_coded_tp_with_correlated_package_is_auto_non_smt(tmp_path: Path) -> None:
     root = _runtime_root(tmp_path)
     with TestClient(create_app(root), base_url=BASE_URL) as client:
         headers = _mutation_headers(client)
@@ -225,14 +225,8 @@ def test_e2e_partnumber_tp_kept_by_user_choice(tmp_path: Path) -> None:
         source = upload.json()["files"][0]["path"]
         params: dict[str, object] = {"source_bom": source, "formats": ["plm"], "name": "KEEP_TP"}
 
-        review = client.post("/api/v1/tools/bom_process/run", json=params, headers=headers).json()
-        assert review["reason"] == "placement_review"
-        process_group = review["groups"][0]
-        assert process_group["state"] == "suspected_process"
-        params["placement_resolutions"] = {
-            process_group["key"]: _placement_resolution(process_group, "keep")
-        }
         result = client.post("/api/v1/tools/bom_process/run", json=params, headers=headers).json()
+        assert result["status"] == "ok"
 
         plm_path = next(Path(path) for path in result["outputs"] if path.endswith("_PLM_BOM.xlsx"))
         plm = load_workbook(plm_path, data_only=True)
@@ -240,10 +234,10 @@ def test_e2e_partnumber_tp_kept_by_user_choice(tmp_path: Path) -> None:
             refs = [str(row[8] or "") for row in plm.active.iter_rows(min_row=3, values_only=True)]
         finally:
             plm.close()
-        assert any("TP5" in item for item in refs)
+        assert all("TP5" not in item for item in refs)
 
 
-def test_e2e_partnumber_tp_default_nc(tmp_path: Path) -> None:
+def test_e2e_coded_tp_is_process_only_not_nc(tmp_path: Path) -> None:
     root = _runtime_root(tmp_path)
     with TestClient(create_app(root), base_url=BASE_URL) as client:
         headers = _mutation_headers(client)
@@ -258,18 +252,16 @@ def test_e2e_partnumber_tp_default_nc(tmp_path: Path) -> None:
             "name": "DEFAULT_NC",
         }
 
-        review = client.post("/api/v1/tools/bom_process/run", json=params, headers=headers).json()
-        process_group = review["groups"][0]
-        params["placement_resolutions"] = {
-            process_group["key"]: _placement_resolution(process_group, "exclude")
-        }
         result = client.post("/api/v1/tools/bom_process/run", json=params, headers=headers).json()
-        nc_path = Path(result["non_smt_summary"])
-        nc = load_workbook(nc_path, data_only=True)
+        non_smt = load_workbook(Path(result["non_smt_summary"]), data_only=True)
+        nc = load_workbook(Path(result["nc_summary"]), data_only=True)
         try:
-            rows = list(nc.active.iter_rows(min_row=2, values_only=True))
+            rows = list(non_smt.active.iter_rows(min_row=2, values_only=True))
+            nc_rows = list(nc.active.iter_rows(min_row=2, values_only=True))
         finally:
+            non_smt.close()
             nc.close()
         tp = next(row for row in rows if row[1] == "TP5")
         assert tp[7] == "非贴片工艺项"
         assert tp[8] == "process_only"
+        assert all(row[1] != "TP5" for row in nc_rows)

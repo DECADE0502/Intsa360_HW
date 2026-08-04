@@ -307,7 +307,7 @@ class BomProcessConflictTests(unittest.TestCase):
         self.assertEqual(candidates[0]["key"], "P001|R100")
         self.assertEqual(candidates[0]["matched_keyword"], "测试点")
 
-    def test_adapter_returns_shield_and_process_materials_in_one_review(self) -> None:
+    def test_adapter_reviews_shield_and_lists_coded_process_material_for_verification(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             source = root / "source.xlsx"
@@ -327,16 +327,13 @@ class BomProcessConflictTests(unittest.TestCase):
                     "part_number": "SH-PN",
                     "field_patch": {},
                 },
-                groups["suspected_process"]["key"]: {
-                    "action": "exclude",
-                    "part_number": "TP-PN",
-                    "field_patch": {},
-                },
             }
             completed = run_bom_process(root, params)
 
         self.assertEqual(review["reason"], "placement_review")
-        self.assertEqual(set(groups), {"shield", "suspected_process"})
+        self.assertEqual(set(groups), {"shield"})
+        self.assertEqual(review["code_verification"][0]["part_number"], "TP-PN")
+        self.assertEqual(review["code_verification"][0]["refs"], ["TP5"])
         self.assertEqual(completed["status"], "ok")
 
     def test_letter_notation_numeric_pairs_require_manual_choice(self) -> None:
@@ -890,7 +887,7 @@ class BomProcessConflictTests(unittest.TestCase):
             self.assertEqual(result["summary"]["shield_candidates"], 1)
             self.assertEqual(result["summary"]["excluded"], 0)
 
-    def test_run_bom_process_requires_confirmation_for_sh_even_when_value_is_nc(self) -> None:
+    def test_run_bom_process_resolves_sh_with_pure_nc_before_shield_review(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             source = root / "source.xlsx"
@@ -910,10 +907,8 @@ class BomProcessConflictTests(unittest.TestCase):
                 },
             )
 
-            self.assertEqual(result["status"], "needs_confirmation")
-            self.assertEqual(result["reason"], "placement_review")
-            self.assertEqual(result["groups"][0]["state"], "conflicting")
-            self.assertEqual(result["groups"][0]["refs"], ["SH1"])
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(result["preview"]["rows"], [])
 
     def test_confirmed_sh_with_nc_value_enters_final_bom_not_nc_summary(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

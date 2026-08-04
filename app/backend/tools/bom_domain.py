@@ -203,7 +203,7 @@ class PlacementResolution:
             raise ValueError("non-SMT destination requires an exclusion kind")
         if self.role not in MATERIAL_ROLES:
             raise ValueError(f"invalid material role: {self.role}")
-        if self.role == "shield" and self.subtype not in SHIELD_SUBTYPES:
+        if self.role == "shield" and self.exclusion_kind != "nc" and self.subtype not in SHIELD_SUBTYPES:
             raise ValueError("shield decision requires bracket, cover or other subtype")
         if self.role == "shield" and self.subtype == "bracket" and self.destination != "smt":
             raise ValueError("shield bracket must be placed in the SMT destination")

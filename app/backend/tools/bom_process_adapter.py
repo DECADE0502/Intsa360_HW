@@ -61,6 +61,7 @@ def _placement_review(
         "groups": groups,
         "readonly_groups": payload["readonly_groups"],
         "readonly_nc": payload["readonly_nc"],
+        "code_verification": payload["code_verification"],
         "summary": payload["summary"],
     }
 
