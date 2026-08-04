@@ -141,12 +141,12 @@ class AppPaths:
         return self.data_dir / "jobs"
 
     @property
-    def smt_analysis_dir(self) -> Path:
-        return self.data_dir / "smt_analysis"
+    def refdes_dir(self) -> Path:
+        return self.data_dir / "refdes"
 
     @property
-    def smt_analysis_cache_dir(self) -> Path:
-        return self.smt_analysis_dir / "cache"
+    def refdes_pages_dir(self) -> Path:
+        return self.refdes_dir / "pages"
 
     @property
     def platform_database_path(self) -> Path:
@@ -214,8 +214,8 @@ class AppPaths:
             self.uploads_dir,
             self.history_dir,
             self.platform_jobs_dir,
-            self.smt_analysis_dir,
-            self.smt_analysis_cache_dir,
+            self.refdes_dir,
+            self.refdes_pages_dir,
             self.config_dir,
             self.user_plugins_dir / "scripts",
             self.lifecycle_jobs_dir,

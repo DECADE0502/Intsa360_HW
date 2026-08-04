@@ -2,96 +2,84 @@ import { fireEvent, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import { RefdesCanvas } from "../tools/refdesViewer/RefdesCanvas";
-import { RefdesList } from "../tools/refdesViewer/RefdesList";
-import type {
-  RefdesEntry,
-  RefdesOccurrence,
-  RefdesPage,
-} from "../tools/refdesViewer/types";
+import { RefdesList } from "../tools/refdes/RefdesList";
+import { RefdesPageView } from "../tools/refdes/RefdesPageView";
+import { groupMarks, type RefdesDrawingPage, type RefdesMark } from "../tools/refdes/types";
 import { renderWithProviders } from "./render";
 
 
-function occurrence(
-  ref: string,
-  x: number,
-  y: number,
-  suffix = "a",
-): RefdesOccurrence {
+const PAGE_WIDTH = 1000;
+const PAGE_HEIGHT = 800;
+
+/** Build a mark from stage pixels, mirroring the normalised wire format. */
+function mark(ref: string, stageX: number, stageY: number, order = 0): RefdesMark {
+  const halfW = 8 / PAGE_WIDTH;
+  const halfH = 5 / PAGE_HEIGHT;
+  const x = stageX / PAGE_WIDTH;
+  const y = stageY / PAGE_HEIGHT;
   return {
-    occurrence_id: `${ref}-${suffix}`,
     ref,
     x,
     y,
-    left: x - 8,
-    top: y - 5,
-    right: x + 8,
-    bottom: y + 5,
+    left: x - halfW,
+    top: y - halfH,
+    right: x + halfW,
+    bottom: y + halfH,
+    order,
   };
 }
 
-function page(occurrences: RefdesOccurrence[]): RefdesPage {
+function page(marks: RefdesMark[]): RefdesDrawingPage {
   return {
-    page_id: "page-1",
     page_number: 1,
-    pixel_width: 1000,
-    pixel_height: 800,
-    preview_url: "/api/v1/refdes-viewer/docs/doc-1/pages/page-1/preview",
+    pixel_width: PAGE_WIDTH,
+    pixel_height: PAGE_HEIGHT,
+    image_url: "/api/v1/refdes/drawings/dwg-1/pages/1/image",
     side_guess: "top",
-    text_layer: "vector",
-    ref_count: new Set(occurrences.map((item) => item.ref)).size,
-    occurrence_count: occurrences.length,
-    occurrences,
+    has_text_layer: true,
+    ref_count: new Set(marks.map((item) => item.ref)).size,
+    marks,
   };
 }
 
-function entries(occurrences: RefdesOccurrence[]): RefdesEntry[] {
-  const grouped = new Map<string, RefdesOccurrence[]>();
-  occurrences.forEach((item) => {
-    const bucket = grouped.get(item.ref);
-    if (bucket) bucket.push(item);
-    else grouped.set(item.ref, [item]);
-  });
-  return Array.from(grouped.entries())
-    .map(([ref, items]) => ({ ref, occurrences: items }))
-    .sort((left, right) =>
-      left.ref.localeCompare(right.ref, undefined, { numeric: true }),
-    );
+function frameOf(container: HTMLElement) {
+  const frame = container.querySelector('[role="application"]') as HTMLElement;
+  frame.getBoundingClientRect = () =>
+    ({ left: 0, top: 0, width: 900, height: 620 }) as DOMRect;
+  return frame;
+}
+
+function click(frame: HTMLElement, x: number, y: number) {
+  fireEvent.pointerDown(frame, { button: 0, clientX: x, clientY: y, pointerId: 1 });
+  fireEvent.pointerUp(frame, { button: 0, clientX: x, clientY: y, pointerId: 1 });
 }
 
 describe("位号图查看", () => {
-  it("lists every refdes printed on the page in natural order", () => {
-    const list = entries([
-      occurrence("C10", 100, 100),
-      occurrence("C2", 200, 100),
-      occurrence("C1", 300, 100),
+  it("lists every refdes on the page in natural order", () => {
+    const entries = groupMarks([
+      mark("C10", 100, 100),
+      mark("C2", 200, 100),
+      mark("C1", 300, 100),
     ]);
 
     renderWithProviders(
-      <RefdesList
-        entries={list}
-        selectedRef=""
-        occurrenceIndex={0}
-        onSelect={() => {}}
-      />,
+      <RefdesList entries={entries} selectedRef="" markIndex={0} onSelect={() => {}} />,
     );
 
-    const rows = screen.getAllByRole("option");
-    expect(rows.map((row) => row.textContent)).toEqual(["C1", "C2", "C10"]);
+    expect(screen.getAllByRole("option").map((row) => row.textContent)).toEqual([
+      "C1",
+      "C2",
+      "C10",
+    ]);
   });
 
   it("locates a refdes when its row is clicked", async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
-    const list = entries([occurrence("R5", 100, 100), occurrence("C1", 200, 200)]);
+    const entries = groupMarks([mark("R5", 100, 100), mark("C1", 200, 200)]);
 
     renderWithProviders(
-      <RefdesList
-        entries={list}
-        selectedRef=""
-        occurrenceIndex={0}
-        onSelect={onSelect}
-      />,
+      <RefdesList entries={entries} selectedRef="" markIndex={0} onSelect={onSelect} />,
     );
     await user.click(screen.getByTestId("refdes-row-R5"));
 
@@ -100,134 +88,101 @@ describe("位号图查看", () => {
 
   it("filters the list by search text", async () => {
     const user = userEvent.setup();
-    const list = entries([
-      occurrence("C1", 100, 100),
-      occurrence("R5", 200, 100),
-      occurrence("R6", 300, 100),
+    const entries = groupMarks([
+      mark("C1", 100, 100),
+      mark("R5", 200, 100),
+      mark("R6", 300, 100),
     ]);
 
     renderWithProviders(
-      <RefdesList
-        entries={list}
-        selectedRef=""
-        occurrenceIndex={0}
-        onSelect={() => {}}
-      />,
+      <RefdesList entries={entries} selectedRef="" markIndex={0} onSelect={() => {}} />,
     );
     await user.type(screen.getByLabelText("搜索位号"), "R");
 
-    const rows = screen.getAllByRole("option");
-    expect(rows.map((row) => row.textContent?.replace(/×\d+/, ""))).toEqual([
+    expect(screen.getAllByRole("option").map((row) => row.textContent)).toEqual([
       "R5",
       "R6",
     ]);
   });
 
-  it("shows which instance is active for a repeated refdes", () => {
-    const list = entries([
-      occurrence("C1", 100, 100, "a"),
-      occurrence("C1", 500, 400, "b"),
-    ]);
+  it("shows which instance of a repeated refdes is active", () => {
+    const entries = groupMarks([mark("C1", 100, 100, 0), mark("C1", 500, 400, 1)]);
 
     renderWithProviders(
-      <RefdesList
-        entries={list}
-        selectedRef="C1"
-        occurrenceIndex={1}
-        onSelect={() => {}}
-      />,
+      <RefdesList entries={entries} selectedRef="C1" markIndex={1} onSelect={() => {}} />,
     );
 
-    expect(
-      within(screen.getByTestId("refdes-row-C1")).getByText("2/2"),
-    ).toBeTruthy();
+    expect(within(screen.getByTestId("refdes-row-C1")).getByText("2/2")).toBeTruthy();
   });
 
-  it("renders a marker for every refdes and highlights the selected one", () => {
-    const occurrences = [occurrence("C1", 100, 100), occurrence("R5", 400, 300)];
+  it("outlines only the selected refdes so the drawing stays readable", () => {
+    const marks = [mark("C1", 100, 100), mark("R5", 400, 300)];
 
     const { container } = renderWithProviders(
-      <RefdesCanvas
-        page={page(occurrences)}
-        selectedRef="R5"
-        target={null}
-        onSelect={() => {}}
-      />,
+      <RefdesPageView page={page(marks)} selectedRef="R5" target={null} onPick={() => {}} />,
     );
 
-    expect(container.querySelectorAll("g[data-ref]").length).toBe(2);
-    const selected = container.querySelector('g[data-ref="R5"]');
-    expect(selected?.getAttribute("data-selected")).toBe("true");
-    expect(within(selected as unknown as HTMLElement).getByText("R5")).toBeTruthy();
+    const drawn = container.querySelectorAll("g[data-ref]");
+    expect(drawn.length).toBe(1);
+    expect(drawn[0].getAttribute("data-ref")).toBe("R5");
+    expect(within(drawn[0] as unknown as HTMLElement).getByText("R5")).toBeTruthy();
   });
 
-  it("selects a refdes when its marker is clicked on the drawing", () => {
-    const onSelect = vi.fn();
-    const target = occurrence("C1", 100, 100);
+  it("picks a refdes when its position on the drawing is clicked", () => {
+    const onPick = vi.fn();
     const { container } = renderWithProviders(
-      <RefdesCanvas
-        page={page([target])}
+      <RefdesPageView
+        page={page([mark("C1", 100, 100)])}
         selectedRef=""
         target={null}
-        onSelect={onSelect}
+        onPick={onPick}
       />,
     );
+    const frame = frameOf(container);
 
-    const frame = container.querySelector('[role="application"]') as HTMLElement;
-    frame.getBoundingClientRect = () =>
-      ({ left: 0, top: 0, width: 900, height: 600 }) as DOMRect;
+    // The 1000x800 stage fits a 900x620 viewport, putting stage (100,100) at
+    // screen (164, 95).
+    click(frame, 164, 95);
+    expect(onPick).toHaveBeenCalledTimes(1);
+    expect(onPick.mock.calls[0][0].ref).toBe("C1");
 
-    // The 1000x800 page is fitted into the 900x600 viewport, so image point
-    // (100,100) lands at screen (174,93).
-    const click = (x: number, y: number) => {
-      fireEvent.pointerDown(frame, { button: 0, clientX: x, clientY: y, pointerId: 1 });
-      fireEvent.pointerUp(frame, { button: 0, clientX: x, clientY: y, pointerId: 1 });
-    };
-
-    click(174, 93);
-    expect(onSelect).toHaveBeenCalledTimes(1);
-    expect(onSelect.mock.calls[0][0].ref).toBe("C1");
-
-    onSelect.mockClear();
-    click(800, 550);
-    expect(onSelect).not.toHaveBeenCalled();
+    onPick.mockClear();
+    click(frame, 820, 560);
+    expect(onPick).not.toHaveBeenCalled();
   });
 
-  it("does not select while the drawing is being panned", () => {
-    const onSelect = vi.fn();
+  it("does not pick while the drawing is being panned", () => {
+    const onPick = vi.fn();
     const { container } = renderWithProviders(
-      <RefdesCanvas
-        page={page([occurrence("C1", 100, 100)])}
+      <RefdesPageView
+        page={page([mark("C1", 100, 100)])}
         selectedRef=""
         target={null}
-        onSelect={onSelect}
+        onPick={onPick}
       />,
     );
+    const frame = frameOf(container);
 
-    const frame = container.querySelector('[role="application"]') as HTMLElement;
-    frame.getBoundingClientRect = () =>
-      ({ left: 0, top: 0, width: 900, height: 600 }) as DOMRect;
+    fireEvent.pointerDown(frame, { button: 0, clientX: 164, clientY: 95, pointerId: 1 });
+    fireEvent.pointerMove(frame, { clientX: 260, clientY: 190, pointerId: 1 });
+    fireEvent.pointerUp(frame, { button: 0, clientX: 260, clientY: 190, pointerId: 1 });
 
-    fireEvent.pointerDown(frame, { button: 0, clientX: 174, clientY: 93, pointerId: 1 });
-    fireEvent.pointerMove(frame, { clientX: 260, clientY: 180, pointerId: 1 });
-    fireEvent.pointerUp(frame, { button: 0, clientX: 260, clientY: 180, pointerId: 1 });
-
-    expect(onSelect).not.toHaveBeenCalled();
+    expect(onPick).not.toHaveBeenCalled();
   });
 
-  it("keeps the drawing usable when the page carries no refdes text", () => {
+  it("loads exactly one page image and keeps it usable without refdes text", () => {
     const { container } = renderWithProviders(
-      <RefdesCanvas
-        page={{ ...page([]), text_layer: "absent" }}
+      <RefdesPageView
+        page={{ ...page([]), has_text_layer: false }}
         selectedRef=""
         target={null}
-        onSelect={() => {}}
+        onPick={() => {}}
       />,
     );
 
-    expect(container.querySelector("img")?.getAttribute("src")).toContain(
-      "/preview",
-    );
+    const images = container.querySelectorAll("img");
+    expect(images.length).toBe(1);
+    expect(images[0].getAttribute("src")).toContain("/pages/1/image");
     expect(container.querySelectorAll("g[data-ref]").length).toBe(0);
   });
 });

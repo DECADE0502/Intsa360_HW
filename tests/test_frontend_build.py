@@ -744,29 +744,6 @@ class FrontendBuildTests(unittest.TestCase):
         self.assertIn(".smt-filter-grid", css)
         self.assertIn(".smt-filter-chip", css)
 
-    def test_smt_layout_exposes_nc_inference_evidence(self) -> None:
-        pane = (ROOT / "frontend" / "src" / "tools" / "SmtLayoutPane.tsx").read_text(encoding="utf-8")
-        canvas = (ROOT / "frontend" / "src" / "components" / "PcbCanvas.tsx").read_text(encoding="utf-8")
-        canvas_css = (ROOT / "frontend" / "src" / "components" / "PcbCanvas.module.css").read_text(
-            encoding="utf-8"
-        )
-        ref_list = (ROOT / "frontend" / "src" / "components" / "RefdesVirtualList.tsx").read_text(
-            encoding="utf-8"
-        )
-
-        self.assertIn("可导入 PLM/OA 的成品 BOM（不含 NC）", pane)
-        self.assertIn("确定 NC", pane)
-        self.assertIn("候选 NC", pane)
-        self.assertIn("待确认", pane)
-        self.assertIn("网表已交叉验证", pane)
-        self.assertIn('component.status === "candidate_nc"', canvas)
-        self.assertIn('component.status === "unverified"', canvas)
-        self.assertIn("styles.candidateNc", canvas)
-        self.assertIn("styles.unverified", canvas)
-        self.assertIn(".candidateNc", canvas_css)
-        self.assertIn(".unverified", canvas_css)
-        self.assertIn("status_label", ref_list)
-
     def test_single_network_check_uses_dedicated_review_workbench(self) -> None:
         legacy = (ROOT / "frontend" / "src" / "tools" / "LegacyToolPane.tsx").read_text(encoding="utf-8")
         pane_path = ROOT / "frontend" / "src" / "tools" / "SingleNetworkCheckPane.tsx"

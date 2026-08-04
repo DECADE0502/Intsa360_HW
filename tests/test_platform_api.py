@@ -307,7 +307,7 @@ class PlatformApiTests(unittest.TestCase):
 
         self.assertEqual(payload["status"], "ok")
         self.assertEqual(payload["platform"], "Insta360硬件提效平台")
-        self.assertEqual(payload["tools"], 8)
+        self.assertEqual(payload["tools"], 7)
         self.assertEqual(payload["cadence_scripts"], 19)
         self.assertEqual(payload["enableable_scripts"], 19)
         self.assertEqual(payload["enabled_scripts"], 0)

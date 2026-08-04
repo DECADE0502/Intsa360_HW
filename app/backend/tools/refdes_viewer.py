@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.backend.services.refdes_viewer_service import RefdesViewerService
+from app.backend.services.refdes_service import RefdesService
 from app.backend.tools.common import USER_INPUT_EXCEPTIONS, _error, _user_error
 
 
@@ -10,16 +10,13 @@ def _run_refdes_viewer_impl(root: Path, params: dict[str, object]) -> dict[str, 
     source = str(params.get("drawing") or params.get("pdf") or "").strip()
     if not source:
         return _error("refdes_viewer", "缺少必填输入：位号图文件")
-    document = RefdesViewerService(root).open(source)
+    drawing = RefdesService(root).open(source)
     return {
         "status": "ok",
         "tool": "refdes_viewer",
         "outputs": [],
-        "summary": {
-            "页面数": document.page_count,
-            "位号数": document.ref_count,
-        },
-        "document": document.model_dump(),
+        "summary": {"页面数": drawing.page_count, "位号数": drawing.ref_count},
+        "drawing": drawing.model_dump(),
     }
 
 

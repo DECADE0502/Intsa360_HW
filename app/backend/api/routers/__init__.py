@@ -9,8 +9,7 @@ from .history import router as history_router
 from .jobs import router as jobs_router
 from .lifecycle import router as lifecycle_router
 from .plugins import router as plugins_router
-from .refdes_viewer import router as refdes_viewer_router
-from .smt_analysis import router as smt_analysis_router
+from .refdes import router as refdes_router
 from .tools import router as tools_router
 from app.backend.api.security import session_router
 
@@ -23,8 +22,7 @@ RESOURCE_ROUTERS = (
     jobs_router,
     plugins_router,
     lifecycle_router,
-    smt_analysis_router,
-    refdes_viewer_router,
+    refdes_router,
 )
 
 
