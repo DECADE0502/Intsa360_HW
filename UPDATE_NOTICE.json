@@ -1,6 +1,6 @@
 {
     "version":  "0.5.19",
-    "revision":  "1af9001c52b58c8ec226ec5f2222a510d156d135",
+    "revision":  "d9e3b8dc31b37585ed859008d8e1beb95e6376c5",
     "date":  "2026-08-04",
     "title":  "0.5.19 真实位号图贴片视图",
     "summary":  "将贴片视图改为真实SMD/REF位号图与XY坐标自动配准，直接核对贴装、NC、封装一致性和备料风险。",
